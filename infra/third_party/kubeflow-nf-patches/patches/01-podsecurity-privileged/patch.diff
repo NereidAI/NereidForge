@@ -1,0 +1,94 @@
+# file: common/cert-manager/base/namespace-patch.yaml
+--- a/common/cert-manager/base/namespace-patch.yaml
++++ b/common/cert-manager/base/namespace-patch.yaml
+@@ -3,4 +3,4 @@
+ metadata:
+   name: cert-manager
+   labels:
+-    pod-security.kubernetes.io/enforce: restricted
+\ No newline at end of file
++    pod-security.kubernetes.io/enforce: privileged
+\ No newline at end of file
+
+# file: common/kubeflow-namespace/base/kubeflow/namespace.yaml
+--- a/common/kubeflow-namespace/base/kubeflow/namespace.yaml
++++ b/common/kubeflow-namespace/base/kubeflow/namespace.yaml
+@@ -5,4 +5,4 @@
+   labels:
+     control-plane: kubeflow
+     istio-injection: enabled
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: common/kubeflow-namespace/base/kubeflow-system/namespace.yaml
+--- a/common/kubeflow-namespace/base/kubeflow-system/namespace.yaml
++++ b/common/kubeflow-namespace/base/kubeflow-system/namespace.yaml
+@@ -5,4 +5,4 @@
+   labels:
+     control-plane: kubeflow
+     istio-injection: enabled
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: common/oauth2-proxy/base/namespace.yaml
+--- a/common/oauth2-proxy/base/namespace.yaml
++++ b/common/oauth2-proxy/base/namespace.yaml
+@@ -3,4 +3,4 @@
+ metadata:
+   name: oauth2-proxy
+   labels:
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: common/dex/base/namespace.yaml
+--- a/common/dex/base/namespace.yaml
++++ b/common/dex/base/namespace.yaml
+@@ -3,4 +3,4 @@
+ metadata:
+   name: auth
+   labels:
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: common/knative/knative-serving/base/patches/namespace-injection.yaml
+--- a/common/knative/knative-serving/base/patches/namespace-injection.yaml
++++ b/common/knative/knative-serving/base/patches/namespace-injection.yaml
+@@ -4,4 +4,4 @@
+   name: knative-serving
+   labels:
+     istio-injection: enabled
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: common/knative/knative-eventing/overlays/security/namespace-patch.yaml
+--- a/common/knative/knative-eventing/overlays/security/namespace-patch.yaml
++++ b/common/knative/knative-eventing/overlays/security/namespace-patch.yaml
+@@ -3,4 +3,4 @@
+ metadata:
+   name: knative-eventing
+   labels:
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+
+# file: applications/workspaces/upstream/controller/base/namespace/namespace.yaml
+--- a/applications/workspaces/upstream/controller/base/namespace/namespace.yaml
++++ b/applications/workspaces/upstream/controller/base/namespace/namespace.yaml
+@@ -3,5 +3,5 @@
+ metadata:
+   name: kubeflow-workspaces
+   labels:
+-    pod-security.kubernetes.io/enforce: restricted
++    pod-security.kubernetes.io/enforce: privileged
+ 
+
+# file: applications/pipeline/upstream/cluster-scoped-resources/namespace.yaml
+--- a/applications/pipeline/upstream/cluster-scoped-resources/namespace.yaml
++++ b/applications/pipeline/upstream/cluster-scoped-resources/namespace.yaml
+@@ -3,5 +3,5 @@
+ metadata:
+   name: '$(kfp-cluster-scoped-namespace)'
+   labels:
+-    pod-security.kubernetes.io/enforce: baseline
++    pod-security.kubernetes.io/enforce: privileged
+     pod-security.kubernetes.io/warn: restricted
+

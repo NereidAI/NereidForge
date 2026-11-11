@@ -1,0 +1,27 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# NereidForge wrapper overlay for Kubeflow Hub (Model Registry).
+#
+# Combines the three upstream kustomize targets the platform needs
+# (postgres-backed registry server, istio ingress option, UI/BFF istio
+# overlay) with the nf-integration component. Every image retains its public
+# upstream coordinate; air-gapped nodes resolve it through registry mirrors.
+#
+# Resulting topology:
+#   - registry server + postgres -> default namespace
+#   - UI/BFF (Deployment + SA)    -> kubeflow namespace (pinned by the
+#     upstream options/ui/overlays/istio kustomization, which also rewrites
+#     the ClusterRoleBinding subjects to kubeflow)
+#   - tenant namespaces           -> selector-less alias Service, applied
+#     separately from nf/tenant-alias (one apply per tenant namespace)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../upstream/overlays/postgres
+  - ../upstream/options/istio
+  - ../upstream/options/ui/overlays/istio
+
+components:
+  - ./nf-integration

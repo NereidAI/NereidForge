@@ -1,0 +1,70 @@
+---
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# kubeflow-auth-rbac.yaml
+# RBAC wiring required for the platform single sign-on identity (admin@nereidforge.local)
+# beyond what the upstream kubeflow-manifests targets provision, discovered live:
+#
+#   1. crud-web-apps (jupyter / tensorboards / volumes) authorize the user via
+#      SubjectAccessReview with resourceAttributes group "core" (crud_backend
+#      api/namespace.py decorator), which upstream RBAC never matches because
+#      the real core API group is "" (empty). The any-group ClusterRole below
+#      grants namespaces get/list/watch for BOTH spellings so the SAR passes.
+#   2. The apps list namespaces with their own ServiceAccount; bind each web
+#      app's SA so the list call succeeds regardless of tree clusterrole drift.
+#
+# Tenant provisioning (namespace, istio-injection, KF RBAC trio, S3 configmap)
+# is NOT handled here: fresh tenants are created as Profile CRs and reconciled
+# by the profile controller (see scripts/30_install-kubeflow.sh
+# ensure_tenant_profile). Mirrors the live RBAC fixes applied during bring-up;
+# re-applying this file is a no-op.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubeflow-ns-view-any-group
+rules:
+- apiGroups: ["core", ""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubeflow-webapps-namespaces
+rules:
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeflow-users-ns-view-any-group
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeflow-ns-view-any-group
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: User
+  name: admin@nereidforge.local
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubeflow-webapps-ns-list
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubeflow-webapps-namespaces
+subjects:
+- kind: ServiceAccount
+  name: jupyter-web-app-service-account
+  namespace: kubeflow
+- kind: ServiceAccount
+  name: tensorboards-web-app-service-account
+  namespace: kubeflow
+- kind: ServiceAccount
+  name: volumes-web-app-service-account
+  namespace: kubeflow

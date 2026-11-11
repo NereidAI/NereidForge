@@ -1,0 +1,63 @@
+# file: applications/dashboard/overlays/istio/patches/configmap.yaml
+--- a/applications/dashboard/overlays/istio/patches/configmap.yaml
++++ b/applications/dashboard/overlays/istio/patches/configmap.yaml
+@@ -102,9 +102,9 @@
+                 "text": "Kubeflow Notebooks Documentation"
+             },
+             {
+-                "desc": "Documentation for Kubeflow Training Operator",
++                "desc": "Documentation for Kubeflow Trainer",
+                 "link": "https://www.kubeflow.org/docs/components/training/",
+-                "text": "Kubeflow Training Operator Documentation"
++                "text": "Kubeflow Trainer Documentation"
+             },
+             {
+                 "desc": "Documentation for Katib",
+# file: common/istio/README.md
+--- a/common/istio/README.md
++++ b/common/istio/README.md
+@@ -63,7 +63,7 @@
+ 
+ ## Troubleshooting
+ 
+-If you still encounter probelms, even with native sidecars enabled, you might try the following:
++If you still encounter problems, even with native sidecars enabled, you might try the following:
+ 
+ 1. Use `runAsUser: 1337` in your init containers, or
+ 2. Add the annotation `traffic.sidecar.istio.io/excludeOutboundIPRanges: 0.0.0.0/0` to your KServe inferenceservices
+# file: common/kubeflow-namespace/base/kubeflow/kustomization.yaml
+--- a/common/kubeflow-namespace/base/kubeflow/kustomization.yaml
++++ b/common/kubeflow-namespace/base/kubeflow/kustomization.yaml
+@@ -10,8 +10,6 @@
+ - katib-controller.yaml
+ - katib-db-manager.yaml
+ - katib-ui.yaml
+-- kserve-models-web-application.yaml
+-- kserve.yaml
+ - metadata-envoy.yaml
+ - metadata-grpc-server.yaml
+ - ml-pipeline-ui.yaml
+@@ -22,5 +20,4 @@
+ - pvcviewer-webhook.yaml
+ - spark-operator-webhook.yaml
+ - tensorboards-web-app.yaml
+-- training-operator-webhook.yaml
+ - volumes-web-app.yaml
+# file: common/kubeflow-namespace/base/kubeflow/ml-pipeline.yaml
+--- a/common/kubeflow-namespace/base/kubeflow/ml-pipeline.yaml
++++ b/common/kubeflow-namespace/base/kubeflow/ml-pipeline.yaml
+@@ -24,5 +24,14 @@
+                 operator: In
+                 values:
+                   - istio-system
++    # ml-pipeline serves the pipelineversions.pipelines.kubeflow.org admission
++    # webhooks on this port. Calls come directly from kube-apiserver, which is
++    # not a pod and cannot be matched via podSelector/namespaceSelector, so the
++    # webhook port must stay open to all sources (its own TLS/CA is the trust
++    # boundary). Matches the pattern used by katib-controller, spark-operator-webhook,
++    # jobset-webhook and trainer-webhook.
++    - ports:
++        - protocol: TCP
++          port: 8443
+   policyTypes:
+     - Ingress

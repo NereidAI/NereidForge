@@ -1,0 +1,31 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: labelstudio
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    cert-manager.io/cluster-issuer: internal-ca
+    kubernetes.io/ingress.class: {{ .Values.ingress.className }}
+spec:
+  tls:
+  - hosts:
+    - {{ .Values.ingress.host }}
+    secretName: labelstudio-tls
+  rules:
+  - host: {{ .Values.ingress.host }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: labelstudio
+            port:
+              number: 8080
+{{- end }}

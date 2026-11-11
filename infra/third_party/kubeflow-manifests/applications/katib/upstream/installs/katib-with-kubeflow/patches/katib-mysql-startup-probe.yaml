@@ -1,0 +1,32 @@
+---
+# Protect katib-mysql first-boot initialization against kubelet probe kills.
+#
+# On a brand-new PVC the MySQL 8.4 entrypoint initializes the datadir inline.
+# On fsync-heavy NFS storage this --initialize step alone takes 5-6 minutes,
+# and the temp server bootstrap after it several more. The stock deployment
+# probes with initialDelaySeconds=10 / periodSeconds=5 / failureThreshold=10
+# (~50s), so kubelet kills the container mid-initialization, leaving a
+# half-created datadir ("Cannot create redo log files because data files are
+# corrupt or the database was not shut down cleanly...") that every later
+# restart churns further into permanent CrashLoopBackOff. Adding a startupProbe
+# (checked before liveness runs) with a generous window keeps the first boot
+# alive until init completes; the pod itself stays Running throughout since
+# `mysqld --initialize` starts the server before returning.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: katib-mysql
+spec:
+  template:
+    spec:
+      containers:
+        - name: katib-mysql
+          startupProbe:
+            exec:
+              command:
+                - "/bin/bash"
+                - "-c"
+                - "mysql -h 127.0.0.1 -D ${MYSQL_DATABASE} -u root -p${MYSQL_ROOT_PASSWORD} -e 'SELECT 1'"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 150

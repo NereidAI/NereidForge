@@ -1,0 +1,5 @@
+apiVersion: v2
+name: platform-config
+description: Kubeflow platform-level wiring (tenant Profile, Model Registry, auth RBAC, internal CA, istio caBundle). Helm subchart of charts/kubeflow, runs last.
+type: application
+version: 0.1.0

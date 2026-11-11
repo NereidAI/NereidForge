@@ -1,0 +1,171 @@
+{
+  "schema": "nf.trainer-profile/1",
+  "name": "vision/paddle",
+  "framework": {
+    "name": "paddle",
+    "version": ">=3.0,<3.1"
+  },
+  "devices": [
+    "cpu",
+    "cuda"
+  ],
+  "tier": "core",
+  "tasks": [
+    {
+      "id": "detection",
+      "label": "Object detection",
+      "tier": "core",
+      "default_arch": "ppyoloe_plus_s",
+      "architectures": [
+        {
+          "id": "ppyoloe_plus_s",
+          "label": "PP-YOLOE+ Small",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "ppyoloe_plus_m",
+          "label": "PP-YOLOE+ Medium",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "ppyoloe_plus_l",
+          "label": "PP-YOLOE+ Large",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "ppyoloe_plus_x",
+          "label": "PP-YOLOE+ X-Large",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "picodet_s",
+          "label": "PicoDet Small (edge)",
+          "size": 320,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "picodet_m",
+          "label": "PicoDet Medium (edge)",
+          "size": 416,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "picodet_l",
+          "label": "PicoDet Large",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "rtdetr_l",
+          "label": "RT-DETR Large",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        },
+        {
+          "id": "rtdetr_x",
+          "label": "RT-DETR X-Large",
+          "size": 640,
+          "tier": "core",
+          "license": "Apache-2.0"
+        }
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "export.onnx",
+      "label": "ONNX export (paddle2onnx)",
+      "tier": "core",
+      "entrypoint": "export"
+    },
+    {
+      "id": "export.inference",
+      "label": "Paddle inference model export",
+      "tier": "core",
+      "entrypoint": "export"
+    }
+  ],
+  "entrypoints": {
+    "train": "python /app/train.py",
+    "evaluate": "python /app/evaluate.py",
+    "export": "python /app/export.py",
+    "catalog": "python /app/catalog.py",
+    "profile": "python /app/nf_profile.py"
+  },
+  "env": [
+    "INPUT_URI",
+    "OUTPUT_DIR",
+    "CONFIG_JSON",
+    "ARTIFACT_ID"
+  ],
+  "artifacts": [
+    "<id>.onnx",
+    "<id>.metadata.json",
+    "<id>.metrics.json",
+    "<id>.pdparams"
+  ],
+  "config_schema": {
+    "task": {
+      "type": "string",
+      "enum": [
+        "detection"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "default": "ppyoloe_plus_s"
+    },
+    "epochs": {
+      "type": "integer",
+      "default": 50
+    },
+    "batch": {
+      "type": "integer",
+      "default": 8
+    },
+    "image_size": {
+      "type": "integer",
+      "default": 640
+    },
+    "learning_rate": {
+      "type": "number",
+      "default": 0.001
+    },
+    "num_classes": {
+      "type": "integer"
+    }
+  },
+  "compat": {
+    "legacy_architectures": [
+      "pp-yoloe-l",
+      "pp-yoloe-s",
+      "ppyoloe-l",
+      "ppyoloe-s",
+      "ppyoloe_l",
+      "ppyoloe_m",
+      "ppyoloe_s",
+      "ppyoloe_x",
+      "yolov8l",
+      "yolov8m",
+      "yolov8n",
+      "yolov8s",
+      "yolov8x"
+    ]
+  },
+  "license": {
+    "code": "Apache-2.0",
+    "weights": "per-model"
+  }
+}

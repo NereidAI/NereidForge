@@ -1,0 +1,50 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- /*
+Read-only RBAC for live training observability.
+
+Trainer pods run as JobSet children of kubeflow-trainer TrainJobs in the
+shared `nereidforge` namespace (created by KFP with the tenant's
+default-editor SA). The backend lists TrainJobs by their
+nereidforge/artifact-id=<job id> label, finds the JobSet pods, and reads
+their logs so the UI can show real per-step loss/tracebacks instead of only
+KFP orchestration logs. Delete on trainjobs lets the backend cascade a UI
+job delete/stop to the cluster (TrainJob -> JobSet -> trainer pods); no other
+workload mutation is granted.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-trainlogs
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["trainjobs"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-trainlogs
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nereidforge-backend.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nereidforge-backend.fullname" . }}-trainlogs
+  apiGroup: rbac.authorization.k8s.io

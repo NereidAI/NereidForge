@@ -1,0 +1,113 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/nereidai/ml-backend
+  # In-branch default is the rolling dev channel (root treaty §19.5); deploy
+  # scripts override the tag with the tag-sourced bare release SemVer.
+  pullPolicy: Always
+  tag: "0.0.0-dev"
+
+# Pull secret for private mirrors; empty for public GHCR images.
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: false
+  name: ""
+
+podAnnotations: {}
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 9090
+  targetPort: 9090
+  name: http
+
+ingress:
+  enabled: false
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "2"
+    # Large checkpoints (e.g. PP-YOLOE-L) plus Grad-CAM activations can peak well
+    # above 2Gi on CPU; 2Gi caused OOMKills. No models are preloaded anymore
+    # (lazy load + bounded LRU), so idle memory is near zero, but a selected
+    # large model still needs this headroom while resident.
+    memory: 4Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: 9090
+  # No models are preloaded at startup, so the server answers /health within
+  # seconds now (was 120s to cover eager multi-model loading).
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: 9090
+  # torch/paddle import still takes some time on a cold start; keep a modest
+  # grace period (period 20s x failureThreshold 3 after this delay).
+  initialDelaySeconds: 60
+  periodSeconds: 20
+  timeoutSeconds: 5
+
+secret:
+  name: ml-backend-ls-token
+  # LABEL_STUDIO_API_KEY; if empty, value is sourced from global.essences
+  # via .Values.lsToken (set at deploy time).
+  lsTokenKey: token
+
+lsToken: ""
+
+backend:
+  # host that this backend registers with; the Label Studio Service is named
+  # `labelstudio` and only exposes port 8080 (verified on the dev cluster)
+  labelStudioHost: http://labelstudio.nereidforge.svc.cluster.local:8080
+  modelRoot: /app/models
+  # Scratch dir for downloaded task images (separate from model weights);
+  # LRU-pruned to mediaCacheMaxBytes and wiped on pod restart.
+  mediaCacheDir: /tmp/ls-media
+  mediaCacheMaxBytes: "2147483648"  # 2 GiB
+  modelPath: ""
+  modelScoreThreshold: "0.5"
+  allowCustomModelPath: "true"
+  workers: "1"
+  threads: "4"
+  defaultConfidence: "0.6"
+
+s3:
+  # The Service is `seaweedfs-s3`; a bare `seaweedfs` name does not resolve.
+  endpoint: http://seaweedfs-s3.nereidforge.svc.cluster.local:8333
+  accessKey: nereidforge
+  secretKey: nereidforge
+
+external:
+  tritonUrl: http://triton.nereidforge.svc:8000
+  vllmUrl: http://vllm.nereidforge.svc:8000
+  modelRegistryUrl: http://model-registry.kubeflow.svc:8080
+
+volumeMounts: []
+volumes: []

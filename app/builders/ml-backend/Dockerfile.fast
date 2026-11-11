@@ -1,0 +1,47 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# FAST incremental image for the 2026-10-23 ml-backend fix.
+# Derives from the last published image (torch/paddle layers already present),
+# only swaps label-studio-ml 1.0.9 -> vendored 2.x and refreshes /app source.
+# The canonical Dockerfile rebuilds everything from scratch; this file exists
+# for emergency redeploys and is not used by CI. The base uses the public
+# GHCR coordinate; internal Harbor is only ever a node-level mirror (treaty
+# §18). The emergency base follows the last published release, so it keeps a
+# bare release coordinate rather than the 0.0.0-dev dev-channel default.
+ARG BASE_IMAGE=ghcr.io/nereidai/ml-backend:0.0.1
+FROM ${BASE_IMAGE}
+ARG VERSION=0.0.0-dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=""
+LABEL license='SPDX-License-Identifier: Apache-2.0' \
+      copyright='Copyright (c) 2026: YIQISOFT' \
+      org.opencontainers.image.title='ml-backend' \
+      org.opencontainers.image.description='Incremental PP-YOLOE and ONNX pre-annotation backend for NereidForge and Label Studio.' \
+      org.opencontainers.image.vendor='YIQISOFT' \
+      org.opencontainers.image.licenses='Apache-2.0' \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source='https://github.com/NereidAI/NereidForge' \
+      org.opencontainers.image.url='https://github.com/NereidAI/NereidForge' \
+      org.opencontainers.image.documentation='https://github.com/NereidAI/NereidForge#readme' \
+      org.opencontainers.image.authors='NereidAI (https://github.com/NereidAI)'
+COPY LICENSE NOTICE /licenses/
+
+ARG PIP_INDEX_URL=""
+ARG PIP_TRUSTED_HOST=""
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
+    PIP_EXTRA_INDEX_URL= \
+    PIP_DEFAULT_TIMEOUT=120
+
+COPY vendor/label-studio-ml /tmp/vendor-label-studio-ml
+RUN SP=$(python -c 'import site; print(site.getsitepackages()[0])') \
+    && rm -rf "$SP/label_studio_ml" "$SP"/label_studio_ml-*.dist-info \
+    && pip install --no-cache-dir --timeout 120 --retries 20 \
+        "Flask>2.3" "colorama~=0.4" "semver~=3.0.2" \
+    && pip install --no-cache-dir --no-deps /tmp/vendor-label-studio-ml \
+    && rm -rf /tmp/vendor-label-studio-ml
+
+COPY . ./

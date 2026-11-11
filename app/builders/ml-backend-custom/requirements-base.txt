@@ -1,0 +1,8 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+gunicorn==23.0.0
+label-studio-ml==1.0.9
+label-studio-sdk==2.1.2
+joblib==1.4.2
+rq==2.12.0

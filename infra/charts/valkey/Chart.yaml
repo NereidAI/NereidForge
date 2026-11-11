@@ -1,0 +1,9 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: valkey
+description: Simple Valkey master-replica cache for Label Studio / CVAT (no Sentinel, no HPA, no ServiceAccount)
+type: application
+version: 1.0.0
+appVersion: "8.0"

@@ -1,0 +1,1819 @@
+# file: applications/trainer/upstream/base/crds/kustomization.yaml
+--- a/applications/trainer/upstream/base/crds/kustomization.yaml
++++ b/applications/trainer/upstream/base/crds/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ resources:
+# file: applications/trainer/upstream/base/crds/trainer.kubeflow.org_clustertrainingruntimes.yaml
+--- a/applications/trainer/upstream/base/crds/trainer.kubeflow.org_clustertrainingruntimes.yaml
++++ b/applications/trainer/upstream/base/crds/trainer.kubeflow.org_clustertrainingruntimes.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: apiextensions.k8s.io/v1
+ kind: CustomResourceDefinition
+@@ -105,6 +119,63 @@
+                     type: integer
+                   torch:
+                     description: torch defines the configuration for the PyTorch runtime.
++                    properties:
++                      envInjection:
++                        description: |-
++                          envInjection configures which additional containers should receive the
++                          PET_* environment variables. By default, the PET_* variables are injected
++                          only into the main "node" container. Use this field to also inject them
++                          into selected sidecar or init containers. For torchtune, envInjection
++                          targets still receive PET_MASTER_ADDR and PET_MASTER_PORT even though the
++                          main trainer container uses command-line rendezvous instead.
++                          Defaults to empty (main container only).
++                        properties:
++                          targets:
++                            description: |-
++                              targets defines which replicated job containers receive PET_* env injection.
++                              The item limit keeps runtime validation bounded while allowing common
++                              multi-job runtimes to target their auxiliary containers.
++                            items:
++                              description: |-
++                                EnvInjectionTarget specifies a replicated job and the containers within it
++                                that should receive PET_* env injection.
++                              properties:
++                                containerNames:
++                                  description: |-
++                                    containerNames lists the container names within the target job
++                                    that should receive PET_* envs.
++                                    The item limit keeps admission checks small while covering typical
++                                    preflight and sidecar use cases.
++                                  items:
++                                    maxLength: 63
++                                    type: string
++                                  maxItems: 8
++                                  minItems: 1
++                                  type: array
++                                  x-kubernetes-list-type: set
++                                  x-kubernetes-validations:
++                                  - message: containerNames must not include the main
++                                      node container because PET_* envs are always
++                                      injected into it
++                                    rule: '!self.exists(c, c == ''node'')'
++                                jobName:
++                                  description: |-
++                                    jobName is the name of the target replicated job (e.g. "node").
++                                    Using "jobName" rather than "replicatedJobName" keeps the API
++                                    future-proof for other CRD types (LWS, Grove, Slurm, etc.).
++                                  maxLength: 253
++                                  minLength: 1
++                                  type: string
++                              required:
++                              - containerNames
++                              - jobName
++                              type: object
++                            maxItems: 16
++                            type: array
++                            x-kubernetes-list-map-keys:
++                            - jobName
++                            x-kubernetes-list-type: map
++                        type: object
+                     type: object
+                   xgboost:
+                     description: xgboost defines the configuration for the XGBoost
+@@ -253,11 +324,15 @@
+                                 order and the first matching rule is executed.
+                               properties:
+                                 action:
+-                                  description: action to take if the rule is matched.
++                                  description: |-
++                                    action to take if the rule is matched.
++                                    Valid values are FailJobSet, RestartJobSet, RestartJobSetAndIgnoreMaxRestarts, RestartJob, RestartJobAndIgnoreMaxRestarts.
+                                   enum:
+                                   - FailJobSet
+                                   - RestartJobSet
+                                   - RestartJobSetAndIgnoreMaxRestarts
++                                  - RestartJob
++                                  - RestartJobAndIgnoreMaxRestarts
+                                   type: string
+                                 name:
+                                   description: |-
+@@ -3037,7 +3112,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -4728,7 +4802,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -5240,7 +5313,6 @@
+                                                 When set to false, a new userns is created for the pod. Setting false is useful for
+                                                 mitigating container breakout vulnerabilities even allowing users to run their
+                                                 containers as root without actually having root privileges on the host.
+-                                                This field is alpha-level and is only honored by servers that enable the UserNamespacesSupport feature.
+                                               type: boolean
+                                             hostname:
+                                               description: |-
+@@ -6501,7 +6573,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -7097,6 +7168,14 @@
+ 
+                                                   It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
+                                                   Containers that need access to the ResourceClaim reference it with this name.
++
++                                                  When the DRAWorkloadResourceClaims feature gate is enabled and this Pod
++                                                  belongs to a PodGroup, a PodResourceClaim is matched to a
++                                                  PodGroupResourceClaim if all of their fields are equal (Name,
++                                                  ResourceClaimName, and ResourceClaimTemplateName). A matched claim references
++                                                  a single ResourceClaim shared across all Pods in the PodGroup, reserved for
++                                                  the PodGroup in ResourceClaimStatus.ReservedFor rather than for individual
++                                                  Pods.
+                                                 properties:
+                                                   name:
+                                                     description: |-
+@@ -7122,6 +7201,16 @@
+                                                       generated component, will be used to form a unique name for the
+                                                       ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
+ 
++                                                      When the DRAWorkloadResourceClaims feature gate is enabled and the pod
++                                                      belongs to a PodGroup that defines a PodGroupResourceClaim with the same
++                                                      Name and ResourceClaimTemplateName, this PodResourceClaim resolves to the
++                                                      ResourceClaim generated for the PodGroup. All pods in the group that
++                                                      define an equivalent PodResourceClaim matching the
++                                                      PodGroupResourceClaim's Name and ResourceClaimTemplateName share the same
++                                                      generated ResourceClaim. ResourceClaims generated for a PodGroup are
++                                                      owned by the PodGroup and their lifecycles are tied to the PodGroup
++                                                      instead of any individual pod.
++
+                                                       This field is immutable and no changes will be made to the
+                                                       corresponding ResourceClaim by the control plane after creating the
+                                                       ResourceClaim.
+@@ -7249,6 +7338,28 @@
+                                               x-kubernetes-list-map-keys:
+                                               - name
+                                               x-kubernetes-list-type: map
++                                            schedulingGroup:
++                                              description: |-
++                                                SchedulingGroup provides a reference to the immediate scheduling runtime
++                                                grouping object that this Pod belongs to.
++                                                This field is used by the scheduler to identify the group and apply the
++                                                correct group scheduling policies. The association with a group also
++                                                impacts other lifecycle aspects of a Pod that are relevant in a wider context
++                                                of scheduling like preemption, resource attachment, etc. If not specified,
++                                                the Pod is treated as a single unit in all of these aspects.
++                                                The group object referenced by this field may not exist at the time the
++                                                Pod is created.
++                                                This field is immutable, but a group object with the same name may be
++                                                recreated with different policies. Doing this during pod scheduling
++                                                may result in the placement not conforming to the expected policies.
++                                              properties:
++                                                podGroupName:
++                                                  description: |-
++                                                    PodGroupName specifies the name of the standalone PodGroup object
++                                                    that represents the runtime instance of this group.
++                                                    Must be a DNS subdomain.
++                                                  type: string
++                                              type: object
+                                             securityContext:
+                                               description: |-
+                                                 SecurityContext holds pod-level security attributes and common container settings.
+@@ -8773,7 +8884,7 @@
+                                                       A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
+                                                       The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
+                                                       The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
+-                                                      The volume will be mounted read-only (ro) and non-executable files (noexec).
++                                                      The volume will be mounted read-only (ro).
+                                                       Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
+                                                       The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
+                                                     properties:
+@@ -8951,8 +9062,7 @@
+                                                     description: |-
+                                                       portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
+                                                       Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
+-                                                      are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
+-                                                      is on.
++                                                      are redirected to the pxd.portworx.com CSI driver.
+                                                     properties:
+                                                       fsType:
+                                                         description: |-
+@@ -9872,42 +9982,6 @@
+                                               x-kubernetes-list-map-keys:
+                                               - name
+                                               x-kubernetes-list-type: map
+-                                            workloadRef:
+-                                              description: |-
+-                                                WorkloadRef provides a reference to the Workload object that this Pod belongs to.
+-                                                This field is used by the scheduler to identify the PodGroup and apply the
+-                                                correct group scheduling policies. The Workload object referenced
+-                                                by this field may not exist at the time the Pod is created.
+-                                                This field is immutable, but a Workload object with the same name
+-                                                may be recreated with different policies. Doing this during pod scheduling
+-                                                may result in the placement not conforming to the expected policies.
+-                                              properties:
+-                                                name:
+-                                                  description: |-
+-                                                    Name defines the name of the Workload object this Pod belongs to.
+-                                                    Workload must be in the same namespace as the Pod.
+-                                                    If it doesn't match any existing Workload, the Pod will remain unschedulable
+-                                                    until a Workload object is created and observed by the kube-scheduler.
+-                                                    It must be a DNS subdomain.
+-                                                  type: string
+-                                                podGroup:
+-                                                  description: |-
+-                                                    PodGroup is the name of the PodGroup within the Workload that this Pod
+-                                                    belongs to. If it doesn't match any existing PodGroup within the Workload,
+-                                                    the Pod will remain unschedulable until the Workload object is recreated
+-                                                    and observed by the kube-scheduler. It must be a DNS label.
+-                                                  type: string
+-                                                podGroupReplicaKey:
+-                                                  description: |-
+-                                                    PodGroupReplicaKey specifies the replica key of the PodGroup to which this
+-                                                    Pod belongs. It is used to distinguish pods belonging to different replicas
+-                                                    of the same pod group. The pod group policy is applied separately to each replica.
+-                                                    When set, it must be a DNS label.
+-                                                  type: string
+-                                              required:
+-                                              - name
+-                                              - podGroup
+-                                              type: object
+                                           required:
+                                           - containers
+                                           type: object
+# file: applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainingruntimes.yaml
+--- a/applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainingruntimes.yaml
++++ b/applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainingruntimes.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: apiextensions.k8s.io/v1
+ kind: CustomResourceDefinition
+@@ -105,6 +119,63 @@
+                     type: integer
+                   torch:
+                     description: torch defines the configuration for the PyTorch runtime.
++                    properties:
++                      envInjection:
++                        description: |-
++                          envInjection configures which additional containers should receive the
++                          PET_* environment variables. By default, the PET_* variables are injected
++                          only into the main "node" container. Use this field to also inject them
++                          into selected sidecar or init containers. For torchtune, envInjection
++                          targets still receive PET_MASTER_ADDR and PET_MASTER_PORT even though the
++                          main trainer container uses command-line rendezvous instead.
++                          Defaults to empty (main container only).
++                        properties:
++                          targets:
++                            description: |-
++                              targets defines which replicated job containers receive PET_* env injection.
++                              The item limit keeps runtime validation bounded while allowing common
++                              multi-job runtimes to target their auxiliary containers.
++                            items:
++                              description: |-
++                                EnvInjectionTarget specifies a replicated job and the containers within it
++                                that should receive PET_* env injection.
++                              properties:
++                                containerNames:
++                                  description: |-
++                                    containerNames lists the container names within the target job
++                                    that should receive PET_* envs.
++                                    The item limit keeps admission checks small while covering typical
++                                    preflight and sidecar use cases.
++                                  items:
++                                    maxLength: 63
++                                    type: string
++                                  maxItems: 8
++                                  minItems: 1
++                                  type: array
++                                  x-kubernetes-list-type: set
++                                  x-kubernetes-validations:
++                                  - message: containerNames must not include the main
++                                      node container because PET_* envs are always
++                                      injected into it
++                                    rule: '!self.exists(c, c == ''node'')'
++                                jobName:
++                                  description: |-
++                                    jobName is the name of the target replicated job (e.g. "node").
++                                    Using "jobName" rather than "replicatedJobName" keeps the API
++                                    future-proof for other CRD types (LWS, Grove, Slurm, etc.).
++                                  maxLength: 253
++                                  minLength: 1
++                                  type: string
++                              required:
++                              - containerNames
++                              - jobName
++                              type: object
++                            maxItems: 16
++                            type: array
++                            x-kubernetes-list-map-keys:
++                            - jobName
++                            x-kubernetes-list-type: map
++                        type: object
+                     type: object
+                   xgboost:
+                     description: xgboost defines the configuration for the XGBoost
+@@ -253,11 +324,15 @@
+                                 order and the first matching rule is executed.
+                               properties:
+                                 action:
+-                                  description: action to take if the rule is matched.
++                                  description: |-
++                                    action to take if the rule is matched.
++                                    Valid values are FailJobSet, RestartJobSet, RestartJobSetAndIgnoreMaxRestarts, RestartJob, RestartJobAndIgnoreMaxRestarts.
+                                   enum:
+                                   - FailJobSet
+                                   - RestartJobSet
+                                   - RestartJobSetAndIgnoreMaxRestarts
++                                  - RestartJob
++                                  - RestartJobAndIgnoreMaxRestarts
+                                   type: string
+                                 name:
+                                   description: |-
+@@ -3037,7 +3112,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -4728,7 +4802,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -5240,7 +5313,6 @@
+                                                 When set to false, a new userns is created for the pod. Setting false is useful for
+                                                 mitigating container breakout vulnerabilities even allowing users to run their
+                                                 containers as root without actually having root privileges on the host.
+-                                                This field is alpha-level and is only honored by servers that enable the UserNamespacesSupport feature.
+                                               type: boolean
+                                             hostname:
+                                               description: |-
+@@ -6501,7 +6573,6 @@
+                                                           procMount denotes the type of proc mount to use for the containers.
+                                                           The default value is Default which uses the container runtime defaults for
+                                                           readonly paths and masked paths.
+-                                                          This requires the ProcMountType feature flag to be enabled.
+                                                           Note that this field cannot be set when spec.os.name is windows.
+                                                         type: string
+                                                       readOnlyRootFilesystem:
+@@ -7097,6 +7168,14 @@
+ 
+                                                   It adds a name to it that uniquely identifies the ResourceClaim inside the Pod.
+                                                   Containers that need access to the ResourceClaim reference it with this name.
++
++                                                  When the DRAWorkloadResourceClaims feature gate is enabled and this Pod
++                                                  belongs to a PodGroup, a PodResourceClaim is matched to a
++                                                  PodGroupResourceClaim if all of their fields are equal (Name,
++                                                  ResourceClaimName, and ResourceClaimTemplateName). A matched claim references
++                                                  a single ResourceClaim shared across all Pods in the PodGroup, reserved for
++                                                  the PodGroup in ResourceClaimStatus.ReservedFor rather than for individual
++                                                  Pods.
+                                                 properties:
+                                                   name:
+                                                     description: |-
+@@ -7122,6 +7201,16 @@
+                                                       generated component, will be used to form a unique name for the
+                                                       ResourceClaim, which will be recorded in pod.status.resourceClaimStatuses.
+ 
++                                                      When the DRAWorkloadResourceClaims feature gate is enabled and the pod
++                                                      belongs to a PodGroup that defines a PodGroupResourceClaim with the same
++                                                      Name and ResourceClaimTemplateName, this PodResourceClaim resolves to the
++                                                      ResourceClaim generated for the PodGroup. All pods in the group that
++                                                      define an equivalent PodResourceClaim matching the
++                                                      PodGroupResourceClaim's Name and ResourceClaimTemplateName share the same
++                                                      generated ResourceClaim. ResourceClaims generated for a PodGroup are
++                                                      owned by the PodGroup and their lifecycles are tied to the PodGroup
++                                                      instead of any individual pod.
++
+                                                       This field is immutable and no changes will be made to the
+                                                       corresponding ResourceClaim by the control plane after creating the
+                                                       ResourceClaim.
+@@ -7249,6 +7338,28 @@
+                                               x-kubernetes-list-map-keys:
+                                               - name
+                                               x-kubernetes-list-type: map
++                                            schedulingGroup:
++                                              description: |-
++                                                SchedulingGroup provides a reference to the immediate scheduling runtime
++                                                grouping object that this Pod belongs to.
++                                                This field is used by the scheduler to identify the group and apply the
++                                                correct group scheduling policies. The association with a group also
++                                                impacts other lifecycle aspects of a Pod that are relevant in a wider context
++                                                of scheduling like preemption, resource attachment, etc. If not specified,
++                                                the Pod is treated as a single unit in all of these aspects.
++                                                The group object referenced by this field may not exist at the time the
++                                                Pod is created.
++                                                This field is immutable, but a group object with the same name may be
++                                                recreated with different policies. Doing this during pod scheduling
++                                                may result in the placement not conforming to the expected policies.
++                                              properties:
++                                                podGroupName:
++                                                  description: |-
++                                                    PodGroupName specifies the name of the standalone PodGroup object
++                                                    that represents the runtime instance of this group.
++                                                    Must be a DNS subdomain.
++                                                  type: string
++                                              type: object
+                                             securityContext:
+                                               description: |-
+                                                 SecurityContext holds pod-level security attributes and common container settings.
+@@ -8773,7 +8884,7 @@
+                                                       A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
+                                                       The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
+                                                       The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
+-                                                      The volume will be mounted read-only (ro) and non-executable files (noexec).
++                                                      The volume will be mounted read-only (ro).
+                                                       Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
+                                                       The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
+                                                     properties:
+@@ -8951,8 +9062,7 @@
+                                                     description: |-
+                                                       portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
+                                                       Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
+-                                                      are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
+-                                                      is on.
++                                                      are redirected to the pxd.portworx.com CSI driver.
+                                                     properties:
+                                                       fsType:
+                                                         description: |-
+@@ -9872,42 +9982,6 @@
+                                               x-kubernetes-list-map-keys:
+                                               - name
+                                               x-kubernetes-list-type: map
+-                                            workloadRef:
+-                                              description: |-
+-                                                WorkloadRef provides a reference to the Workload object that this Pod belongs to.
+-                                                This field is used by the scheduler to identify the PodGroup and apply the
+-                                                correct group scheduling policies. The Workload object referenced
+-                                                by this field may not exist at the time the Pod is created.
+-                                                This field is immutable, but a Workload object with the same name
+-                                                may be recreated with different policies. Doing this during pod scheduling
+-                                                may result in the placement not conforming to the expected policies.
+-                                              properties:
+-                                                name:
+-                                                  description: |-
+-                                                    Name defines the name of the Workload object this Pod belongs to.
+-                                                    Workload must be in the same namespace as the Pod.
+-                                                    If it doesn't match any existing Workload, the Pod will remain unschedulable
+-                                                    until a Workload object is created and observed by the kube-scheduler.
+-                                                    It must be a DNS subdomain.
+-                                                  type: string
+-                                                podGroup:
+-                                                  description: |-
+-                                                    PodGroup is the name of the PodGroup within the Workload that this Pod
+-                                                    belongs to. If it doesn't match any existing PodGroup within the Workload,
+-                                                    the Pod will remain unschedulable until the Workload object is recreated
+-                                                    and observed by the kube-scheduler. It must be a DNS label.
+-                                                  type: string
+-                                                podGroupReplicaKey:
+-                                                  description: |-
+-                                                    PodGroupReplicaKey specifies the replica key of the PodGroup to which this
+-                                                    Pod belongs. It is used to distinguish pods belonging to different replicas
+-                                                    of the same pod group. The pod group policy is applied separately to each replica.
+-                                                    When set, it must be a DNS label.
+-                                                  type: string
+-                                              required:
+-                                              - name
+-                                              - podGroup
+-                                              type: object
+                                           required:
+                                           - containers
+                                           type: object
+# file: applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainjobs.yaml
+--- a/applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainjobs.yaml
++++ b/applications/trainer/upstream/base/crds/trainer.kubeflow.org_trainjobs.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: apiextensions.k8s.io/v1
+ kind: CustomResourceDefinition
+@@ -247,9 +261,16 @@
+                         type: object
+                         x-kubernetes-map-type: atomic
+                       storageUri:
+-                        description: storageUri is the URI for the dataset provider.
++                        description: |-
++                          storageUri is the URI for the dataset provider.
++                          If set, it may be empty, or it must be a valid URI format
++                          (e.g., s3://bucket/path, gs://bucket/path).
+                         maxLength: 2048
+                         type: string
++                        x-kubernetes-validations:
++                        - message: storageUri may be empty, or it must be a valid
++                            URI (scheme://...)
++                          rule: self == '' || self.matches('^[A-Za-z][A-Za-z0-9+.-]*://.+$')
+                     type: object
+                   model:
+                     description: model defines the configuration for the pre-trained
+@@ -436,9 +457,16 @@
+                         type: object
+                         x-kubernetes-map-type: atomic
+                       storageUri:
+-                        description: storageUri is the URI for the model provider.
++                        description: |-
++                          storageUri is the URI for the model provider.
++                          If set, it may be empty, or it must be a valid URI format
++                          (e.g., s3://bucket/path, gs://bucket/path).
+                         maxLength: 2048
+                         type: string
++                        x-kubernetes-validations:
++                        - message: storageUri may be empty, or it must be a valid
++                            URI (scheme://...)
++                          rule: self == '' || self.matches('^[A-Za-z][A-Za-z0-9+.-]*://.+$')
+                     type: object
+                 type: object
+                 x-kubernetes-validations:
+@@ -2038,7 +2066,6 @@
+                                                                     procMount denotes the type of proc mount to use for the containers.
+                                                                     The default value is Default which uses the container runtime defaults for
+                                                                     readonly paths and masked paths.
+-                                                                    This requires the ProcMountType feature flag to be enabled.
+                                                                     Note that this field cannot be set when spec.os.name is windows.
+                                                                   type: string
+                                                                 readOnlyRootFilesystem:
+@@ -2621,7 +2648,6 @@
+                                                                     procMount denotes the type of proc mount to use for the containers.
+                                                                     The default value is Default which uses the container runtime defaults for
+                                                                     readonly paths and masked paths.
+-                                                                    This requires the ProcMountType feature flag to be enabled.
+                                                                     Note that this field cannot be set when spec.os.name is windows.
+                                                                   type: string
+                                                                 readOnlyRootFilesystem:
+@@ -3135,6 +3161,16 @@
+                                                         x-kubernetes-validations:
+                                                         - message: field is immutable
+                                                           rule: self == oldSelf
++                                                      terminationGracePeriodSeconds:
++                                                        description: |-
++                                                          terminationGracePeriodSeconds patches the termination grace period for Pods
++                                                          in the target job templates.
++                                                        format: int64
++                                                        minimum: 0
++                                                        type: integer
++                                                        x-kubernetes-validations:
++                                                        - message: field is immutable
++                                                          rule: self == oldSelf
+                                                       tolerations:
+                                                         description: tolerations patches
+                                                           the Pod's tolerations.
+@@ -4283,7 +4319,7 @@
+                                                                 A failure to resolve or pull the image during pod startup will block containers from starting and may add significant latency. Failures will be retried using normal volume backoff and will be reported on the pod reason and message.
+                                                                 The types of objects that may be mounted by this volume are defined by the container runtime implementation on a host machine and at minimum must include all valid types supported by the container image field.
+                                                                 The OCI object gets mounted in a single directory (spec.containers[*].volumeMounts.mountPath) by merging the manifest layers in the same way as for container images.
+-                                                                The volume will be mounted read-only (ro) and non-executable files (noexec).
++                                                                The volume will be mounted read-only (ro).
+                                                                 Sub path mounts for containers are not supported (spec.containers[*].volumeMounts.subpath) before 1.33.
+                                                                 The field spec.securityContext.fsGroupChangePolicy has no effect on this volume type.
+                                                               properties:
+@@ -4471,8 +4507,7 @@
+                                                               description: |-
+                                                                 portworxVolume represents a portworx volume attached and mounted on kubelets host machine.
+                                                                 Deprecated: PortworxVolume is deprecated. All operations for the in-tree portworxVolume type
+-                                                                are redirected to the pxd.portworx.com CSI driver when the CSIMigrationPortworx feature-gate
+-                                                                is on.
++                                                                are redirected to the pxd.portworx.com CSI driver.
+                                                               properties:
+                                                                 fsType:
+                                                                   description: |-
+@@ -5572,7 +5607,7 @@
+                   args:
+                     description: args for the entrypoint for the training container.
+                     items:
+-                      maxLength: 65536
++                      maxLength: 1048576
+                       type: string
+                     maxItems: 128
+                     type: array
+@@ -5580,7 +5615,7 @@
+                   command:
+                     description: command for the entrypoint of the training container.
+                     items:
+-                      maxLength: 65536
++                      maxLength: 1048576
+                       type: string
+                     maxItems: 128
+                     type: array
+# file: applications/trainer/upstream/base/manager/controller_manager_config.yaml
+--- a/applications/trainer/upstream/base/manager/controller_manager_config.yaml
++++ b/applications/trainer/upstream/base/manager/controller_manager_config.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: config.trainer.kubeflow.org/v1alpha1
+ kind: Configuration
+ # Health configuration
+# file: applications/trainer/upstream/base/manager/kustomization.yaml
+--- a/applications/trainer/upstream/base/manager/kustomization.yaml
++++ b/applications/trainer/upstream/base/manager/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ resources:
+   - manager.yaml
+ 
+# file: applications/trainer/upstream/base/manager/manager.yaml
+--- a/applications/trainer/upstream/base/manager/manager.yaml
++++ b/applications/trainer/upstream/base/manager/manager.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: apps/v1
+ kind: Deployment
+# file: applications/trainer/upstream/base/manager/manager_config_patch.yaml
+--- a/applications/trainer/upstream/base/manager/manager_config_patch.yaml
++++ b/applications/trainer/upstream/base/manager/manager_config_patch.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+# file: applications/trainer/upstream/base/rbac/kustomization.yaml
+--- a/applications/trainer/upstream/base/rbac/kustomization.yaml
++++ b/applications/trainer/upstream/base/rbac/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ resources:
+   - role.yaml
+   - role_binding.yaml
+# file: applications/trainer/upstream/base/rbac/public_configmap_role.yaml
+--- a/applications/trainer/upstream/base/rbac/public_configmap_role.yaml
++++ b/applications/trainer/upstream/base/rbac/public_configmap_role.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: Role
+ metadata:
+# file: applications/trainer/upstream/base/rbac/public_configmap_role_binding.yaml
+--- a/applications/trainer/upstream/base/rbac/public_configmap_role_binding.yaml
++++ b/applications/trainer/upstream/base/rbac/public_configmap_role_binding.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: RoleBinding
+ metadata:
+# file: applications/trainer/upstream/base/rbac/role.yaml
+--- a/applications/trainer/upstream/base/rbac/role.yaml
++++ b/applications/trainer/upstream/base/rbac/role.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
+# file: applications/trainer/upstream/base/rbac/role_binding.yaml
+--- a/applications/trainer/upstream/base/rbac/role_binding.yaml
++++ b/applications/trainer/upstream/base/rbac/role_binding.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRoleBinding
+# file: applications/trainer/upstream/base/rbac/service_account.yaml
+--- a/applications/trainer/upstream/base/rbac/service_account.yaml
++++ b/applications/trainer/upstream/base/rbac/service_account.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: v1
+ kind: ServiceAccount
+# file: applications/trainer/upstream/base/runtimes/data-cache/kustomization.yaml
+--- a/applications/trainer/upstream/base/runtimes/data-cache/kustomization.yaml
++++ b/applications/trainer/upstream/base/runtimes/data-cache/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+# file: applications/trainer/upstream/base/runtimes/data-cache/torch_distributed_with_cache.yaml
+--- a/applications/trainer/upstream/base/runtimes/data-cache/torch_distributed_with_cache.yaml
++++ b/applications/trainer/upstream/base/runtimes/data-cache/torch_distributed_with_cache.yaml
+@@ -1,9 +1,24 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+   name: torch-distributed-with-cache
+   labels:
+     trainer.kubeflow.org/framework: torch
++    trainer.kubeflow.org/webhook-validation: disabled
+ spec:
+   mlPolicy:
+     numNodes: 1
+@@ -26,7 +41,7 @@
+                     image: ghcr.io/kubeflow/trainer/dataset-initializer
+                     env:
+                       - name: CACHE_IMAGE
+-                        value: "ghcr.io/kubeflow/trainer/data-cache:v2.2.0"
++                        value: "ghcr.io/kubeflow/trainer/data-cache:v2.3.0"
+                       - name: TRAIN_JOB_NAME
+                         valueFrom:
+                           fieldRef:
+@@ -45,7 +60,7 @@
+               spec:
+                 containers:
+                   - name: node
+-                    image: pytorch/pytorch:2.10.0-cuda12.8-cudnn9-runtime
++                    image: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-runtime
+                     env:
+                       - name: TRAIN_JOB_NAME
+                         valueFrom:
+# file: applications/trainer/upstream/base/runtimes/deepspeed_distributed.yaml
+--- a/applications/trainer/upstream/base/runtimes/deepspeed_distributed.yaml
++++ b/applications/trainer/upstream/base/runtimes/deepspeed_distributed.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+@@ -21,24 +35,13 @@
+         targetReplicatedJobs:
+           - launcher
+       replicatedJobs:
+-        - name: launcher
+-          template:
+-            metadata:
+-              labels:
+-                trainer.kubeflow.org/trainjob-ancestor-step: trainer
+-            spec:
+-              template:
+-                spec:
+-                  containers:
+-                    - name: node
+-                      image: ghcr.io/kubeflow/trainer/deepspeed-runtime
+-                      securityContext:
+-                        runAsUser: 1000
+         - name: node
+           template:
+             spec:
+               template:
+                 spec:
++                  securityContext:
++                    fsGroup: 1000
+                   containers:
+                     - name: node
+                       image: ghcr.io/kubeflow/trainer/deepspeed-runtime
+@@ -54,3 +57,21 @@
+                         tcpSocket:
+                           port: 2222
+                         initialDelaySeconds: 5
++        - name: launcher
++          dependsOn:
++            - name: node
++              status: Ready
++          template:
++            metadata:
++              labels:
++                trainer.kubeflow.org/trainjob-ancestor-step: trainer
++            spec:
++              template:
++                spec:
++                  securityContext:
++                    fsGroup: 1000
++                  containers:
++                    - name: node
++                      image: ghcr.io/kubeflow/trainer/deepspeed-runtime
++                      securityContext:
++                        runAsUser: 1000
+# file: applications/trainer/upstream/base/runtimes/jax_distributed.yaml
+--- a/applications/trainer/upstream/base/runtimes/jax_distributed.yaml
++++ b/applications/trainer/upstream/base/runtimes/jax_distributed.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+# file: applications/trainer/upstream/base/runtimes/kustomization.yaml
+--- a/applications/trainer/upstream/base/runtimes/kustomization.yaml
++++ b/applications/trainer/upstream/base/runtimes/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ resources:
+# file: applications/trainer/upstream/base/runtimes/mlx_distributed.yaml
+--- a/applications/trainer/upstream/base/runtimes/mlx_distributed.yaml
++++ b/applications/trainer/upstream/base/runtimes/mlx_distributed.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+@@ -21,24 +35,13 @@
+         targetReplicatedJobs:
+           - launcher
+       replicatedJobs:
+-        - name: launcher
+-          template:
+-            metadata:
+-              labels:
+-                trainer.kubeflow.org/trainjob-ancestor-step: trainer
+-            spec:
+-              template:
+-                spec:
+-                  containers:
+-                    - name: node
+-                      image: ghcr.io/kubeflow/trainer/mlx-runtime
+-                      securityContext:
+-                        runAsUser: 1000
+         - name: node
+           template:
+             spec:
+               template:
+                 spec:
++                  securityContext:
++                    fsGroup: 1000
+                   containers:
+                     - name: node
+                       image: ghcr.io/kubeflow/trainer/mlx-runtime
+@@ -54,3 +57,21 @@
+                         tcpSocket:
+                           port: 2222
+                         initialDelaySeconds: 5
++        - name: launcher
++          dependsOn:
++            - name: node
++              status: Ready
++          template:
++            metadata:
++              labels:
++                trainer.kubeflow.org/trainjob-ancestor-step: trainer
++            spec:
++              template:
++                spec:
++                  securityContext:
++                    fsGroup: 1000
++                  containers:
++                    - name: node
++                      image: ghcr.io/kubeflow/trainer/mlx-runtime
++                      securityContext:
++                        runAsUser: 1000
+# file: applications/trainer/upstream/base/runtimes/torch_distributed.yaml
+--- a/applications/trainer/upstream/base/runtimes/torch_distributed.yaml
++++ b/applications/trainer/upstream/base/runtimes/torch_distributed.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+@@ -21,4 +35,4 @@
+                 spec:
+                   containers:
+                     - name: node
+-                      image: pytorch/pytorch:2.10.0-cuda12.8-cudnn9-runtime
++                      image: pytorch/pytorch:2.13.0-cuda13.0-cudnn9-runtime
+# file: applications/trainer/upstream/base/runtimes/torchtune/kustomization.yaml
+--- a/applications/trainer/upstream/base/runtimes/torchtune/kustomization.yaml
++++ b/applications/trainer/upstream/base/runtimes/torchtune/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ resources:
+# file: applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_1B.yaml
+--- a/applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_1B.yaml
++++ b/applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_1B.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+# file: applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_3B.yaml
+--- a/applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_3B.yaml
++++ b/applications/trainer/upstream/base/runtimes/torchtune/llama3_2/llama3_2_3B.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+# file: applications/trainer/upstream/base/runtimes/torchtune/qwen2_5/qwen2_5_1.5B.yaml
+--- a/applications/trainer/upstream/base/runtimes/torchtune/qwen2_5/qwen2_5_1.5B.yaml
++++ b/applications/trainer/upstream/base/runtimes/torchtune/qwen2_5/qwen2_5_1.5B.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+# file: applications/trainer/upstream/base/runtimes/xgboost_distributed.yaml
+--- a/applications/trainer/upstream/base/runtimes/xgboost_distributed.yaml
++++ b/applications/trainer/upstream/base/runtimes/xgboost_distributed.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: trainer.kubeflow.org/v1alpha1
+ kind: ClusterTrainingRuntime
+ metadata:
+@@ -21,4 +35,4 @@
+                 spec:
+                   containers:
+                     - name: node
+-                      image: ghcr.io/kubeflow/trainer/xgboost-runtime:latest
++                      image: ghcr.io/kubeflow/trainer/xgboost-runtime
+# file: applications/trainer/upstream/base/webhook/kustomization.yaml
+--- a/applications/trainer/upstream/base/webhook/kustomization.yaml
++++ b/applications/trainer/upstream/base/webhook/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ resources:
+# file: applications/trainer/upstream/base/webhook/kustomizeconfig.yaml
+--- a/applications/trainer/upstream/base/webhook/kustomizeconfig.yaml
++++ b/applications/trainer/upstream/base/webhook/kustomizeconfig.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ # the following config is for teaching kustomize where to look at when substituting vars.
+ # It requires kustomize v2.1.0 or newer to work properly.
+ namespace:
+# file: applications/trainer/upstream/base/webhook/manifests.yaml
+--- a/applications/trainer/upstream/base/webhook/manifests.yaml
++++ b/applications/trainer/upstream/base/webhook/manifests.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: admissionregistration.k8s.io/v1
+ kind: MutatingWebhookConfiguration
+# file: applications/trainer/upstream/base/webhook/patch_mutating.yaml
+--- a/applications/trainer/upstream/base/webhook/patch_mutating.yaml
++++ b/applications/trainer/upstream/base/webhook/patch_mutating.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ - op: replace
+   path: /webhooks/0/clientConfig/service/name
+   value: kubeflow-trainer-controller-manager
+# file: applications/trainer/upstream/base/webhook/patch_validating.yaml
+--- a/applications/trainer/upstream/base/webhook/patch_validating.yaml
++++ b/applications/trainer/upstream/base/webhook/patch_validating.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ - op: replace
+   path: /webhooks/0/clientConfig/service/name
+   value: kubeflow-trainer-controller-manager
+@@ -10,3 +24,19 @@
+ - op: replace
+   path: /metadata/name
+   value: validator.trainer.kubeflow.org
++- op: add
++  path: /webhooks/0/objectSelector
++  value:
++    matchExpressions:
++      - key: trainer.kubeflow.org/webhook-validation
++        operator: NotIn
++        values:
++          - disabled
++- op: add
++  path: /webhooks/1/objectSelector
++  value:
++    matchExpressions:
++      - key: trainer.kubeflow.org/webhook-validation
++        operator: NotIn
++        values:
++          - disabled
+# file: applications/trainer/upstream/overlays/data-cache/cluster_role.yaml
+--- a/applications/trainer/upstream/overlays/data-cache/cluster_role.yaml
++++ b/applications/trainer/upstream/overlays/data-cache/cluster_role.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
+# file: applications/trainer/upstream/overlays/data-cache/kustomization.yaml
+--- a/applications/trainer/upstream/overlays/data-cache/kustomization.yaml
++++ b/applications/trainer/upstream/overlays/data-cache/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+@@ -12,7 +26,7 @@
+ # Add data cache image tags
+ images:
+   - name: ghcr.io/kubeflow/trainer/dataset-initializer
+-    newTag: v2.2.0
++    newTag: v2.3.0
+ 
+ # Patch namespace-rbac resources to install in default namespace
+ patches:
+# file: applications/trainer/upstream/overlays/data-cache/namespace-rbac/kustomization.yaml
+--- a/applications/trainer/upstream/overlays/data-cache/namespace-rbac/kustomization.yaml
++++ b/applications/trainer/upstream/overlays/data-cache/namespace-rbac/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+# file: applications/trainer/upstream/overlays/data-cache/namespace-rbac/role_binding.yaml
+--- a/applications/trainer/upstream/overlays/data-cache/namespace-rbac/role_binding.yaml
++++ b/applications/trainer/upstream/overlays/data-cache/namespace-rbac/role_binding.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: RoleBinding
+# file: applications/trainer/upstream/overlays/data-cache/namespace-rbac/service_account.yaml
+--- a/applications/trainer/upstream/overlays/data-cache/namespace-rbac/service_account.yaml
++++ b/applications/trainer/upstream/overlays/data-cache/namespace-rbac/service_account.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ apiVersion: v1
+ kind: ServiceAccount
+# file: applications/trainer/upstream/overlays/kubeflow-platform/kubeflow-trainer-roles.yaml
+--- a/applications/trainer/upstream/overlays/kubeflow-platform/kubeflow-trainer-roles.yaml
++++ b/applications/trainer/upstream/overlays/kubeflow-platform/kubeflow-trainer-roles.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
+ metadata:
+# file: applications/trainer/upstream/overlays/kubeflow-platform/kustomization.yaml
+--- a/applications/trainer/upstream/overlays/kubeflow-platform/kustomization.yaml
++++ b/applications/trainer/upstream/overlays/kubeflow-platform/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ namespace: kubeflow
+# file: applications/trainer/upstream/overlays/kubeflow-platform/patches/jobset-controller-manager-istio.yaml
+--- a/applications/trainer/upstream/overlays/kubeflow-platform/patches/jobset-controller-manager-istio.yaml
++++ b/applications/trainer/upstream/overlays/kubeflow-platform/patches/jobset-controller-manager-istio.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+# file: applications/trainer/upstream/overlays/kubeflow-platform/patches/remove-namespace.yaml
+--- a/applications/trainer/upstream/overlays/kubeflow-platform/patches/remove-namespace.yaml
++++ b/applications/trainer/upstream/overlays/kubeflow-platform/patches/remove-namespace.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ $patch: delete
+ apiVersion: v1
+# file: applications/trainer/upstream/overlays/kubeflow-platform/patches/trainer-manager-istio-and-selectors.yaml
+--- a/applications/trainer/upstream/overlays/kubeflow-platform/patches/trainer-manager-istio-and-selectors.yaml
++++ b/applications/trainer/upstream/overlays/kubeflow-platform/patches/trainer-manager-istio-and-selectors.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+# file: applications/trainer/upstream/overlays/manager/kustomization.yaml
+--- a/applications/trainer/upstream/overlays/manager/kustomization.yaml
++++ b/applications/trainer/upstream/overlays/manager/kustomization.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+@@ -15,7 +29,7 @@
+ # Update the Kubeflow Trainer controller manager image tag.
+ images:
+   - name: ghcr.io/kubeflow/trainer/trainer-controller-manager
+-    newTag: v2.2.0
++    newTag: v2.3.0
+ 
+ # Secret for the Kubeflow Training webhook.
+ secretGenerator:
+@@ -28,6 +42,6 @@
+ configMapGenerator:
+   - name: kubeflow-trainer-public
+     literals:
+-      - kubeflow_trainer_version=v2.2.0
++      - kubeflow_trainer_version=v2.3.0
+     options:
+       disableNameSuffixHash: true
+# file: applications/trainer/upstream/overlays/manager/namespace.yaml
+--- a/applications/trainer/upstream/overlays/manager/namespace.yaml
++++ b/applications/trainer/upstream/overlays/manager/namespace.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: v1
+ kind: Namespace
+ metadata:
+# file: applications/trainer/upstream/overlays/runtimes/kustomization.yaml
+--- a/applications/trainer/upstream/overlays/runtimes/kustomization.yaml
++++ b/applications/trainer/upstream/overlays/runtimes/kustomization.yaml
+@@ -1,19 +1,39 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ resources:
+   - ../../base/runtimes
+ 
++# The built-in ClusterTrainingRuntime are validated ahead of time.
++labels:
++  - pairs:
++      trainer.kubeflow.org/webhook-validation: disabled
++    includeSelectors: false
++
+ # Update the Kubeflow LLM Trainer image tag.
+ images:
+   - name: ghcr.io/kubeflow/trainer/torchtune-trainer
+-    newTag: v2.2.0
++    newTag: v2.3.0
+   - name: ghcr.io/kubeflow/trainer/dataset-initializer
+-    newTag: v2.2.0
++    newTag: v2.3.0
+   - name: ghcr.io/kubeflow/trainer/model-initializer
+-    newTag: v2.2.0
++    newTag: v2.3.0
+   - name: ghcr.io/kubeflow/trainer/mlx-runtime
+-    newTag: v2.2.0
++    newTag: v2.3.0
+   - name: ghcr.io/kubeflow/trainer/deepspeed-runtime
+-    newTag: v2.2.0
++    newTag: v2.3.0
+   - name: ghcr.io/kubeflow/trainer/xgboost-runtime
+-    newTag: v2.2.0
++    newTag: v2.3.0
+# file: applications/trainer/upstream/third-party/jobset/kustomization.yaml
+--- a/applications/trainer/upstream/third-party/jobset/kustomization.yaml
++++ b/applications/trainer/upstream/third-party/jobset/kustomization.yaml
+@@ -1,13 +1,27 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+ resources:
+-  - https://github.com/kubernetes-sigs/jobset/releases/download/v0.11.0/manifests.yaml
++  - https://github.com/kubernetes-sigs/jobset/releases/download/v0.12.0/manifests.yaml
+ 
+ images:
+   - name: us-central1-docker.pkg.dev/k8s-staging-images/jobset/jobset
+     newName: registry.k8s.io/jobset/jobset
+-    newTag: v0.11.0
++    newTag: v0.12.0
+ 
+ # Add required patches.
+ patches:
+# file: applications/trainer/upstream/third-party/jobset/patches/jobset_remove_namespace.yaml
+--- a/applications/trainer/upstream/third-party/jobset/patches/jobset_remove_namespace.yaml
++++ b/applications/trainer/upstream/third-party/jobset/patches/jobset_remove_namespace.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ $patch: delete
+ apiVersion: v1
+# file: applications/trainer/upstream/third-party/leaderworkerset/kustomization.yaml
+--- a/applications/trainer/upstream/third-party/leaderworkerset/kustomization.yaml
++++ b/applications/trainer/upstream/third-party/leaderworkerset/kustomization.yaml
+@@ -0,0 +1,14 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+@@ -5 +19,6 @@
+-  - https://github.com/kubernetes-sigs/lws//config/default?ref=v0.8.0
++  # Pin the official release asset directly; the upstream Git path makes
++  # kustomize run git fetch and times out in restricted networks.
++  - https://github.com/kubernetes-sigs/lws/releases/download/v0.8.0/manifests.yaml
++
++# Transform all namespace references from lws-system to be set by parent overlay
++namespace: kubeflow-system
+@@ -8 +27 @@
+-  - name: us-central1-docker.pkg.dev/k8s-staging-images/lws/lws
++  - name: registry.k8s.io/lws/lws
+@@ -11,3 +29,0 @@
+-
+-# Transform all namespace references from lws-system to be set by parent overlay
+-namespace: kubeflow-system
+# file: applications/trainer/upstream/third-party/leaderworkerset/patches/leaderworkerset_remove_namespace.yaml
+--- a/applications/trainer/upstream/third-party/leaderworkerset/patches/leaderworkerset_remove_namespace.yaml
++++ b/applications/trainer/upstream/third-party/leaderworkerset/patches/leaderworkerset_remove_namespace.yaml
+@@ -1,3 +1,17 @@
++# Copyright The Kubeflow Authors.
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
+ ---
+ $patch: delete
+ apiVersion: v1

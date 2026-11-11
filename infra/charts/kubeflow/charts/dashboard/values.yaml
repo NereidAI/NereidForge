@@ -1,0 +1,8 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Per-component subchart values. Global config (dex, tenant, manifests,
+# kubeconfig, image) comes from the parent chart's .Values.global and is
+# injected into the install hook at render time.
+targets: "applications/dashboard/overlays/istio"
+hookWeight: 55

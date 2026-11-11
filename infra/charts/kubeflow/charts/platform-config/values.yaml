@@ -1,0 +1,3 @@
+# platform-config subchart values. Global config comes from the parent chart's
+# .Values.global. Runs after all upstream component subcharts (high hookWeight).
+hookWeight: 100

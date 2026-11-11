@@ -1,0 +1,29 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Extra ingress rule for the Model Registry server: NereidForge api/worker
+# pods run in nereidforge-* tenant namespaces WITHOUT istio sidecars because
+# those namespaces are deliberately not mesh-injected. Their traffic carries
+# no mTLS principal and cannot match the upstream rules (gateway principal or
+# kubeflow namespace + JWT). The registry is one cluster-global instance with
+# no per-tenant data partitioning, so allow the in-cluster pod/service networks
+# directly. Multiple ALLOW AuthorizationPolicies are additive, so the upstream
+# model-registry-service policy stays untouched. The installer
+# validates POD_CIDR and SERVICE_CIDR, then renders both placeholders in its
+# temporary manifest copy; tracked manifests never contain site-specific CIDRs.
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: model-registry-service-nf
+  namespace: default
+spec:
+  action: ALLOW
+  selector:
+    matchLabels:
+      component: model-registry-server
+  rules:
+    - from:
+        - source:
+            remoteIpBlocks:
+              - "${POD_CIDR}"
+              - "${SERVICE_CIDR}"

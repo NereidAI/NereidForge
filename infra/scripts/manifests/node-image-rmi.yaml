@@ -1,0 +1,64 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Force-remove a mutable-tag (e.g. :0.0.1) container image from a specific
+# node's k3s/containerd cache, so the next pod actually re-pulls it. Needed
+# because TrainJob cannot set imagePullPolicy=Always: spec.trainer ignores it
+# and runtimePatches only allow container
+# env/name/securityContext/volumeMounts. KFP lightweight components default
+# to IfNotPresent for non-:latest tags too, so converter/trainer images
+# rebuilt under the same 0.0.1 tag need this as well.
+#
+# Usage:
+#   IMAGE_REPO=ghcr.io/nereidai/trainer-convert NODE=gpu-node-a \
+#     envsubst < node-image-rmi.yaml | kubectl apply -f -
+#   The removed tag is hard-coded to 0.0.1 (the repo-wide bare release tag,
+#   root treaty §19.5; edit below if a different tag is ever in use).
+#   kubectl wait -n nereidforge --for=condition=Ready pod/node-image-rmi
+#   kubectl logs -n nereidforge node-image-rmi
+#   kubectl delete pod -n nereidforge node-image-rmi
+#
+# Prerequisite: delete every pod (including Succeeded ones) that still
+# references the image, or crictl rmi refuses while the image is in use.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-image-rmi
+  namespace: nereidforge
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: ${NODE}
+  hostPID: true
+  containers:
+    - name: r
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      securityContext:
+        privileged: true
+      command:
+        - /bin/sh
+        - -c
+        - |
+          chroot /host /bin/sh -c '
+            IMG="${IMAGE_REPO}:0.0.1"
+            echo "before:"; k3s crictl images | grep "${IMAGE_REPO}" || echo none
+            # Remove by repo:tag. NOTE: do not use `crictl images -q <repo>`
+            # to gather IDs -- its name-filter semantics vary by crictl
+            # version; on this cluster it returns an empty list and the loop
+            # then rmi"" fails with "ambiguous digest string" while the image
+            # stays cached. Tag removal is enough to force a fresh pull.
+            # envsubst eats every $VAR (defined or not), so the rmi argument
+            # must carry the repo inline -- referencing "$IMG" here would get
+            # replaced with "" before the pod starts (observed: crictl ImageStatus
+            # for "" -> fatal, image stays cached).
+            k3s crictl rmi "${IMAGE_REPO}:0.0.1" || true
+            echo "after:"; k3s crictl images | grep "${IMAGE_REPO}" || echo NONE_CACHED
+          '
+      volumeMounts:
+        - name: host
+          mountPath: /host
+  volumes:
+    - name: host
+      hostPath:
+        path: /

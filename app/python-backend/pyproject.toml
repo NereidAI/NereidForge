@@ -1,0 +1,40 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# Python backend package requirements and development-tool configuration.
+[project]
+name = "nereidforge-backend"
+version = "0.1.0"
+description = "NereidForge Python backend (rewrite of Go api)"
+license = { text = "Apache-2.0" }
+authors = [{ name = "YIQISOFT" }]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "pg8000==1.31.6",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "PyJWT>=2.8",
+    "bcrypt>=4.1",
+    "boto3>=1.34",
+    "PyYAML>=6.0",
+    # Pillow supplies pixel dimensions when PP-YOLOE labels become Label Studio
+    # regions and when labeled CSVs carry pixel bbox coordinates.
+    "Pillow>=10.0",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "structlog>=24.1",
+    "model-registry==0.3.14",
+    "requests>=2.31",
+    "kfp>=2.0",
+    "kubernetes>=28.1",
+    # Kale notebook engine (ADR-013 Case 2): compiles Kale-annotated .ipynb
+    # files into native KFP v2 pipelines, then strips network installs and
+    # submits the run. The console script `kale` runs as a subprocess of the
+    # worker; require_python >=3.11 is satisfied by the project's 3.14 base.
+    "kubeflow-kale==2.2.0",
+]
+
+[tool.setuptools]
+packages = { find = { where = ["."] } }

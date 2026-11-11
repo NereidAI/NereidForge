@@ -1,0 +1,12 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# No model weights are baked into the image. They live on the build machine
+# only (gitignored) and are downloaded on demand from S3 at runtime into the
+# writable MODEL_ROOT (/app/models). Excluding them here keeps `COPY . ./`
+# from pulling the local *.pt files into the image.
+models/*.pt
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/

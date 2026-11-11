@@ -1,0 +1,15 @@
+Kubeflow platform deployed via the `kubeflow` umbrella helm chart (16 subcharts):
+  15 upstream components: cert-manager, istio, kubeflow-namespace, kubeflow-roles,
+    dex, oauth2-proxy, kubeflow-istio-resources, knative, kfp, katib, kserve,
+    dashboard, notebooks, trainer, workspaces
+  1 platform-config: tenant Profile, Model Registry, auth RBAC, internal CA, istio caBundle
+
+Each component is an independent helm subchart driven by a post-install/upgrade
+hook Job (weighted by .Values.hookWeight for correct apply order). Manage them
+individually with helm:
+  helm history nereidforge-kubeflow -n kubeflow
+  helm rollback nereidforge-kubeflow <revision> -n kubeflow
+
+Watch the install hooks:
+  kubectl get jobs -n kubeflow
+  kubectl logs -n kubeflow job/nereidforge-kubeflow-install-<component> -f

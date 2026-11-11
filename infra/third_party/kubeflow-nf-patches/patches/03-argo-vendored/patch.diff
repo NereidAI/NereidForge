@@ -1,0 +1,70 @@
+# file: applications/pipeline/upstream/third-party/argo/base/kustomization.yaml
+--- a/applications/pipeline/upstream/third-party/argo/base/kustomization.yaml
++++ b/applications/pipeline/upstream/third-party/argo/base/kustomization.yaml
+@@ -2,13 +2,8 @@
+ kind: Kustomization
+ 
+ resources:
+-- https://github.com/argoproj/argo-workflows/manifests/base/workflow-controller?ref=v3.7.3
++- ../vendor/workflow-controller
+ 
+ patches:
+ - path: workflow-controller-deployment-patch.yaml
+ - path: workflow-controller-configmap-patch.yaml
+-
+-# Allow Kustomize vars to replace fields defined in params.yaml.
+-# The vars can be defined anywhere.
+-configurations:
+-- params.yaml
+
+# file: applications/pipeline/upstream/third-party/argo/installs/cluster/kustomization.yaml
+--- a/applications/pipeline/upstream/third-party/argo/installs/cluster/kustomization.yaml
++++ b/applications/pipeline/upstream/third-party/argo/installs/cluster/kustomization.yaml
+@@ -2,8 +2,8 @@
+ kind: Kustomization
+ 
+ resources:
+-- https://github.com/argoproj/argo-workflows/manifests/base/crds/minimal?ref=v3.7.3
+-- https://github.com/argoproj/argo-workflows/manifests/cluster-install-no-crds/workflow-controller-rbac?ref=v3.7.3
++- ../../vendor/crds-minimal
++- ../../vendor/workflow-controller-rbac
+ - ../../base
+ 
+ patches:
+
+# file: applications/pipeline/upstream/third-party/argo/installs/namespace/cluster-scoped/kustomization.yaml
+--- a/applications/pipeline/upstream/third-party/argo/installs/namespace/cluster-scoped/kustomization.yaml
++++ b/applications/pipeline/upstream/third-party/argo/installs/namespace/cluster-scoped/kustomization.yaml
+@@ -1,5 +1,5 @@
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
++
+ resources:
+-# Minimal CRDs omit schema validation, recommended for production cluster.
+-- https://github.com/argoproj/argo-workflows/manifests/base/crds/minimal?ref=v3.7.3
++- ../../../vendor/crds-minimal
+
+# file: applications/pipeline/upstream/third-party/argo/installs/namespace/kustomization.yaml
+--- a/applications/pipeline/upstream/third-party/argo/installs/namespace/kustomization.yaml
++++ b/applications/pipeline/upstream/third-party/argo/installs/namespace/kustomization.yaml
+@@ -1,14 +1,14 @@
+ apiVersion: kustomize.config.k8s.io/v1beta1
+ kind: Kustomization
+ 
+-# This kustomization.yaml mirrors the upstream Argo Workflows namespace-install configuration with remote references.
+-# The differences:
+-# * this does not include argo server.
+-# * this separates cluster-scoped resources to its own folder.
++# Mirrors upstream argo namespace-install, but with local vendored resources
++# (see vendor/) so kustomize build never needs network access.
++
++namespace: kubeflow
+ 
+ resources:
+ - ../../base
+-- https://github.com/argoproj/argo-workflows/manifests/namespace-install/workflow-controller-rbac?ref=v3.7.3
++- ../../vendor/ns-workflow-controller-rbac
+ patches:
+ - path: workflow-controller-deployment-patch.json
+   target:
+

@@ -1,0 +1,21 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# NereidForge license denylist (see LICENSE-POLICY.md §4).
+#
+# Format: <package>|<license>|<reason>
+# Matched case-insensitively as a whole package name in runtime dependency
+# manifests, container build files, shell build scripts, and first-party Python
+# imports. Documentation and prose are intentionally not scanned.
+#
+# This list contains only components we have verified are copyleft. Adding an
+# entry is a policy change: it must cite the upstream license file.
+ultralytics|AGPL-3.0|Network-copyleft training/inference framework; removed from the product, available only as a user-supplied L2 trainer
+yolov5|AGPL-3.0|Vendored upstream training/inference tree; removed from the product
+yolov6|GPL-3.0|Vendored upstream training/inference tree; removed from the product
+yolov7|GPL-3.0|Vendored upstream training/inference tree; removed from the product
+psycopg|LGPL-3.0-only|PostgreSQL driver removed in favor of pg8000; upstream license: https://github.com/psycopg/psycopg/blob/3.3.8/LICENSE.txt
+psycopg-binary|LGPL-3.0-only|Binary psycopg implementation removed with the driver; upstream license: https://github.com/psycopg/psycopg/blob/3.3.8/LICENSE.txt
+grafana|AGPL-3.0-only|Grafana server and Helm dependencies are operator-supplied L2 components; upstream license: https://github.com/grafana/grafana/blob/v10.4.0/LICENSE
+loki|AGPL-3.0-only|Loki is an operator-supplied L2 service; upstream license: https://github.com/grafana/loki/blob/v2.9.0/LICENSE
+tempo|AGPL-3.0-only|Tempo is an operator-supplied L2 service; upstream license: https://github.com/grafana/tempo/blob/v2.4.0/LICENSE

@@ -1,0 +1,230 @@
+# file: applications/hub/upstream/options/catalog/README.md
+--- a/applications/hub/upstream/options/catalog/README.md
++++ b/applications/hub/upstream/options/catalog/README.md
+@@ -22,8 +22,7 @@
+ *   A `Deployment` to run the Model Catalog server.
+ *   A `Service` to expose the Model Catalog server.
+ *   A `ConfigMap` named `model-catalog-sources` containing an empty configuration for catalog sources.
+-*   A `StatefulSet` with a PostgreSQL database
+-*   A `PersistentVolumeClaim` for PostgreSQL
++*   A `StatefulSet` with a PostgreSQL database (ephemeral storage)
+ 
+ The `base` catalog is empty, you may alternatively load the `demo` manifests to include generated test data:
+ 
+# file: applications/hub/upstream/options/catalog/base/hf-sources-example.yaml
+--- a/applications/hub/upstream/options/catalog/base/hf-sources-example.yaml
++++ b/applications/hub/upstream/options/catalog/base/hf-sources-example.yaml
+@@ -11,10 +11,9 @@
+     type: hf
+     enabled: true
+     properties:
+-      # Name of the environment variable containing the Hugging Face API key.
+-      # The API key value itself should be stored in a Kubernetes Secret and
+-      # exposed as an environment variable in the pod/deployment configuration.
+-      # Default environment variable name is "HF_API_KEY"
++      # apiKeyEnvVar names the env var holding the Hugging Face API key.
++      # Must be "HF_API_KEY" (default) or start with "HF_API_KEY_" (e.g., "HF_API_KEY_ORG1").
++      # Store the key value in a Kubernetes Secret and expose it as an env var in the deployment.
+       apiKeyEnvVar: "HF_API_KEY"
+     includedModels:
+       - "meta-llama/Llama-3.2-1B"
+@@ -30,7 +29,7 @@
+     type: hf
+     enabled: false  # disabled by default
+     properties:
+-      apiKeyEnvVar: "HF_API_KEY"
++      apiKeyEnvVar: "HF_API_KEY_META"   # Per-org key; must be HF_API_KEY or HF_API_KEY_*
+       allowedOrganization: "meta-llama"
+     includedModels:
+       # These patterns will be automatically prefixed with "meta-llama/"
+@@ -46,8 +45,6 @@
+     id: hf-microsoft
+     type: hf
+     enabled: false  # disabled by default
+-    properties:
+-      apiKeyEnvVar: "HF_API_KEY"
+     includedModels:
+       # Full wildcard patterns (organization/model)
+       - "microsoft/phi-*"         # All phi variants
+@@ -61,8 +58,6 @@
+     id: hf-mixed
+     type: hf
+     enabled: false  # disabled by default
+-    properties:
+-      apiKeyEnvVar: "HF_API_KEY"
+     includedModels:
+       # Specific models
+       - "huggingface/CodeBERTa-small-v1"
+@@ -72,4 +67,4 @@
+       - "huggingface/CodeBERTa-*" # All CodeBERTa variants
+     excludedModels:
+       - "*-base"      # Exclude base models
+-      - "*-draft"     # Exclude draft models
+\ No newline at end of file
++      - "*-draft"     # Exclude draft models
+# file: applications/hub/upstream/options/catalog/base/postgres-statefulset.yaml
+--- a/applications/hub/upstream/options/catalog/base/postgres-statefulset.yaml
++++ b/applications/hub/upstream/options/catalog/base/postgres-statefulset.yaml
+@@ -48,5 +48,4 @@
+               - ALL
+       volumes:
+       - name: model-catalog-postgres
+-        persistentVolumeClaim:
+-          claimName: model-catalog-postgres
++        emptyDir: {}
+# file: applications/hub/upstream/options/catalog/overlays/demo/dev-validated-models.yaml
+--- a/applications/hub/upstream/options/catalog/overlays/demo/dev-validated-models.yaml
++++ b/applications/hub/upstream/options/catalog/overlays/demo/dev-validated-models.yaml
+@@ -71,6 +71,9 @@
+       - text-generation
+       - question-answering
+       - summarization
++    validatedTasks:
++      - text-generation
++      - question-answering
+     createTimeSinceEpoch: "1737331200000"
+     lastUpdateTimeSinceEpoch: "1737331200000"
+     customProperties:
+@@ -561,6 +564,9 @@
+     tasks:
+       - feature-extraction
+       - sentence-similarity
++    validatedTasks:
++      - feature-extraction
++      - sentence-similarity
+     createTimeSinceEpoch: "1733356800000"
+     lastUpdateTimeSinceEpoch: "1733356800000"
+     customProperties:
+@@ -940,6 +946,8 @@
+     tasks:
+       - text-generation
+       - table-question-answering
++    validatedTasks:
++      - text-generation
+     createTimeSinceEpoch: "1731888000000"
+     lastUpdateTimeSinceEpoch: "1731888000000"
+     customProperties:
+@@ -1323,6 +1331,9 @@
+       - text-generation
+       - question-answering
+       - text-classification
++    validatedTasks:
++      - text-generation
++      - question-answering
+     createTimeSinceEpoch: "1738022400000"
+     lastUpdateTimeSinceEpoch: "1738022400000"
+     customProperties:
+@@ -1688,6 +1699,16 @@
+     tasks:
+       - tool-calling
+       - text-generation
++    validatedTasks:
++      - tool-calling
++      - text-generation
++    servingConfig:
++      toolCalling:
++        toolCallParser: granite
++        chatTemplate: opt/app-root/template/tool_chat_template_granite.jinja
++        enableAutoToolChoice: true
++        requiredArgs:
++          - "--config_format granite"
+     createTimeSinceEpoch: "1738368000000"
+     lastUpdateTimeSinceEpoch: "1738368000000"
+     customProperties:
+@@ -1705,8 +1726,4 @@
+           architecture:
+             metadataType: MetadataStringValue
+             string_value: '["amd64"]'
+-
+-
+-
+-
+-
++  
+\ No newline at end of file
+# file: applications/hub/upstream/options/catalog/overlays/demo/kustomization.yaml
+--- a/applications/hub/upstream/options/catalog/overlays/demo/kustomization.yaml
++++ b/applications/hub/upstream/options/catalog/overlays/demo/kustomization.yaml
+@@ -13,6 +13,8 @@
+   - dev-community-models.yaml=dev-community-models.yaml
+   - dev-organization-mcp-servers.yaml=dev-organization-mcp-servers.yaml
+   - dev-community-mcp-servers.yaml=dev-community-mcp-servers.yaml
++  - dev-sample-agents.yaml=dev-sample-agents.yaml
++  - dev-enterprise-agents.yaml=dev-enterprise-agents.yaml
+   name: model-catalog-sources
+   options:
+     disableNameSuffixHash: true
+# file: applications/hub/upstream/options/catalog/overlays/e2e/sources.yaml
+--- a/applications/hub/upstream/options/catalog/overlays/e2e/sources.yaml
++++ b/applications/hub/upstream/options/catalog/overlays/e2e/sources.yaml
+@@ -31,6 +31,16 @@
+     properties:
+       yamlCatalogPath: /testdata/test-mcp-servers.yaml
+ 
++agent_catalogs:
++  - name: Sample Agent Catalog
++    id: sample_agent_catalog
++    type: yaml
++    enabled: true
++    properties:
++      yamlCatalogPath: /testdata/sample-agent-catalog.yaml
++    labels:
++      - sample
++
+ labels:
+   - name: null
+     displayName: Community and custom
+@@ -38,6 +48,8 @@
+     assetType: models
+   - name: mcp-label
+     assetType: mcp_servers
++  - name: sample
++    assetType: agents
+ 
+ namedQueries:
+   production_ready:
+# file: applications/hub/upstream/options/csi/clusterstoragecontainer.yaml
+--- a/applications/hub/upstream/options/csi/clusterstoragecontainer.yaml
++++ b/applications/hub/upstream/options/csi/clusterstoragecontainer.yaml
+@@ -9,6 +9,12 @@
+     env:
+     - name: MODEL_REGISTRY_BASE_URL
+       value: "model-registry-service.kubeflow.svc.cluster.local:8080"
++    # Uncomment to restrict artifact URIs the storage-initializer will download.
++    # Comma-separated list of URI prefixes. If unset, all URIs with supported
++    # protocols are allowed. Use trailing slashes to avoid partial bucket name
++    # matches (e.g., "s3://my-bucket/" not "s3://my-bucket").
++    # - name: ALLOWED_ARTIFACT_URI_PREFIXES
++    #   value: "s3://my-trusted-bucket/,gs://my-gcs-bucket/"
+     resources:
+       requests:
+         memory: 100Mi
+# file: applications/hub/upstream/options/istio/istio-authorization-policy.yaml
+--- a/applications/hub/upstream/options/istio/istio-authorization-policy.yaml
++++ b/applications/hub/upstream/options/istio/istio-authorization-policy.yaml
+@@ -15,10 +15,21 @@
+     - source:
+         principals:
+         - cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account
+-  # Allow internal requests with a valid Kubernetes JWT (authorization header)
+-  # but strictly block any request that also carries a kubeflow-userid header,
+-  # preventing identity spoofing from within the cluster.
+-  - when:
++  # Allow internal service-to-service requests that carry a Kubernetes JWT
++  # (authorization header) and no kubeflow-userid header, but ONLY from the
++  # Kubeflow control plane namespace. Without a source constraint this rule
++  # matched any in-mesh pod, so any tenant pod could present its own
++  # ServiceAccount token, omit kubeflow-userid, and reach another tenant's
++  # Model Registry. The only component that legitimately uses this path is the
++  # control-plane inferenceservice-controller (the UI BFF forwards user traffic
++  # with the kubeflow-userid header, so it is covered by the ingress-gateway
++  # rule above, not this one). If your control plane runs in a namespace other
++  # than "kubeflow", set it here.
++  - from:
++    - source:
++        namespaces:
++        - "kubeflow"
++    when:
+     - key: request.headers[authorization]
+       values:
+       - "*"

@@ -1,0 +1,130 @@
+# file: applications/hub/upstream/base/kustomization.yaml
+--- a/applications/hub/upstream/base/kustomization.yaml
++++ b/applications/hub/upstream/base/kustomization.yaml
+@@ -8,4 +8,4 @@
+ images:
+ - name: ghcr.io/kubeflow/hub/server
+   newName: ghcr.io/kubeflow/hub/server
+-  newTag: v0.3.9
++  newTag: v0.3.14
+
+# file: applications/hub/upstream/options/catalog/base/deployment.yaml
+--- a/applications/hub/upstream/options/catalog/base/deployment.yaml
++++ b/applications/hub/upstream/options/catalog/base/deployment.yaml
+@@ -29,6 +29,9 @@
+       - name: sources
+         configMap:
+           name: model-catalog-sources
++      - name: mcp-sources
++        configMap:
++          name: mcp-catalog-sources
+       containers:
+         - name: catalog
+           env:
+@@ -56,6 +59,7 @@
+           args:
+             - --listen=0.0.0.0:8080
+             - --catalogs-path=/catalog/sources.yaml
++            - --catalogs-path=/mcp-catalog/sources.yaml
+           image: ghcr.io/kubeflow/hub/server:latest
+           ports:
+             - name: http-api
+@@ -80,3 +84,5 @@
+           volumeMounts:
+           - name: sources
+             mountPath: /catalog
++          - name: mcp-sources
++            mountPath: /mcp-catalog
+
+# file: applications/hub/upstream/options/catalog/base/kustomization.yaml
+--- a/applications/hub/upstream/options/catalog/base/kustomization.yaml
++++ b/applications/hub/upstream/options/catalog/base/kustomization.yaml
+@@ -5,7 +5,6 @@
+ - deployment.yaml
+ - service.yaml
+ - postgres-statefulset.yaml
+-- postgres-pvc.yaml
+ - postgres-service.yaml
+ 
+ configMapGenerator:
+@@ -15,6 +14,12 @@
+   name: model-catalog-sources
+   options:
+     disableNameSuffixHash: true
++- behavior: create
++  files:
++  - sources.yaml=mcp-sources.yaml
++  name: mcp-catalog-sources
++  options:
++    disableNameSuffixHash: true
+ 
+ secretGenerator:
+ - envs:
+@@ -30,4 +35,4 @@
+ images:
+ - name: ghcr.io/kubeflow/hub/server
+   newName: ghcr.io/kubeflow/hub/server
+-  newTag: v0.3.9
++  newTag: v0.3.14
+
+# file: applications/hub/upstream/options/catalog/overlays/demo/dev-sources.yaml
+--- a/applications/hub/upstream/options/catalog/overlays/demo/dev-sources.yaml
++++ b/applications/hub/upstream/options/catalog/overlays/demo/dev-sources.yaml
+@@ -38,6 +38,22 @@
+     properties:
+       yamlCatalogPath: dev-community-mcp-servers.yaml
+ 
++agent_catalogs:
++  - name: "Sample Agents"
++    id: sample_agents
++    type: yaml
++    enabled: true
++    properties:
++      yamlCatalogPath: dev-sample-agents.yaml
++  - name: "Enterprise Agents"
++    id: enterprise_agents
++    type: yaml
++    enabled: true
++    properties:
++      yamlCatalogPath: dev-enterprise-agents.yaml
++    labels:
++      - Enterprise
++
+ # namedQueries define reusable server-side filter presets that clients can
+ # reference by name via the `namedQuery` API parameter. Multiple config files
+ # can contribute queries; later files override individual fields within a query
+
+# file: applications/hub/upstream/options/catalog/overlays/odh/default-sources.yaml
+--- a/applications/hub/upstream/options/catalog/overlays/odh/default-sources.yaml
++++ b/applications/hub/upstream/options/catalog/overlays/odh/default-sources.yaml
+@@ -17,7 +17,8 @@
+       - Red Hat AI validated
+ labels:
+   - name: Red Hat AI validated
+-    description: Third-party models with performance and compatibility verified by Red Hat.
++    displayName: Red Hat AI - validated models
++    description: Third-party models verified by Red Hat to ensure reliable performance and compatibility. Some of these include validated runtime arguments for enabling additional capabilities.
+   - name: Red Hat AI
+     description: Red Hat models with full support and legal indemnification.
+   - name: null
+
+# file: applications/hub/upstream/options/csi/kustomization.yaml
+--- a/applications/hub/upstream/options/csi/kustomization.yaml
++++ b/applications/hub/upstream/options/csi/kustomization.yaml
+@@ -7,4 +7,4 @@
+ images:
+ - name: ghcr.io/kubeflow/hub/storage-initializer
+   newName: ghcr.io/kubeflow/hub/storage-initializer
+-  newTag: v0.3.9
++  newTag: v0.3.14
+
+# file: applications/hub/upstream/options/ui/base/kustomization.yaml
+--- a/applications/hub/upstream/options/ui/base/kustomization.yaml
++++ b/applications/hub/upstream/options/ui/base/kustomization.yaml
+@@ -10,4 +10,4 @@
+ images:
+ - name: model-registry-ui
+   newName: ghcr.io/kubeflow/hub/ui
+-  newTag: v0.3.9
++  newTag: v0.3.14
+

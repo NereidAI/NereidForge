@@ -1,0 +1,16 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: seaweedfs
+description: SeaweedFS Distributed File System
+type: application
+version: 3.60.0
+appVersion: "3.60"
+keywords:
+  - seaweedfs
+  - s3
+  - storage
+maintainers:
+  - name: NereidForge Team
+    email: jiekechoo@gmail.com

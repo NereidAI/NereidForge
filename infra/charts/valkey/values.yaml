@@ -1,0 +1,41 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# Public-coordinate Valkey deployment defaults for NereidForge.
+image:
+  registry: docker.io
+  repository: valkey/valkey
+  tag: "8.0-alpine"
+  pullPolicy: IfNotPresent
+
+# Set to a pre-created docker-registry secret name for private mirrors
+# (operator-provisioned, e.g. harbor-registry-secret); empty = anonymous
+# pull. Default installs stay empty: the node containerd mirror needs no
+# pod-level secret (root treaty section 18).
+imagePullSecret: ""
+
+storageClass: nfs-csi
+
+master:
+  persistenceSize: 10Gi
+  resources:
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+
+replica:
+  replicaCount: 2
+  persistenceSize: 10Gi
+  resources:
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+
+valkey:
+  maxmemory: "1gb"
+  maxmemory_policy: "allkeys-lru"

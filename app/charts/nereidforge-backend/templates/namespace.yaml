@@ -1,0 +1,24 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- /*
+Tenant namespace. Created by the chart (shared by backend + frontend releases)
+instead of `kubectl label`. The resource-policy: keep annotation prevents Helm
+from deleting the shared namespace on uninstall of either release.
+
+No istio-injection canary label: the NF api/frontend opt OUT of the mesh. Pronged
+by the KF profile-controller's `ns-owner-access-istio` AuthorizationPolicy which
+only allows istio-ingressgateway/ml-pipeline-ui sources -- injecting a sidecar
+here would make traefik-routed traffic (the NF ingress controller, in kube-system)
+fail with "RBAC: access denied". Tenant workloads (notebooks/isvc) opt in per-pod.
+*/ -}}
+{{- if .Values.namespace.create }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/resource-policy": keep
+{{- end }}

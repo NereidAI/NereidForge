@@ -1,0 +1,21 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: ml-backend
+description: NereidForge ML Backend (PP-YOLOE pre-annotation) Helm Chart
+type: application
+version: 0.0.1
+# In-branch placeholder (root treaty §19.5): release packaging injects the
+# bare SemVer via helm package --app-version; no release version is committed.
+appVersion: "0.0.0-dev"
+keywords:
+  - nereidforge
+  - ml
+  - machine-learning
+  - training
+  - inference
+  - ppyoloe
+maintainers:
+  - name: NereidForge Team
+    email: jiekechoo@gmail.com

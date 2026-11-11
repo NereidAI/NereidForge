@@ -1,0 +1,6 @@
+apiVersion: v2
+name: kubeflow
+description: NereidForge Kubeflow platform deployment. Migrated from infra/scripts/30_install-kubeflow.sh (kustomize apply) to a helm chart so Kubeflow is deployed the same way as the other platform components (labelstudio, cvat, postgresql, ...).
+type: application
+version: 0.1.0
+appVersion: "1.9"

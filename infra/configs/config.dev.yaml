@@ -1,0 +1,60 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Development overrides for a python-backend process running on the host.
+# Service addresses use host-reachable localhost port-forwards. This file is
+# deep-merged over config.base.yaml. Select it with NEREIDFORGE_ENV=dev and
+# override any key with the corresponding NEREIDFORGE_* environment variable.
+
+database:
+  host: "localhost"
+  port: 5432
+  user: "nereidforge"
+  password: ""  # set NEREIDFORGE_DATABASE_PASSWORD for the local database
+  name: "nereidforge"
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+auth:
+  enabled: false   # set NEREIDFORGE_AUTH_ENABLED=true to enable local auth
+  # SSO defaults to local (see config.base.yaml); point at a dev IdP/NS via
+  # NEREIDFORGE_SSO_* env vars if needed.
+
+kfp:
+  host: "http://localhost:18888"   # kubectl port-forward for KFP v2
+  object_store_endpoint: "http://127.0.0.1:19000"   # kubectl port-forward svc/seaweedfs :19000->9000
+  object_store_namespace: "nereidforge"
+
+hub:
+  host: "http://localhost:8889"
+
+trainer:
+  host: "http://localhost:8890"
+
+labelstudio:
+  host: "http://localhost:8890"
+  token: "" # set via NEREIDFORGE_LABELSTUDIO_TOKEN
+  public_host: "http://localhost:8890"
+  # The host-side backend reaches the ML backend through this port-forward.
+  ml_backend_url: "http://localhost:19090"
+  # Label Studio pods must register the ML backend's in-cluster service URL.
+  ml_backend_cluster_url: "http://ml-backend.nereidforge:9090"
+  timeout: "30s"
+
+cvat:
+  # Forward a local port, for example 8081, to cvat-backend-service:8080.
+  host: "http://localhost:8081"
+  token: "" # set via NEREIDFORGE_CVAT_TOKEN (DRF Token auth)
+  public_host: "http://localhost:8081"
+  timeout: "30s"
+
+storage:
+  endpoint: "http://127.0.0.1:8884"        # filer port-forward :8884->8888
+  s3_endpoint: "http://127.0.0.1:8833"     # S3 gateway port-forward :8833->8333
+  bucket: "nereidforge-dev"
+
+serving:
+  # Local development never inherits a customer-facing inference domain.
+  platform_domain: "localhost"

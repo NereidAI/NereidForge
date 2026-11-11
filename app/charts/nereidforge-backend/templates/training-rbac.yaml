@@ -1,0 +1,41 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- /*
+RBAC for KFP-driven training runs.
+
+KFP v2 executes pipeline pods in the tenant (profile) namespace with the
+profile controller's `default-editor` ServiceAccount. The train step creates
+and watches a kubeflow-trainer TrainJob CR in the shared system namespace
+(`nereidforge`), so that SA needs cross-namespace permissions on the
+trainjobs resource only. No generic workload access is granted.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-trainjobs
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["trainjobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-trainjobs
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: default-editor
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nereidforge-backend.fullname" . }}-trainjobs
+  apiGroup: rbac.authorization.k8s.io

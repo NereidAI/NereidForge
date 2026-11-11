@@ -1,0 +1,42 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "valkey.masterServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: valkey
+    - port: 6666
+      targetPort: 6379
+      name: ondisk
+  selector:
+    {{- include "valkey.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "valkey.replicaServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: valkey
+  selector:
+    {{- include "valkey.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+  clusterIP: None

@@ -1,0 +1,29 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Parent chart values for charts/kubeflow. The `global` block is auto-merged into
+# every subchart's .Values.global, so all 16 subcharts (15 upstream components +
+# platform-config) read dex / tenant / manifests / kubeconfig / image from here.
+# All image coordinates are public (root treaty section 18); air-gapped nodes
+# resolve them through the containerd registry mirror. Site-specific registry
+# credentials, if ever needed, belong in an operator-supplied untracked file.
+global:
+  dex:
+    staticEmail: admin@nereidforge.local
+    staticPasswordHash: ""
+  seaweedfs:
+    # Required operator credentials for the KFP object-store Secret.
+    s3AccessKey: ""
+    s3SecretKey: ""
+  tenant:
+    name: nereidforge
+  podCidr: "10.42.0.0/16"
+  manifests:
+    hostPath: /srv/nereidforge/infra/third_party/kubeflow-manifests
+  kubeconfig:
+    hostPath: /root/.kube/config
+  image:
+    repository: ghcr.io/nereidai/deploy-tools
+    # Bare release coordinate only (treaty §19.2/§19.5); the latest tag is
+    # forbidden. This manually built image stays release-only (no dev channel).
+    tag: 0.0.1

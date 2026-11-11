@@ -1,0 +1,13 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: kubeflow.org/v1beta1
+kind: Profile
+metadata:
+  name: {{ .Values.testTenant }}
+spec:
+  owner:
+    kind: {{ .Values.owner.kind }}
+    name: {{ .Values.owner.name }}

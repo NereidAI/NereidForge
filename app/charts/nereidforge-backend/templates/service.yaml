@@ -1,0 +1,24 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- if and .Values.enabled .Values.api.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nereidforge-backend.api.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    component: api
+spec:
+  type: {{ .Values.api.service.type }}
+  selector:
+    {{- include "nereidforge-backend.selectorLabels" . | nindent 4 }}
+    component: api
+  ports:
+    - port: {{ .Values.api.service.port }}
+      targetPort: {{ .Values.api.service.targetPort }}
+      name: http
+{{- end }}

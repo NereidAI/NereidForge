@@ -1,0 +1,30 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Legacy TensorRT optimizer; retain the canonical NGC base with a local override.
+ARG TENSORRT_BASE_IMAGE=nvcr.io/nvidia/tensorrt:24.05-py3
+FROM ${TENSORRT_BASE_IMAGE}
+ARG VERSION=0.0.0-dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=""
+LABEL license='SPDX-License-Identifier: Apache-2.0' \
+      copyright='Copyright (c) 2026: YIQISOFT' \
+      org.opencontainers.image.title='opt-tensorrt' \
+      org.opencontainers.image.description='Legacy TensorRT model optimization runtime for NereidForge.' \
+      org.opencontainers.image.vendor='YIQISOFT' \
+      org.opencontainers.image.licenses='Apache-2.0' \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_SHA}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source='https://github.com/NereidAI/NereidForge' \
+      org.opencontainers.image.url='https://github.com/NereidAI/NereidForge' \
+      org.opencontainers.image.documentation='https://github.com/NereidAI/NereidForge#readme' \
+      org.opencontainers.image.authors='NereidAI (https://github.com/NereidAI)'
+COPY LICENSE NOTICE /licenses/
+
+ARG PIP_INDEX_URL=""
+ARG PIP_TRUSTED_HOST=""
+# Injected at build time for regional networks; empty uses pip's default index.
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
+# Base image already ships TensorRT; add onnx/pycuda/tenacity on top.
+RUN pip3 install --no-cache-dir "onnx>=1.14.0" "pycuda>=2023.1" "tenacity>=8.2.0"

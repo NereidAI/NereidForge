@@ -1,0 +1,57 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# Minimal sanitized Kale/KFP pipeline shape for notebook post-processing tests.
+components:
+  comp-main-step:
+    executorLabel: exec-main-step
+    outputDefinitions:
+      artifacts:
+        main_html_report:
+          artifactType:
+            schemaTitle: system.HTML
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-main-step:
+      container:
+        args:
+          - --executor_input
+          - '{{$}}'
+          - --function_to_execute
+          - main_step
+        command:
+          - sh
+          - -c
+          - 'python3 -m pip install --quiet kfp kubeflow-kale && "$0" "$@"'
+          - sh
+          - -ec
+          - 'python3 -m kfp.dsl.executor_main "$@"'
+        env:
+          - name: HOME
+            value: /tmp
+        image: python:3.12
+pipelineInfo:
+  description: Minimal notebook test pipeline.
+  name: notebook-test-pipeline
+root:
+  dag:
+    tasks:
+      main-step:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-main-step
+        taskInfo:
+          name: main-step
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-main-step:
+          securityContext:
+            runAsGroup: '0'
+            runAsNonRoot: true
+            runAsUser: '65534'

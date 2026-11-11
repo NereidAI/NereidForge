@@ -1,0 +1,69 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Production overrides for NF running in-cluster and reaching cluster services.
+# This file is deep-merged over config.base.yaml. Select it with
+# NEREIDFORGE_ENV=prod and inject site-specific values through NEREIDFORGE_*.
+# Release-specific database or bucket names need no separate environment file:
+# override NEREIDFORGE_DATABASE_NAME and NEREIDFORGE_STORAGE_BUCKET instead.
+
+database:
+  host: "nereidforge-postgresql-rw.nereidforge.svc.cluster.local"   # CNPG primary svc
+  port: 5432
+  user: "nereidforge"
+  password: ""  # injected via NEREIDFORGE_DATABASE_PASSWORD; never ship a prod default
+  name: "nereidforge"
+  ssl_mode: "disable"
+  max_open_conns: 25
+  max_idle_conns: 5
+  conn_max_lifetime: "5m"
+
+sso:
+  mode: "ns"   # NS ticket mode (suite standard default); oidc remains opt-in via values
+  ns:
+    base_url: ""   # required in ns mode via NEREIDFORGE_SSO_NS_BASE_URL
+    product_id: "forge"
+    client_secret: ""   # set via NEREIDFORGE_SSO_NS_CLIENT_SECRET (ns mode only)
+    reconcile_memberships: true
+  oidc:
+    issuer: ""   # required in oidc mode via NEREIDFORGE_SSO_OIDC_ISSUER
+    client_id: "nereidforge"
+    client_secret: ""   # set via NEREIDFORGE_SSO_OIDC_CLIENT_SECRET
+    redirect_url: ""   # set via NEREIDFORGE_SSO_OIDC_REDIRECT_URL
+    frontend_base_url: ""   # set via NEREIDFORGE_SSO_OIDC_FRONTEND_BASE_URL
+
+auth:
+  enabled: true
+  jwt_secret: ""   # set via NEREIDFORGE_AUTH_JWT_SECRET in prod
+
+kfp:
+  host: "http://ml-pipeline.kubeflow:8888"
+  # KFP stores run logs/artifacts in SeaweedFS's mlpipeline bucket.
+  object_store_endpoint: "http://seaweedfs.kubeflow:9000"
+
+hub:
+  host: "http://nereidforge-hub.nereidforge:8889"
+
+trainer:
+  host: "http://nereidforge-trainer.nereidforge:8890"
+
+labelstudio:
+  host: "http://labelstudio.nereidforge.svc.cluster.local:8080"
+  token: "" # set via NEREIDFORGE_LABELSTUDIO_TOKEN
+  # Browser-facing ingress URL; set NEREIDFORGE_LABELSTUDIO_PUBLIC_HOST.
+  public_host: ""
+  # In-cluster service URLs serve both automatic annotation and LS registration.
+  ml_backend_url: "http://ml-backend.nereidforge:9090"
+  ml_backend_cluster_url: "http://ml-backend.nereidforge:9090"
+  timeout: "30s"
+
+cvat:
+  host: "http://cvat-backend-service.nereidforge.svc.cluster.local:8080"
+  token: "" # set via NEREIDFORGE_CVAT_TOKEN (DRF Token auth)
+  public_host: "" # set via NEREIDFORGE_CVAT_PUBLIC_HOST
+  timeout: "30s"
+
+storage:
+  endpoint: "http://seaweedfs-filer.nereidforge:8888"
+  s3_endpoint: "http://seaweedfs-s3.nereidforge:8333"
+  bucket: "nereidforge"

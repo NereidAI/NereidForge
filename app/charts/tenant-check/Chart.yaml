@@ -1,0 +1,11 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: tenant-check
+description: Ad-hoc test Profile CR rendered for 60_verify/tenant-check.sh to exercise tenant provisioning
+type: application
+version: 0.0.1
+# In-branch placeholder (root treaty §19.5): release packaging injects the
+# bare SemVer via helm package --app-version; no release version is committed.
+appVersion: "0.0.0-dev"

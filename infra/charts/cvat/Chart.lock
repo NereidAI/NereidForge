@@ -1,0 +1,21 @@
+dependencies:
+- name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 16.3.0
+- name: nuclio
+  repository: https://nuclio.github.io/nuclio/charts
+  version: 0.22.9
+- name: vector
+  repository: https://helm.vector.dev
+  version: 0.19.2
+- name: clickhouse
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 4.1.16
+- name: traefik
+  repository: https://helm.traefik.io/traefik
+  version: 37.3.0
+- name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 19.6.4
+digest: sha256:96cfb24d57adf3c15c4551bbc4cbdfdf141509893cdc9e5f5b94af783a5a5ace
+generated: "2026-11-11T23:34:56.971653119+08:00"

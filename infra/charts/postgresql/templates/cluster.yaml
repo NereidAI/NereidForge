@@ -1,0 +1,36 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- $cluster := .Values.cnpg.cluster }}
+{{- if and $cluster.imageName }}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ $cluster.name | default "nereidforge" }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  instances: {{ $cluster.instances | default 1 }}
+  imageName: {{ $cluster.imageName }}
+  storage:
+    size: {{ $cluster.storage.size }}
+    {{- if $cluster.storage.storageClass }}
+    storageClass: {{ $cluster.storage.storageClass }}
+    {{- end }}
+  {{- if $cluster.bootstrap }}
+  bootstrap:
+    initdb:
+      database: {{ $cluster.bootstrap.initdb.database }}
+      owner: {{ $cluster.bootstrap.initdb.owner }}
+      secret:
+        name: {{ $cluster.bootstrap.initdb.secret.name }}
+  {{- end }}
+  {{- if $cluster.postgresql.parameters }}
+  postgresql:
+    parameters:
+      {{- range $k, $v := $cluster.postgresql.parameters }}
+      {{ $k }}: {{ $v | quote }}
+      {{- end }}
+  {{- end }}
+{{- end }}

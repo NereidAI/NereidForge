@@ -1,0 +1,24 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+cnpg:
+  cluster:
+    name: nereidforge
+    instances: 3
+    imageName: ghcr.io/cloudnative-pg/postgresql:16.4
+    storage:
+      size: 50Gi
+      storageClass: nfs-csi
+    bootstrap:
+      initdb:
+        database: nereidforge
+        owner: nereidforge
+        secret:
+          name: pg-nereidforge-credentials
+    postgresql:
+      parameters:
+        max_connections: "200"
+        shared_buffers: "256MB"
+        effective_cache_size: "1GB"
+        work_mem: "16MB"
+        maintenance_work_mem: "128MB"

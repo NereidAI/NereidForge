@@ -1,0 +1,80 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-filer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    component: filer
+spec:
+  replicas: {{ .Values.filer.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      component: filer
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.selectorLabels" . | nindent 8 }}
+        component: filer
+    spec:
+      containers:
+        - name: filer
+          image: "{{ .Values.image }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - "filer"
+            - '-master={{ include "seaweedfs.fullname" . }}-master:9333'
+            - "-port=8888"
+            - "-metricsPort=9324"
+          ports:
+            - name: filer
+              containerPort: 8888
+            - name: metrics
+              containerPort: 9324
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.filer.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "seaweedfs.fullname" . }}-filer
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-filer
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 8888
+      name: filer
+      targetPort: 8888
+    - port: 9324
+      name: metrics
+      targetPort: 9324
+    - port: 18888
+      name: grpc
+      targetPort: 18888
+  selector:
+    app.kubernetes.io/name: {{ include "seaweedfs.name" . }}
+    component: filer
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-filer
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.filer.persistence.size }}

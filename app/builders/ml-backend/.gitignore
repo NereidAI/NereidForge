@@ -1,0 +1,6 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Large model weights are pre-placed on the build machine only (NOT tracked in git).
+# The Docker build COPYs these into /app/models at image build time.
+models/*.pt

@@ -1,0 +1,51 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local build acceleration (root treaty §17, §19.3).
+#
+# Copy this file to local.mk and fill in the endpoints for a restricted or
+# regional network:
+#
+#     cp local.mk.example local.mk
+#
+# local.mk is git-ignored and must never be committed. With direct internet
+# access, leave it absent: every value stays empty, reproducing the pristine
+# upstream build that the hosted GitHub Actions runners use. This fragment
+# only populates build variables; it can never re-enable a push target
+# because the Makefile contains none.
+#
+# Variables marked [make] are read by the Makefile's ?= definitions and flow
+# into docker build --build-arg. Variables marked [machine] have no committed
+# consumer in NereidForge yet (the suite keeps their names standardized across
+# repositories); apply them through machine-level config such as ~/.npmrc or
+# an apk mirror config, and leave them empty here.
+
+# [machine] Go module proxy (empty = toolchain default). NereidForge ships no
+# Go component today.
+GOPROXY ?=
+
+# [machine] Alpine apk mirror host without scheme/trailing slash. NF's only
+# Alpine stage (the frontend) installs no apk packages.
+ALPINE_MIRROR ?=
+
+# [machine] npm registry (empty = registry.npmjs.org); npm reads ~/.npmrc.
+NPM_REGISTRY ?=
+
+# [make] Python package index and trusted host (empty = PyPI defaults).
+PIP_INDEX_URL ?=
+PIP_TRUSTED_HOST ?=
+
+# [make] Debian/Ubuntu apt mirror host (empty = upstream apt sources).
+APT_MIRROR ?=
+
+# [make] Specialized wheel indexes. Mandatory for their vendor builds,
+# checked by the owning target or workflow job; generic PyPI is never an
+# accepted substitute.
+TORCH_CPU_INDEX ?=
+TORCH_XPU_INDEX ?=
+TORCH_ROCM_INDEX ?=
+PADDLE_GPU_INDEX ?=
+
+# [make] Hugging Face endpoint override for regional networks
+# (empty = huggingface.co).
+HF_ENDPOINT ?=

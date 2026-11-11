@@ -1,0 +1,5 @@
+apiVersion: v2
+name: notebooks
+description: Kubeflow notebooks component (helm subchart of charts/kubeflow)
+type: application
+version: 0.1.0

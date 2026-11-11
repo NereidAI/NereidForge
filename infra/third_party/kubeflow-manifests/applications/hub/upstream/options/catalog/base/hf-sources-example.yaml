@@ -1,0 +1,70 @@
+catalogs:
+  - name: Sample Catalog
+    id: sample_catalog
+    type: yaml
+    enabled: true
+    properties:
+      yamlCatalogPath: sample-catalog.yaml
+  # Basic Hugging Face Hub configuration with specific models
+  - name: Hugging Face Hub - Specific Models
+    id: hf-specific
+    type: hf
+    enabled: true
+    properties:
+      # apiKeyEnvVar names the env var holding the Hugging Face API key.
+      # Must be "HF_API_KEY" (default) or start with "HF_API_KEY_" (e.g., "HF_API_KEY_ORG1").
+      # Store the key value in a Kubernetes Secret and expose it as an env var in the deployment.
+      apiKeyEnvVar: "HF_API_KEY"
+    includedModels:
+      - "meta-llama/Llama-3.2-1B"
+      - "microsoft/phi-2"
+      - "huggingface/CodeBERTa-small-v1"
+    excludedModels:
+      - "some-org/*"
+
+  # Example using allowedOrganization to restrict to Meta LLaMA models
+  # This automatically prefixes model patterns with "meta-llama/"
+  - name: Meta LLaMA Models Only
+    id: hf-meta-llama
+    type: hf
+    enabled: false  # disabled by default
+    properties:
+      apiKeyEnvVar: "HF_API_KEY_META"   # Per-org key; must be HF_API_KEY or HF_API_KEY_*
+      allowedOrganization: "meta-llama"
+    includedModels:
+      # These patterns will be automatically prefixed with "meta-llama/"
+      - "*"           # Expands to all models: meta-llama/*
+      - "Llama-3*"    # Expands to: meta-llama/Llama-3*
+      - "CodeLlama-*" # Expands to: meta-llama/CodeLlama-*
+    excludedModels:
+      - "*-4bit"      # Excludes: meta-llama/*-4bit
+      - "*-GGUF"      # Excludes: meta-llama/*-GGUF
+
+  # Example using wildcard patterns without organization restriction
+  - name: Microsoft Models
+    id: hf-microsoft
+    type: hf
+    enabled: false  # disabled by default
+    includedModels:
+      # Full wildcard patterns (organization/model)
+      - "microsoft/phi-*"         # All phi variants
+      - "microsoft/DialoGPT-*"    # All DialoGPT variants
+    excludedModels:
+      - "*-base"      # Exclude base models
+      - "*-uncensored" # Exclude uncensored variants
+
+  # Example combining specific models with wildcard patterns
+  - name: Mixed Model Selection
+    id: hf-mixed
+    type: hf
+    enabled: false  # disabled by default
+    includedModels:
+      # Specific models
+      - "huggingface/CodeBERTa-small-v1"
+      - "microsoft/DialoGPT-medium"
+      # Wildcard patterns
+      - "microsoft/phi-3*"        # All phi-3 variants
+      - "huggingface/CodeBERTa-*" # All CodeBERTa variants
+    excludedModels:
+      - "*-base"      # Exclude base models
+      - "*-draft"     # Exclude draft models

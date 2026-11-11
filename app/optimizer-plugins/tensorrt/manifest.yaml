@@ -1,0 +1,50 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+name: nereid-tensorrt
+kind: optimizer
+version: 1.0.0
+vendor: nvidia
+description: TensorRT optimizer plugin for converting ONNX models to TensorRT engines
+supported_formats:
+  input:
+    - onnx
+  output:
+    - plan
+hardware_target: nvidia-tensorrt
+supported_precision:
+  - fp32
+  - fp16
+  - int8
+architectures:
+  - x86_64
+  - arm64
+resources:
+  requests:
+    cpu: "2"
+    memory: "8Gi"
+    gpu: "1"
+  limits:
+    cpu: "8"
+    memory: "32Gi"
+    gpu: "1"
+config_schema:
+  type: object
+  properties:
+    precision:
+      type: string
+      enum: [fp32, fp16, int8]
+      description: Target precision for optimization
+    calibration_uri:
+      type: string
+      description: URI to calibration data (required for INT8)
+    workspace_size:
+      type: integer
+      description: Maximum workspace size in bytes
+      default: 1073741824
+    batch_size:
+      type: integer
+      description: Batch size for optimization profile
+      default: 1
+  required:
+    - precision

@@ -1,0 +1,47 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# KFP pipeline package requirements and development-tool configuration.
+[project]
+name = "nereidforge-kfp-pipelines"
+version = "0.1.0"
+description = "KFP v2 Pipelines for NereidForge ML Platform"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "YIQISOFT" }]
+requires-python = ">=3.14"
+dependencies = [
+    "kfp>=2.8.0",
+    "kubernetes>=30.0.0",
+    "pyyaml>=6.0",
+    "requests>=2.31.0",
+    "pydantic>=2.5.0",
+    "tenacity>=8.2.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-mock>=3.12.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 100
+target-version = ['py314']
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_return_any = true
+warn_unused_configs = true

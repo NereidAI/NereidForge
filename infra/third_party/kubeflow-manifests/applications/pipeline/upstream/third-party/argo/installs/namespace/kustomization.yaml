@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Mirrors upstream argo namespace-install, but with local vendored resources
+# (see vendor/) so kustomize build never needs network access.
+
+namespace: kubeflow
+
+resources:
+- ../../base
+- ../../vendor/ns-workflow-controller-rbac
+patches:
+- path: workflow-controller-deployment-patch.json
+  target:
+    group: apps
+    kind: Deployment
+    name: workflow-controller
+    version: v1

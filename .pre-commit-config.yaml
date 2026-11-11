@@ -1,0 +1,14 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+#
+# Local git hooks. Install with: pre-commit install
+# The same rules run in CI (.github/workflows/license-compliance.yml).
+repos:
+  - repo: local
+    hooks:
+      - id: license-compliance
+        name: license compliance (LICENSE-POLICY.md)
+        entry: bash infra/scripts/check-license-compliance.sh --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]

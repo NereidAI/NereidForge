@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ .Release.Name }}-{{ .Chart.Name }}-script"
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "{{ .Values.hookWeight }}"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  ensure.sh: |
+{{ .Files.Get "files/ensure.sh" | indent 4 }}
+  kubeflow-auth-rbac.yaml: |
+{{ .Files.Get "files/kubeflow-auth-rbac.yaml" | indent 4 }}

@@ -1,0 +1,11 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Test tenant Profile rendered by 60_verify/tenant-check.sh.
+# The script overrides both values per run:
+#   --set testTenant=<unique>   (Profile CR name, also the reconciled ns)
+#   --set owner.name=<email>    (KF Profile owner)
+testTenant: test-tenant
+owner:
+  kind: User
+  name: test@example.com

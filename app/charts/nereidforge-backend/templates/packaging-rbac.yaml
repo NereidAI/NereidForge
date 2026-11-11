@@ -1,0 +1,46 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- /*
+RBAC for single-container edge package Batch Jobs.
+
+The packager workload itself runs in the configured serving namespace
+(``nereidforge`` by default); the NF worker needs narrow permission to submit
+the Job and inspect its Pod/logs when Kubernetes reports failure. It does not
+grant generic access to training, KFP, or model-serving workloads.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-packager
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-packager
+  namespace: nereidforge
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nereidforge-backend.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nereidforge-backend.fullname" . }}-packager
+  apiGroup: rbac.authorization.k8s.io

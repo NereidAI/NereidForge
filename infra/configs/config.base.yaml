@@ -1,0 +1,128 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Shared configuration for every environment (dev/prod).
+# app/core/config.py loads this file before deep-merging config.{env}.yaml.
+# Environment-specific database, SSO issuer, and host values live only in the
+# environment files. NEREIDFORGE_* variables override any key (dot -> underscore,
+# for example NEREIDFORGE_DATABASE_NAME).
+
+server:
+  host: "0.0.0.0"
+  port: 8080
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "120s"
+
+# Suite SSO (NereidIdentity docs/sso-integration-standard.md v2).
+# mode: local (break-glass password login) | ns (NS ticket) | oidc (direct RP).
+# Shared values only; issuer/client ids/redirects live in config.prod.yaml.
+sso:
+  mode: "ns"
+  jit_tenant: "default"
+  ns:
+    base_url: ""
+    product_id: "forge"
+    client_secret: ""
+    callback_path: "/auth/ns-callback"
+    reconcile_memberships: true
+  oidc:
+    issuer: ""
+    client_id: "nereidforge"
+    client_secret: ""
+    redirect_url: ""
+    frontend_base_url: ""
+    scopes: ["openid", "profile", "email", "roles"]
+    roles_claim: "realm_access.roles"
+    role_map:
+      admin: ["admin", "user"]
+      operator: ["admin", "user"]
+      user: ["user"]
+    default_roles: ["user"]
+    reject_unknown_roles: false
+    state_ttl: "10m"
+    frontchannel_logout: true
+
+auth:
+  jwt_secret: ""
+  issuer: "nereidforge"
+  access_ttl: "12h"
+  refresh_ttl: "168h"
+
+kfp:
+  namespace: "kubeflow"
+  service_account: "pipeline-runner"
+  timeout: "5m"
+  poll_interval: 10
+  # Required operator credentials; inject through NEREIDFORGE_KFP_OBJECT_STORE_*.
+  object_store_access_key: ""
+  object_store_secret_key: ""
+  object_store_bucket: "mlpipeline"
+
+hub:
+  timeout: "30s"
+
+trainer:
+  timeout: "30s"
+
+event:
+  webhook:
+    enabled: false
+  kafka:
+    enabled: false
+
+worker:
+  enabled: true
+  poll_interval: 3
+  concurrency: 5
+  kfp_completion_ttl: "24h"
+  event_publish_retry: "5s"
+
+logging:
+  level: "info"
+  format: "plain"
+
+tracing:
+  enabled: false
+
+labelstudio:
+  # Host that in-cluster ML-backend pods use to reach LS (they cannot resolve
+  # the external domain). Same value for dev/prod.
+  cluster_host: "http://labelstudio.nereidforge.svc.cluster.local:8080"
+
+storage:
+  backend: "seaweedfs"
+  # Per-request dataset upload limits; NEREIDFORGE_STORAGE_UPLOAD_MAX_* overrides them.
+  upload_max_files: 200
+  upload_max_bytes: 1073741824
+  # Required operator credentials; inject through NEREIDFORGE_STORAGE_S3_*.
+  s3_access_key: ""
+  s3_secret_key: ""
+  # S3 endpoint reachable from inside cluster pods (LS / ML backend / trainers).
+  s3_cluster_endpoint: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
+  # Filer endpoint reachable from inside cluster pods (KFP training steps / notebooks).
+  filer_cluster_endpoint: "http://seaweedfs-filer.nereidforge.svc.cluster.local:8888"
+
+serving:
+  # Deploy InferenceServices into the KF user namespace so they show up in
+  # the KF UI KServe Endpoints page (models-web-app scopes by user ns).
+  namespace: "nereidforge"
+  download_url_base: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
+  runtime_images:
+    openvino: "openvino/model_server:latest"
+    openvino_xpu: "ghcr.io/nereidai/inference-model-server-openvino-xpu:0.0.0-dev"
+    triton: "nvcr.io/nvidia/tritonserver:26.01-py3"
+    torch: "pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime"
+    huggingface: "docker.io/huggingface/text-generation-inference:latest"
+  triton_config_pbtxt: |
+    name: "model"
+    platform: "onnxruntime_onnx"
+    max_batch_size: 0
+    default_model_filename: "model.onnx"
+  serving_port: 8080
+  ingress_class: "traefik"
+  domain_suffix: "inference"
+  # Root domain appended to <model>-<ver>.inference to build the Traefik
+  # IngressRoute host, for example example.com. Production operators
+  # must set NEREIDFORGE_SERVING_PLATFORM_DOMAIN before exposing inference.
+  platform_domain: ""

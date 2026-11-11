@@ -1,0 +1,28 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Cross-namespace alias Service so the Kubeflow Hub (Model Registry) BFF
+# discovers the shared registry from a tenant namespace.
+#
+# The hub/ui v0.3.x discovery contract works as follows:
+#   The BFF lists Services *inside the dashboard-selected namespace* with
+#   label component=model-registry and a port named http-api/https-api,
+#   then dials the resolved address. The registry server/postgres run in
+#   the `default` namespace, while tenant profiles are nereidforge-*
+#   namespaces, so the registry was invisible on the Model Registry page.
+#
+# Why a selector-less alias instead of manual Endpoints:
+#   An Endpoints object pointing at another Service ClusterIP causes a
+#   double kube-proxy DNAT and times out. This Service intentionally has
+#   no selector and no Endpoints: the BFF runs with
+#   --deployment-mode=federated (see ../nf-integration) and the
+#   modelregistry.kubeflow.org/external-address-rest annotation makes it
+#   dial the in-cluster DNS name of the real registry in `default`.
+#
+# The Service carries no namespace; the installer applies this kustomize
+# directory once per tenant namespace with `kubectl apply -k ... -n <ns>`.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - alias.yaml

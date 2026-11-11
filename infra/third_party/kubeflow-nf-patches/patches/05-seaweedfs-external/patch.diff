@@ -1,0 +1,133 @@
+# file: applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/kustomization.yaml
+--- a/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/kustomization.yaml
++++ b/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/kustomization.yaml
+@@ -3,9 +3,5 @@
+ namespace: kubeflow
+ 
+ resources:
+-- seaweedfs-deployment.yaml
+-- seaweedfs-pvc.yaml
+-- seaweedfs-networkpolicy.yaml
+ - seaweedfs-service.yaml
+-- seaweedfs-service-account.yaml
+ - mlpipeline-minio-artifact-secret.yaml
+
+# file: applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/seaweedfs-service.yaml
+--- a/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/seaweedfs-service.yaml
++++ b/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/seaweedfs-service.yaml
+@@ -1,39 +1,12 @@
+-# SeaweedFS service - provides S3-compatible storage for Kubeflow Pipelines.
+-# Port 9000 is included for backward compatibility with configs that expect the legacy port.
++# SeaweedFS service alias -> external nereidforge SeaweedFS S3.
++# We decided NOT to run a SeaweedFS inside Kubeflow: KFP needs only the
++# `seaweedfs.kubeflow` hostname, so route it to the shared storage
++# (seaweedfs-s3.nereidforge.svc.cluster.local:8333, s3-compat :9000).
+ apiVersion: v1
+ kind: Service
+ metadata:
+   name: seaweedfs
+   namespace: kubeflow
+ spec:
+-  ports:
+-  - name: http-iam
+-    port: 8111
+-    protocol: TCP
+-    targetPort: 8111
+-  - name: http-s3
+-    port: 8333
+-    protocol: TCP
+-    targetPort: 8333
+-  - name: http-s3-compat
+-    port: 9000
+-    protocol: TCP
+-    targetPort: 8333
+-  - name: http-master
+-    port: 9333
+-    protocol: TCP
+-    targetPort: 9333
+-  - name: grpc-master
+-    port: 19333
+-    protocol: TCP
+-    targetPort: 19333
+-  - name: grpc-filer
+-    port: 18888
+-    protocol: TCP
+-    targetPort: 18888
+-  - name: http-filer
+-    port: 8888
+-    protocol: TCP
+-    targetPort: 8888
+-  selector:
+-    app: seaweedfs
++  type: ExternalName
++  externalName: seaweedfs-s3.nereidforge.svc.cluster.local
+
+# file: applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/mlpipeline-minio-artifact-secret.yaml
+--- a/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/mlpipeline-minio-artifact-secret.yaml
++++ b/applications/pipeline/upstream/third-party/seaweedfs/base/seaweedfs/mlpipeline-minio-artifact-secret.yaml
+@@ -4,3 +4,2 @@
+-  # NOTE: CI test reporting reads this Secret name to fetch MinIO credentials for AWF log enrichment.
+-  # If you rename it, also update:
+-  # backend/test/testutil/archived_workflow_logs.go
++  # KFP apiserver / UI / profile-controller read these keys to talk to S3.
++  # Installers inject the operator-managed SeaweedFS credentials.
+
+# file: applications/pipeline/upstream/env/platform-agnostic-multi-user/kustomization.yaml
+--- a/applications/pipeline/upstream/env/platform-agnostic-multi-user/kustomization.yaml
++++ b/applications/pipeline/upstream/env/platform-agnostic-multi-user/kustomization.yaml
+@@ -9,7 +9,7 @@
+ - ../../third-party/argo/installs/cluster
+ - ../../third-party/mysql/base
+ - ../../third-party/mysql/options/istio
+-- ../../third-party/seaweedfs/istio
++- ../../third-party/seaweedfs/base
+ 
+ 
+ # !!! If you want to customize the namespace,
+@@ -23,3 +23,32 @@
+ - includeSelectors: true
+   pairs:
+     application-crd-id: kubeflow-pipelines
++
++replacements:
++- source:
++    kind: ConfigMap
++    name: pipeline-install-config
++    fieldPath: metadata.namespace
++  targets:
++  - select:
++      kind: ConfigMap
++      name: workflow-controller-configmap
++    fieldPaths:
++    - data.artifactRepository
++    options:
++      delimiter: .
++      index: 1
++
++- source:
++    kind: ConfigMap
++    name: pipeline-install-config
++    fieldPath: data.bucketName
++  targets:
++  - select:
++      kind: ConfigMap
++      name: workflow-controller-configmap
++    fieldPaths:
++    - data.artifactRepository
++    options:
++      delimiter: '"'
++      index: 3
+
+# file: applications/pipeline/upstream/env/plain-multi-user/kustomization.yaml
+--- a/applications/pipeline/upstream/env/plain-multi-user/kustomization.yaml
++++ b/applications/pipeline/upstream/env/plain-multi-user/kustomization.yaml
+@@ -7,7 +7,7 @@
+ - ../../base/metadata/options/istio
+ - ../../third-party/mysql/base
+ - ../../third-party/mysql/options/istio
+-- ../../third-party/seaweedfs/istio
++- ../../third-party/seaweedfs/base
+ - ../../third-party/metacontroller/base
+ 
+ 
+

@@ -1,0 +1,77 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-master
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    component: master
+spec:
+  replicas: {{ .Values.master.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      component: master
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.selectorLabels" . | nindent 8 }}
+        component: master
+    spec:
+      containers:
+        - name: master
+          image: "{{ .Values.image }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - "master"
+            - "-port=9333"
+            - "-volumePreallocate"
+            - "-defaultReplication=000"
+  {{- if .Values.master.serviceIP }}
+            - "-ip={{ .Values.master.serviceIP }}"
+  {{- end }}
+          ports:
+            - name: master
+              containerPort: 9333
+            - name: http
+              containerPort: 9333
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.master.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "seaweedfs.fullname" . }}-master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-master
+  namespace: {{ .Release.Namespace }}
+spec:
+  clusterIP: None
+  ports:
+    - port: 9333
+      name: master
+  selector:
+    app.kubernetes.io/name: {{ include "seaweedfs.name" . }}
+    component: master
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-master
+  namespace: {{ .Release.Namespace }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: {{ .Values.storageClass }}
+  resources:
+    requests:
+      storage: {{ .Values.master.persistence.size }}

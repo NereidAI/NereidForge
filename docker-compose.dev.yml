@@ -1,0 +1,96 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Local development dependencies; no Grafana Labs server components are shipped.
+services:
+  # ========== Infrastructure ==========
+  postgres:
+    image: postgres:16-alpine
+    container_name: nereidforge-postgres
+    environment:
+      POSTGRES_DB: nereidforge
+      POSTGRES_USER: nereidforge
+      # Required in the untracked local .env; no shared database password is shipped.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in the local .env file}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nereidforge -d nereidforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # No cache service in the dev compose: the backend stores captcha/OIDC
+  # state in Postgres (kv_store table); Label Studio/CVAT caches run on the
+  # in-cluster Valkey service.
+
+  seaweedfs:
+    image: chrislusf/seaweedfs:3.60
+    container_name: nereidforge-seaweedfs
+    command: >
+      server
+      -master.port=9333
+      -volume.port=8080
+      -filer.port=8888
+      -s3.port=8333
+      -s3
+      -filer
+      -dir=/data
+    ports:
+      - "9333:9333"   # Master
+      - "18080:8080"  # Volume (host 18080 avoids the API's port 8080)
+      - "8888:8888"   # Filer
+      - "8333:8333"   # S3
+    volumes:
+      - seaweedfs-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9333/cluster/status"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # KFP/Trainer/Hub/Kueue are large Kubernetes dependencies and normally run in
+  # a separate kind cluster. This optional mock supports API integration tests.
+  kfp-mock:
+    image: ghcr.io/kubeflow/pipelines-mock:latest
+    container_name: nereidforge-kfp-mock
+    ports:
+      - "8888:8888"
+    environment:
+      - MOCK_MODE=true
+    profiles: ["mock"]
+
+  # Prometheus uses the open metrics protocol directly. Operators may attach
+  # their own Grafana without changing this compose file or any /metrics path.
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: nereidforge-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/third_party/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
+
+  # ========== Development tools ==========
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: nereidforge-mailhog
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    profiles: ["tools"]
+
+volumes:
+  postgres-data:
+  seaweedfs-data:
+  prometheus-data:
+
+networks:
+  default:
+    name: nereidforge-dev

@@ -1,0 +1,1498 @@
+# file: applications/workspaces/components/centraldashboard/centraldashboard-config.yaml
+--- a/applications/workspaces/components/centraldashboard/centraldashboard-config.yaml
++++ b/applications/workspaces/components/centraldashboard/centraldashboard-config.yaml
+@@ -120,9 +120,9 @@
+                 "text": "Kubeflow Notebooks Documentation"
+             },
+             {
+-                "desc": "Documentation for Kubeflow Training Operator",
++                "desc": "Documentation for Kubeflow Trainer",
+                 "link": "https://www.kubeflow.org/docs/components/training/",
+-                "text": "Kubeflow Training Operator Documentation"
++                "text": "Kubeflow Trainer Documentation"
+             },
+             {
+                 "desc": "Documentation for Katib",
+# file: applications/workspaces/upstream/backend/base/deployment.yaml
+--- a/applications/workspaces/upstream/backend/base/deployment.yaml
++++ b/applications/workspaces/upstream/backend/base/deployment.yaml
+@@ -36,9 +36,6 @@
+         env:
+         - name: PORT
+           value: "4000"
+-        # TODO: remove before GA
+-        - name: DISABLE_AUTH
+-          value: "false"
+         resources:
+           limits:
+             cpu: 1
+# file: applications/workspaces/upstream/backend/base/kustomization.yaml
+--- a/applications/workspaces/upstream/backend/base/kustomization.yaml
++++ b/applications/workspaces/upstream/backend/base/kustomization.yaml
+@@ -18,4 +18,4 @@
+ images:
+ - name: workspaces-backend
+   newName: ghcr.io/kubeflow/notebooks/workspaces-backend
+-  newTag: v2.0.0-alpha.3
++  newTag: v2.0.0-beta.0
+# file: applications/workspaces/upstream/backend/base/rbac.yaml
+--- a/applications/workspaces/upstream/backend/base/rbac.yaml
++++ b/applications/workspaces/upstream/backend/base/rbac.yaml
+@@ -47,6 +47,12 @@
+ - apiGroups:
+   - ""
+   resources:
++  - pods/log
++  verbs:
++  - get
++- apiGroups:
++  - ""
++  resources:
+   - persistentvolumeclaims
+   verbs:
+   - get
+@@ -71,6 +77,13 @@
+   - list
+   - watch
+ - apiGroups:
++  - metrics.k8s.io
++  resources:
++  - pods
++  verbs:
++  - get
++  - list
++- apiGroups:
+   - authorization.k8s.io
+   resources:
+   - subjectaccessreviews
+# file: applications/workspaces/upstream/backend/components/common/kustomization.yaml
+--- a/applications/workspaces/upstream/backend/components/common/kustomization.yaml
++++ b/applications/workspaces/upstream/backend/components/common/kustomization.yaml
+@@ -4,6 +4,9 @@
+ labels:
+ - includeSelectors: true
+   pairs:
+-    app.kubernetes.io/managed-by: kustomize
+     app.kubernetes.io/name: workspaces-backend
+-    app.kubernetes.io/part-of: kubeflow-workspaces
+\ No newline at end of file
++    app.kubernetes.io/part-of: kubeflow-workspaces
++- includeSelectors: false
++  includeTemplates: true
++  pairs:
++    app.kubernetes.io/managed-by: kustomize
+\ No newline at end of file
+# file: applications/workspaces/upstream/backend/components/istio/authorization-policy.yaml
+--- a/applications/workspaces/upstream/backend/components/istio/authorization-policy.yaml
++++ b/applications/workspaces/upstream/backend/components/istio/authorization-policy.yaml
+@@ -8,7 +8,6 @@
+     matchLabels:
+       app: workspaces-backend
+       app.kubernetes.io/component: api
+-      app.kubernetes.io/managed-by: kustomize
+       app.kubernetes.io/name: workspaces-backend
+       app.kubernetes.io/part-of: kubeflow-workspaces
+   rules:
+# file: applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspacekinds.yaml
+--- a/applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspacekinds.yaml
++++ b/applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspacekinds.yaml
+@@ -54,10 +54,522 @@
+           spec:
+             description: WorkspaceKindSpec defines the desired state of WorkspaceKind
+             properties:
++              activityRules:
++                description: |-
++                  activityRules defines the policies for handling inactivity in Workspaces of this WorkspaceKind (MUTABLE).
++                  Rules are evaluated sequentially from top to bottom (first-match-wins semantics) independently for each
++                  configured effect type (e.g., pauseWorkspace). A rule with a nil or empty 'match' is treated as a catch-all
++                  rule; at most one catch-all rule is allowed per effect type, and it must be the last rule in the list.
++                items:
++                  description: ActivityRule defines a policy for handling inactivity
++                    in a Workspace
++                  properties:
++                    config:
++                      description: the configuration for this rule
++                      properties:
++                        minRunningSeconds:
++                          default: 0
++                          description: the minimum duration in seconds a Workspace
++                            must be running before it can be paused due to inactivity
++                          format: int32
++                          minimum: 0
++                          type: integer
++                        secondsSinceActive:
++                          description: |-
++                            the number of seconds of inactivity before a Workspace is eligible for this rule's effect
++                             - the minimum value is 16 (`secondsSinceActive` > 15) to prevent thrashing and pausing
++                               workspaces prematurely during startup or transient connection drops
++                          format: int32
++                          minimum: 16
++                          type: integer
++                      required:
++                      - secondsSinceActive
++                      type: object
++                    effect:
++                      description: the action to take when the rule matches and its
++                        conditions are met
++                      properties:
++                        pauseWorkspace:
++                          description: |-
++                            determines if the Workspace should be paused
++                             - the webhook rejects rules with `pauseWorkspace: true`
++                               when no `activityProbe` is configured
++                          type: boolean
++                      type: object
++                      x-kubernetes-validations:
++                      - message: must specify at least one effect
++                        rule: has(self.pauseWorkspace)
++                    match:
++                      description: the conditions under which this rule applies
++                      properties:
++                        matchNamespace:
++                          description: filters Workspaces by namespace labels
++                          properties:
++                            selector:
++                              description: the standard Kubernetes label selector
++                                to match namespace labels
++                              properties:
++                                matchExpressions:
++                                  description: matchExpressions is a list of label
++                                    selector requirements. The requirements are ANDed.
++                                  items:
++                                    description: |-
++                                      A label selector requirement is a selector that contains values, a key, and an operator that
++                                      relates the key and values.
++                                    properties:
++                                      key:
++                                        description: key is the label key that the
++                                          selector applies to.
++                                        type: string
++                                      operator:
++                                        description: |-
++                                          operator represents a key's relationship to a set of values.
++                                          Valid operators are In, NotIn, Exists and DoesNotExist.
++                                        type: string
++                                      values:
++                                        description: |-
++                                          values is an array of string values. If the operator is In or NotIn,
++                                          the values array must be non-empty. If the operator is Exists or DoesNotExist,
++                                          the values array must be empty. This array is replaced during a strategic
++                                          merge patch.
++                                        items:
++                                          type: string
++                                        type: array
++                                        x-kubernetes-list-type: atomic
++                                    required:
++                                    - key
++                                    - operator
++                                    type: object
++                                  type: array
++                                  x-kubernetes-list-type: atomic
++                                matchLabels:
++                                  additionalProperties:
++                                    type: string
++                                  description: |-
++                                    matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
++                                    map is equivalent to an element of matchExpressions, whose key field is "key", the
++                                    operator is "In", and the values array contains only "value". The requirements are ANDed.
++                                  type: object
++                              type: object
++                              x-kubernetes-map-type: atomic
++                          required:
++                          - selector
++                          type: object
++                        matchPodConfig:
++                          description: filters Workspaces by the PodConfig option
++                            they are using
++                          properties:
++                            selector:
++                              description: the standard Kubernetes label selector
++                                to match podConfig labels
++                              properties:
++                                matchExpressions:
++                                  description: matchExpressions is a list of label
++                                    selector requirements. The requirements are ANDed.
++                                  items:
++                                    description: |-
++                                      A label selector requirement is a selector that contains values, a key, and an operator that
++                                      relates the key and values.
++                                    properties:
++                                      key:
++                                        description: key is the label key that the
++                                          selector applies to.
++                                        type: string
++                                      operator:
++                                        description: |-
++                                          operator represents a key's relationship to a set of values.
++                                          Valid operators are In, NotIn, Exists and DoesNotExist.
++                                        type: string
++                                      values:
++                                        description: |-
++                                          values is an array of string values. If the operator is In or NotIn,
++                                          the values array must be non-empty. If the operator is Exists or DoesNotExist,
++                                          the values array must be empty. This array is replaced during a strategic
++                                          merge patch.
++                                        items:
++                                          type: string
++                                        type: array
++                                        x-kubernetes-list-type: atomic
++                                    required:
++                                    - key
++                                    - operator
++                                    type: object
++                                  type: array
++                                  x-kubernetes-list-type: atomic
++                                matchLabels:
++                                  additionalProperties:
++                                    type: string
++                                  description: |-
++                                    matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
++                                    map is equivalent to an element of matchExpressions, whose key field is "key", the
++                                    operator is "In", and the values array contains only "value". The requirements are ANDed.
++                                  type: object
++                              type: object
++                              x-kubernetes-map-type: atomic
++                          required:
++                          - selector
++                          type: object
++                      type: object
++                  required:
++                  - config
++                  - effect
++                  type: object
++                type: array
++                x-kubernetes-list-type: atomic
++              filterRules:
++                description: |-
++                  filterRules are admin-defined rules used by downstream consumers (the backend API server)
++                  to dynamically filter which WorkspaceKinds, imageConfig values, and podConfig values are
++                  visible or allowed in a given context. (MUTABLE)
++                  The controller does NOT evaluate or act on these rules, it only persists and validates them.
++                items:
++                  description: |-
++                    FilterRule is a single admin-defined rule which applies an effect to matched
++                    items (WorkspaceKinds, imageConfig values, or podConfig values) when all of
++                    its match conditions are satisfied.
++                  properties:
++                    effect:
++                      description: the effect to apply to matched items when all `match`
++                        conditions are satisfied
++                      properties:
++                        api:
++                          description: server-enforced behavior evaluated by the backend
++                            API server
++                          properties:
++                            deny:
++                              description: return the matched item but reject any
++                                workspace create/update which selects it
++                              type: boolean
++                            denyMessage:
++                              description: a message explaining why the matched item
++                                is denied
++                              properties:
++                                text:
++                                  description: the text of the message to show when
++                                    the item is denied
++                                  maxLength: 1024
++                                  minLength: 2
++                                  type: string
++                              required:
++                              - text
++                              type: object
++                            hide:
++                              description: omit the matched item from the API response
++                                entirely
++                              type: boolean
++                          type: object
++                          x-kubernetes-validations:
++                          - message: '''denyMessage'' may only be set when ''deny''
++                              is true'
++                            rule: '!has(self.denyMessage) || (has(self.deny) && self.deny)'
++                        ui:
++                          description: rendering hints for the frontend (the item
++                            is still returned by the API)
++                          properties:
++                            hide:
++                              description: suggest the UI hide the matched item
++                              type: boolean
++                          required:
++                          - hide
++                          type: object
++                      type: object
++                      x-kubernetes-validations:
++                      - message: must specify at least one of 'ui' or 'api'
++                        rule: has(self.ui) || has(self.api)
++                    match:
++                      description: the conditions which must ALL be satisfied for
++                        the rule to apply
++                      items:
++                        description: FilterRuleMatch defines a single match condition
++                          for a filter rule
++                        properties:
++                          matchImageConfig:
++                            description: match against the `spawner.labels` of an
++                              imageConfig value
++                            properties:
++                              selector:
++                                description: a standard Kubernetes label selector
++                                properties:
++                                  matchExpressions:
++                                    description: matchExpressions is a list of label
++                                      selector requirements. The requirements are
++                                      ANDed.
++                                    items:
++                                      description: |-
++                                        A label selector requirement is a selector that contains values, a key, and an operator that
++                                        relates the key and values.
++                                      properties:
++                                        key:
++                                          description: key is the label key that the
++                                            selector applies to.
++                                          type: string
++                                        operator:
++                                          description: |-
++                                            operator represents a key's relationship to a set of values.
++                                            Valid operators are In, NotIn, Exists and DoesNotExist.
++                                          type: string
++                                        values:
++                                          description: |-
++                                            values is an array of string values. If the operator is In or NotIn,
++                                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
++                                            the values array must be empty. This array is replaced during a strategic
++                                            merge patch.
++                                          items:
++                                            type: string
++                                          type: array
++                                          x-kubernetes-list-type: atomic
++                                      required:
++                                      - key
++                                      - operator
++                                      type: object
++                                    type: array
++                                    x-kubernetes-list-type: atomic
++                                  matchLabels:
++                                    additionalProperties:
++                                      type: string
++                                    description: |-
++                                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
++                                      map is equivalent to an element of matchExpressions, whose key field is "key", the
++                                      operator is "In", and the values array contains only "value". The requirements are ANDed.
++                                    type: object
++                                type: object
++                                x-kubernetes-map-type: atomic
++                            required:
++                            - selector
++                            type: object
++                          matchNamespace:
++                            description: match against the labels of the namespace
++                              the workspace would be created in
++                            properties:
++                              selector:
++                                description: a standard Kubernetes label selector
++                                properties:
++                                  matchExpressions:
++                                    description: matchExpressions is a list of label
++                                      selector requirements. The requirements are
++                                      ANDed.
++                                    items:
++                                      description: |-
++                                        A label selector requirement is a selector that contains values, a key, and an operator that
++                                        relates the key and values.
++                                      properties:
++                                        key:
++                                          description: key is the label key that the
++                                            selector applies to.
++                                          type: string
++                                        operator:
++                                          description: |-
++                                            operator represents a key's relationship to a set of values.
++                                            Valid operators are In, NotIn, Exists and DoesNotExist.
++                                          type: string
++                                        values:
++                                          description: |-
++                                            values is an array of string values. If the operator is In or NotIn,
++                                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
++                                            the values array must be empty. This array is replaced during a strategic
++                                            merge patch.
++                                          items:
++                                            type: string
++                                          type: array
++                                          x-kubernetes-list-type: atomic
++                                      required:
++                                      - key
++                                      - operator
++                                      type: object
++                                    type: array
++                                    x-kubernetes-list-type: atomic
++                                  matchLabels:
++                                    additionalProperties:
++                                      type: string
++                                    description: |-
++                                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
++                                      map is equivalent to an element of matchExpressions, whose key field is "key", the
++                                      operator is "In", and the values array contains only "value". The requirements are ANDed.
++                                    type: object
++                                type: object
++                                x-kubernetes-map-type: atomic
++                            required:
++                            - selector
++                            type: object
++                          matchPodConfig:
++                            description: match against the `spawner.labels` of a podConfig
++                              value
++                            properties:
++                              selector:
++                                description: a standard Kubernetes label selector
++                                properties:
++                                  matchExpressions:
++                                    description: matchExpressions is a list of label
++                                      selector requirements. The requirements are
++                                      ANDed.
++                                    items:
++                                      description: |-
++                                        A label selector requirement is a selector that contains values, a key, and an operator that
++                                        relates the key and values.
++                                      properties:
++                                        key:
++                                          description: key is the label key that the
++                                            selector applies to.
++                                          type: string
++                                        operator:
++                                          description: |-
++                                            operator represents a key's relationship to a set of values.
++                                            Valid operators are In, NotIn, Exists and DoesNotExist.
++                                          type: string
++                                        values:
++                                          description: |-
++                                            values is an array of string values. If the operator is In or NotIn,
++                                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
++                                            the values array must be empty. This array is replaced during a strategic
++                                            merge patch.
++                                          items:
++                                            type: string
++                                          type: array
++                                          x-kubernetes-list-type: atomic
++                                      required:
++                                      - key
++                                      - operator
++                                      type: object
++                                    type: array
++                                    x-kubernetes-list-type: atomic
++                                  matchLabels:
++                                    additionalProperties:
++                                      type: string
++                                    description: |-
++                                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
++                                      map is equivalent to an element of matchExpressions, whose key field is "key", the
++                                      operator is "In", and the values array contains only "value". The requirements are ANDed.
++                                    type: object
++                                type: object
++                                x-kubernetes-map-type: atomic
++                            required:
++                            - selector
++                            type: object
++                        type: object
++                        x-kubernetes-validations:
++                        - message: must specify exactly one of 'matchNamespace', 'matchImageConfig',
++                            or 'matchPodConfig'
++                          rule: '(has(self.matchNamespace) ? 1 : 0) + (has(self.matchImageConfig)
++                            ? 1 : 0) + (has(self.matchPodConfig) ? 1 : 0) == 1'
++                      minItems: 1
++                      type: array
++                      x-kubernetes-list-type: atomic
++                    scope:
++                      description: the type of resource whose visibility this rule
++                        controls
++                      enum:
++                      - WORKSPACE_KIND
++                      - POD_CONFIG
++                      - IMAGE_CONFIG
++                      type: string
++                  required:
++                  - effect
++                  - match
++                  - scope
++                  type: object
++                type: array
++                x-kubernetes-list-type: atomic
+               podTemplate:
+                 description: podTemplate is the PodTemplate used to spawn Pods to
+                   run Workspaces of this WorkspaceKind
+                 properties:
++                  activityProbe:
++                    description: activityProbe configs to determine Workspace activity
++                      (MUTABLE)
++                    properties:
++                      jupyter:
++                        description: a Jupyter-specific API probe
++                        properties:
++                          lastActivity:
++                            description: if the Jupyter-specific probe is enabled
++                            example: true
++                            type: boolean
++                          portId:
++                            description: the port to probe, referencing a port defined
++                              in spec.podTemplate.ports
++                            maxLength: 32
++                            minLength: 1
++                            pattern: ^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$
++                            type: string
++                        required:
++                        - lastActivity
++                        - portId
++                        type: object
++                        x-kubernetes-validations:
++                        - message: '''lastActivity'' must be true'
++                          rule: has(self.lastActivity) && self.lastActivity
++                      minProbeIntervalSeconds:
++                        default: 300
++                        description: |-
++                          the minimum duration in seconds that must elapse between two consecutive probes.
++                          - Acts as a rate-limiter for failed probes: if a probe fails, the controller waits at least this long before retrying (requeuing after minProbeInterval).
++                          - Also acts as a guard: if a reconcile triggers early, the probe is skipped until this interval has elapsed since the last probe.
++                        format: int32
++                        maximum: 31536000
++                        minimum: 1
++                        type: integer
++                      podExec:
++                        description: a script-based probe executed in the Pod
++                        properties:
++                          script:
++                            description: |-
++                              script is the script to run inside the Pod to determine if the Workspace is active.
++                              The script must meet the following requirements:
++                               - The Pod's main container MUST provide a POSIX shell at "/bin/sh" and the "cat", "chmod",
++                                 and "rm" utilities, which the controller uses to stage and execute the script. Minimal
++                                 or distroless images without these will cause the probe to fail (and never pause).
++                               - It must start with a shebang (e.g., "#!/usr/bin/env bash" or "#!/usr/bin/env python").
++                               - It must exit with a 0 status code. A non-zero exit code is treated as a probe failure (Workspaces with failing probes are not paused).
++                               - It should be idempotent and without side effects since it can be run multiple times.
++                               - If the script wants to report an INACTIVE state, it MUST write a JSON object to the file path
++                                 supplied in the OUTPUT_JSON_PATH environment variable.
++                               - When has_activity is not provided and last_activity is provided, last_activity is the authoritative source of truth:
++                                 a successful probe unconditionally overwrites `status.activity.lastActivity` with the reported
++                                 timestamp (the controller does not validate monotonicity or clamp to wall-clock time).
++                               - The JSON fields `has_activity` (boolean) and `last_activity` (ISO 8601 string) are mutually exclusive;
++                                 users should specify one or the other, not both. If both fields are present, `has_activity` takes
++                                 precedence and `last_activity` is totally ignored (the probe does not fail).
++                                 The fields are evaluated to update the Workspace status field `status.activity.lastActivity` as follows:
++                                   - If `has_activity` is explicitly set to `true` (or if the JSON file is empty/omitted): The Workspace is treated as active, and `status.activity.lastActivity` is updated to the probe completion time (ignoring `last_activity`).
++                                   - If `has_activity` is explicitly set to `false`: The Workspace is treated as inactive, and the existing `status.activity.lastActivity` timestamp is preserved (unchanged, ignoring `last_activity`).
++                                   - If `last_activity` (ISO 8601 string) is provided (and `has_activity` is omitted): The Workspace is treated as inactive, and `status.activity.lastActivity` is updated to the `last_activity` timestamp.
++                            maxLength: 2048
++                            minLength: 1
++                            type: string
++                          timeoutSeconds:
++                            default: 60
++                            description: the maximum number of seconds the probe is
++                              allowed to run
++                            format: int32
++                            minimum: 1
++                            type: integer
++                        required:
++                        - script
++                        type: object
++                      probeIntervalSeconds:
++                        default: 3600
++                        description: |-
++                          the desired interval in seconds between successful probes.
++                           - If a probe succeeds, the controller schedules the next probe after this duration (requeuing after probeInterval).
++                           - Determines the freshness of workspace activity status used by activity rules.
++                           - ACTIVITY TIMING CAVEAT: a Workspace is only paused immediately after a fresh probe confirms it is still
++                             inactive (a Workspace is never paused based on stale activity data, so an actively-used Workspace whose
++                             user resumed activity between probes is not paused). Consequently, activity rules are only evaluated at probe time,
++                             so a Workspace may keep running for up to ~probeIntervalSeconds after it first becomes eligible
++                             (lastActivity + secondsSinceActive) before it is actually paused. Lower this value for tighter timing,
++                             at the cost of more frequent probing.
++                        format: int32
++                        maximum: 31536000
++                        minimum: 1
++                        type: integer
++                    type: object
++                    x-kubernetes-validations:
++                    - message: must specify exactly one of 'podExec' or 'jupyter'
++                      rule: '!(has(self.podExec) && has(self.jupyter)) && (has(self.podExec)
++                        || has(self.jupyter))'
++                    - message: minProbeIntervalSeconds must be less than or equal
++                        to probeIntervalSeconds
++                      rule: self.minProbeIntervalSeconds <= self.probeIntervalSeconds
+                   containerSecurityContext:
+                     description: container security context for Workspace Pods (MUTABLE)
+                     properties:
+@@ -250,68 +762,6 @@
+                             type: string
+                         type: object
+                     type: object
+-                  culling:
+-                    description: culling configs for pausing inactive Workspaces (MUTABLE)
+-                    properties:
+-                      activityProbe:
+-                        description: the probe used to determine if the Workspace
+-                          is active
+-                        properties:
+-                          exec:
+-                            description: |-
+-                              a shell command probe
+-                               - if the Workspace had activity in the last 60 seconds this command
+-                                 should return status 0, otherwise it should return status 1
+-                            properties:
+-                              command:
+-                                description: the command to run
+-                                example:
+-                                - bash
+-                                - -c
+-                                - exit 0
+-                                items:
+-                                  type: string
+-                                minItems: 1
+-                                type: array
+-                            required:
+-                            - command
+-                            type: object
+-                          jupyter:
+-                            description: |-
+-                              a Jupyter-specific probe
+-                               - will poll the `/api/status` endpoint of the Jupyter API, and use the `last_activity` field
+-                               - note, users need to be careful that their other probes don't trigger a "last_activity" update
+-                                 e.g. they should only check the health of Jupyter using the `/api/status` endpoint
+-                            properties:
+-                              lastActivity:
+-                                description: if the Jupyter-specific probe is enabled
+-                                example: true
+-                                type: boolean
+-                            required:
+-                            - lastActivity
+-                            type: object
+-                            x-kubernetes-validations:
+-                            - message: '''lastActivity'' must be true'
+-                              rule: has(self.lastActivity) && self.lastActivity
+-                        type: object
+-                        x-kubernetes-validations:
+-                        - message: must specify exactly one of 'exec' or 'jupyter'
+-                          rule: '!(has(self.exec) && has(self.jupyter)) && (has(self.exec)
+-                            || has(self.jupyter))'
+-                      enabled:
+-                        default: true
+-                        description: if the culling feature is enabled
+-                        type: boolean
+-                      maxInactiveSeconds:
+-                        default: 86400
+-                        description: the maximum number of seconds a Workspace can
+-                          be inactive
+-                        format: int32
+-                        minimum: 60
+-                        type: integer
+-                    required:
+-                    - activityProbe
+-                    type: object
+                   extraEnv:
+                     description: |-
+                       environment variables for Workspace Pods (MUTABLE)
+@@ -4439,25 +4889,48 @@
+                         type: object
+                     type: object
+                   serviceAccount:
+-                    description: service account configs for Workspace Pods
++                    description: |-
++                      service account configs for Workspace Pods
++                       - each Workspace runs as its own ServiceAccount, which is created and owned by
++                         the controller and named "ws-{WORKSPACE_NAME}"
++                       - the resolved name is reported in the Workspace `status.podTemplatePod.serviceAccountName`
+                     properties:
+-                      name:
++                      clusterRoles:
+                         description: |-
+-                          the name of the ServiceAccount (NOT MUTABLE)
+-                           - this Service Account MUST already exist in the Namespace
+-                             of the Workspace, the controller will NOT create it
+-                           - we will not show this WorkspaceKind in the Spawner UI
+-                             if the SA does not exist in the Namespace
+-                        example: default-editor
+-                        maxLength: 253
+-                        minLength: 1
+-                        pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+-                        type: string
+-                        x-kubernetes-validations:
+-                        - message: ServiceAccount 'name' is immutable
+-                          rule: self == oldSelf
+-                    required:
+-                    - name
++                          the ClusterRoles to grant to the ServiceAccount of each Workspace (MUTABLE)
++                           - each entry becomes a namespaced RoleBinding, NOT a ClusterRoleBinding, so the
++                             permissions only apply inside the Namespace of the Workspace
++                           - removing an entry deletes the corresponding RoleBinding
++                           - the referenced ClusterRoles do not have to exist, a RoleBinding to a missing
++                             ClusterRole simply grants nothing until that ClusterRole is created
++                           - changes take effect immediately, Workspaces do NOT need to be restarted
++                        example:
++                        - name: kubeflow-edit
++                        items:
++                          description: |-
++                            WorkspaceKindClusterRole identifies a ClusterRole to bind to a Workspace's ServiceAccount
++                            via a namespaced RoleBinding.
++                          properties:
++                            name:
++                              description: |-
++                                the name of the ClusterRole to bind to the Workspace ServiceAccount
++                                 - note, ClusterRole names are path segment names, so unlike most Kubernetes
++                                   resource names they may contain uppercase letters and ":" (for example,
++                                   the aggregated "system:aggregate-to-view" ClusterRole)
++                                 - the pattern is the regex form of Kubernetes `IsValidPathSegmentName`:
++                                   the name must not be "." or "..", and must not contain "/" or "%"
++                              example: kubeflow-edit
++                              maxLength: 253
++                              minLength: 1
++                              pattern: ^([^./%][^/%]*|\.[^./%][^/%]*|\.[^/%][^/%]+)$
++                              type: string
++                          required:
++                          - name
++                          type: object
++                        type: array
++                        x-kubernetes-list-map-keys:
++                        - name
++                        x-kubernetes-list-type: map
+                     type: object
+                   volumeMounts:
+                     description: volume mount paths
+@@ -4478,7 +4951,6 @@
+                 required:
+                 - options
+                 - ports
+-                - serviceAccount
+                 - volumeMounts
+                 type: object
+               spawner:
+# file: applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspaces.yaml
+--- a/applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspaces.yaml
++++ b/applications/workspaces/upstream/controller/base/crd/kubeflow.org_workspaces.yaml
+@@ -46,6 +46,13 @@
+           spec:
+             description: WorkspaceSpec defines the desired state of Workspace
+             properties:
++              displayName:
++                description: an optional human-readable name for the Workspace, displayed
++                  in the UI instead of metadata.name
++                example: My Workspace
++                maxLength: 128
++                minLength: 1
++                type: string
+               kind:
+                 description: the WorkspaceKind to use
+                 example: jupyterlab
+@@ -207,32 +214,102 @@
+             properties:
+               activity:
+                 description: activity information for the Workspace, used to determine
+-                  when to cull
++                  activity rule actions
+                 properties:
+                   lastActivity:
+                     default: 0
+-                    description: the last time activity was observed on the Workspace
+-                      (UNIX epoch)
+-                    example: 1704067200
++                    description: |-
++                      the last time activity was observed on the Workspace (UNIX epoch in milliseconds)
++                       - this is the value returned by the activity probe, not the time the probe was run
++                       - the activity probe is authoritative: on success, the probe result unconditionally
++                         overwrites this timestamp (the controller does not validate monotonicity or clamp to wall-clock time)
++                       - not updated when a probe fails
++                    example: 1704067200000
+                     format: int64
+                     type: integer
++                  lastProbe:
++                    description: probe result tracking
++                    properties:
++                      endTime:
++                        description: the time the probe was completed (UNIX epoch
++                          in milliseconds)
++                        example: 1710435305000
++                        format: int64
++                        type: integer
++                      message:
++                        default: ""
++                        description: |-
++                          a human-readable message about the probe result
++                           - WARNING: this field is NOT FOR MACHINE USE, subject to change without notice
++                        example: Jupyter probe succeeded
++                        type: string
++                      result:
++                        description: the result of the last probe execution
++                        enum:
++                        - Success
++                        - Failure
++                        - Timeout
++                        type: string
++                      startTime:
++                        description: the time the probe was started (UNIX epoch in
++                          milliseconds)
++                        example: 1710435303000
++                        format: int64
++                        type: integer
++                    required:
++                    - endTime
++                    - message
++                    - result
++                    - startTime
++                    type: object
+                   lastUpdate:
+                     default: 0
+-                    description: the last time we checked for activity on the Workspace
+-                      (UNIX epoch)
+-                    example: 1704067200
++                    description: |-
++                      the end time of the last successful probe (UNIX epoch in milliseconds)
++                       - not updated when a probe fails
++                       - used to determine when the next probe should run
++                    example: 1704067200000
+                     format: int64
+                     type: integer
++                  rules:
++                    description: rule evaluation state
++                    properties:
++                      pauseWorkspace:
++                        description: rule evaluation state for the pauseWorkspace
++                          effect
++                        properties:
++                          eligibleAfter:
++                            default: 0
++                            description: |-
++                              the time after which if the rule is evaluated the Workspace would be paused (UNIX epoch in milliseconds)
++                               - set to 0 when lastActivity is unknown (<= 0), indicating eligibility cannot be computed / not applicable
++                               - the controller will not pause a Workspace when eligibleAfter is 0
++                            example: 1707667200000
++                            format: int64
++                            type: integer
++                        required:
++                        - eligibleAfter
++                        type: object
++                    type: object
+                 required:
+                 - lastActivity
+                 - lastUpdate
+                 type: object
++              lastRunningTime:
++                default: 0
++                description: |-
++                  the last time the Workspace entered a Running state (UNIX epoch in milliseconds)
++                   - used to compute running duration for `minRunningSeconds` activity guard
++                   - set to 0 when the Workspace has never been in a Running state
++                example: 1704060000000
++                format: int64
++                type: integer
+               pauseTime:
+                 default: 0
+                 description: |-
+-                  the time when the Workspace was paused (UNIX epoch)
++                  the time when the Workspace was paused (UNIX epoch in milliseconds)
+                    - set to 0 when the Workspace is NOT paused
+-                example: 1704067200
++                example: 1704067200000
+                 format: int64
+                 type: integer
+               pendingRestart:
+@@ -344,6 +421,14 @@
+                   nodeName:
+                     description: the name of the node on which the Pod is scheduled
+                     type: string
++                  serviceAccountName:
++                    description: |-
++                      the name of the ServiceAccount that the Pod runs as
++                       - this ServiceAccount is created and owned by the Workspace, and is stable for its lifetime
++                       - it is reported here so that Roles, RoleBindings, and Istio AuthorizationPolicies
++                         which reference the ServiceAccount do not have to recompute its name
++                    example: ws-my-workspace
++                    type: string
+                 required:
+                 - name
+                 - nodeName
+@@ -367,6 +452,7 @@
+                 type: string
+             required:
+             - activity
++            - lastRunningTime
+             - pauseTime
+             - pendingRestart
+             - podTemplateOptions
+# file: applications/workspaces/upstream/controller/base/manager/kustomization.yaml
+--- a/applications/workspaces/upstream/controller/base/manager/kustomization.yaml
++++ b/applications/workspaces/upstream/controller/base/manager/kustomization.yaml
+@@ -19,4 +19,4 @@
+ images:
+ - name: workspaces-controller
+   newName: ghcr.io/kubeflow/notebooks/workspaces-controller
+-  newTag: v2.0.0-alpha.3
++  newTag: v2.0.0-beta.0
+# file: applications/workspaces/upstream/controller/base/manager/role.yaml
+--- a/applications/workspaces/upstream/controller/base/manager/role.yaml
++++ b/applications/workspaces/upstream/controller/base/manager/role.yaml
+@@ -9,6 +9,7 @@
+   resources:
+   - configmaps
+   - events
++  - namespaces
+   - pods
+   verbs:
+   - get
+@@ -17,6 +18,13 @@
+ - apiGroups:
+   - ""
+   resources:
++  - pods/exec
++  verbs:
++  - create
++- apiGroups:
++  - ""
++  resources:
++  - serviceaccounts
+   - services
+   verbs:
+   - create
+@@ -74,6 +82,24 @@
+   verbs:
+   - create
+   - delete
++  - get
++  - list
++  - patch
++  - update
++  - watch
++- apiGroups:
++  - rbac.authorization.k8s.io
++  resources:
++  - clusterroles
++  verbs:
++  - bind
++- apiGroups:
++  - rbac.authorization.k8s.io
++  resources:
++  - rolebindings
++  verbs:
++  - create
++  - delete
+   - get
+   - list
+   - patch
+# file: applications/workspaces/upstream/controller/base/manager/user_cluster_roles.yaml
+--- a/applications/workspaces/upstream/controller/base/manager/user_cluster_roles.yaml
++++ b/applications/workspaces/upstream/controller/base/manager/user_cluster_roles.yaml
+@@ -1,7 +1,7 @@
+ ##
+ ## WARNING: Kubernetes will REMOVE any existing content of `rules` when using `aggregationRule`. 
+ ##          So, we define both the `aggregate-to-kubeflow-workspaces-edit` and `kubeflow-workspaces-edit` 
+-##          even though only `kubeflow-workspaces-edit` is indented to be used in a binding.
++##          even though only `kubeflow-workspaces-edit` is intended to be used in a binding.
+ ##          https://kubernetes.io/docs/reference/access-authn-authz/rbac/#aggregated-clusterroles
+ ##
+ apiVersion: rbac.authorization.k8s.io/v1
+@@ -44,6 +44,28 @@
+ ---
+ apiVersion: rbac.authorization.k8s.io/v1
+ kind: ClusterRole
++metadata:
++  name: aggregate-to-kubeflow-workspaces-admin
++  labels:
++    rbac.authorization.kubeflow.org/aggregate-to-kubeflow-workspaces-admin: "true"
++rules:
++- apiGroups:
++  - kubeflow.org
++  resources:
++  - workspacekinds
++  - workspacekinds/status
++  verbs:
++  - create
++  - delete
++  - deletecollection
++  - get
++  - list
++  - patch
++  - update
++  - watch
++---
++apiVersion: rbac.authorization.k8s.io/v1
++kind: ClusterRole
+ metadata:
+   name: aggregate-to-kubeflow-workspaces-edit
+   labels:
+# file: applications/workspaces/upstream/controller/components/common/kustomization.yaml
+--- a/applications/workspaces/upstream/controller/components/common/kustomization.yaml
++++ b/applications/workspaces/upstream/controller/components/common/kustomization.yaml
+@@ -4,6 +4,9 @@
+ labels:
+ - includeSelectors: true
+   pairs:
+-    app.kubernetes.io/managed-by: kustomize
+     app.kubernetes.io/name: workspaces-controller
+-    app.kubernetes.io/part-of: kubeflow-workspaces
+\ No newline at end of file
++    app.kubernetes.io/part-of: kubeflow-workspaces
++- includeSelectors: false
++  includeTemplates: true
++  pairs:
++    app.kubernetes.io/managed-by: kustomize
+\ No newline at end of file
+# file: applications/workspaces/upstream/controller/components/prometheus/kustomization.yaml
+--- a/applications/workspaces/upstream/controller/components/prometheus/kustomization.yaml
++++ b/applications/workspaces/upstream/controller/components/prometheus/kustomization.yaml
+@@ -3,6 +3,7 @@
+ 
+ resources:
+ - monitor.yaml
++- network-policy.yaml
+ - service.yaml
+ 
+ patches:
+# file: applications/workspaces/upstream/controller/components/prometheus/monitor.yaml
+--- a/applications/workspaces/upstream/controller/components/prometheus/monitor.yaml
++++ b/applications/workspaces/upstream/controller/components/prometheus/monitor.yaml
+@@ -13,6 +13,5 @@
+   selector:
+     matchLabels:
+       app.kubernetes.io/component: metrics
+-      app.kubernetes.io/managed-by: kustomize
+       app.kubernetes.io/name: workspaces-controller
+       app.kubernetes.io/part-of: kubeflow-workspaces
+# file: applications/workspaces/upstream/controller/samples/codeserver_v1beta1_workspacekind.yaml
+--- a/applications/workspaces/upstream/controller/samples/codeserver_v1beta1_workspacekind.yaml
++++ b/applications/workspaces/upstream/controller/samples/codeserver_v1beta1_workspacekind.yaml
+@@ -1,3 +1,12 @@
++## --> NOTE <--
++##
++## These are just example definitions for WorkspaceKind, please thoroughly vet
++## them and customize them for your usecase before using them in a production
++## setting!
++
++## For detailed documentation and configuration examples, see:
++## jupyterlab_v1beta1_workspacekind.yaml
++
+ apiVersion: kubeflow.org/v1beta1
+ kind: WorkspaceKind
+ metadata:
+@@ -10,12 +19,45 @@
+       url: "https://upload.wikimedia.org/wikipedia/commons/9/9a/Visual_Studio_Code_1.35_icon.svg"
+     logo:
+       url: "https://upload.wikimedia.org/wikipedia/commons/9/9a/Visual_Studio_Code_1.35_icon.svg"
++
++  filterRules:
++  - scope: IMAGE_CONFIG
++    effect:
++      ui:
++        hide: true
++    match:
++     - matchNamespace:
++          selector:
++            matchExpressions:
++              - key: "nvidia.com/gpu"
++                operator: DoesNotExist
++     - matchImageConfig:
++          selector:
++            matchExpressions:
++              - key: "cuda_version"
++                operator: Exists
++
++  activityRules:
++    - config:
++        secondsSinceActive: 7200
++      match: {}
++      effect:
++        pauseWorkspace: true
++
+   podTemplate:
+     podMetadata:
+       labels: {}
+       annotations: {}
+-    serviceAccount:
+-      name: "default-editor"
++    activityProbe:
++      minProbeIntervalSeconds: 300
++      probeIntervalSeconds: 3600
++      podExec:
++        timeoutSeconds: 60
++        script: |-
++          #!/usr/bin/env bash
++          # A mock probe that always reports activity (replace with real detection logic)
++          echo '{"has_activity": true}' > "$OUTPUT_JSON_PATH"
++          exit 0
+     volumeMounts:
+       home: "/home/jovyan"
+     ports:
+@@ -35,12 +77,16 @@
+           medium: "Memory"
+     securityContext:
+       fsGroup: 100
++      seccompProfile:
++        type: RuntimeDefault
+     containerSecurityContext:
+       allowPrivilegeEscalation: false
+       capabilities:
+         drop:
+           - ALL
+       runAsNonRoot: true
++      seccompProfile:
++        type: RuntimeDefault
+     options:
+       imageConfig:
+         spawner:
+# file: applications/workspaces/upstream/controller/samples/common/kustomization.yaml
+--- a/applications/workspaces/upstream/controller/samples/common/kustomization.yaml
++++ b/applications/workspaces/upstream/controller/samples/common/kustomization.yaml
+@@ -5,5 +5,4 @@
+ - workspace_data_pvc.yaml
+ - workspace_home_pvc.yaml
+ - workspace_secret.yaml
+-- workspace_service_account.yaml
+ - workspacekind_imagesource_configmap.yaml
+\ No newline at end of file
+# file: applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspace.yaml
+--- a/applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspace.yaml
++++ b/applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspace.yaml
+@@ -1,3 +1,9 @@
++## --> NOTE <--
++##
++## These are just example definitions for Workspace, please thoroughly vet
++## them and customize them for your usecase before using them in a production
++## setting!
++
+ apiVersion: kubeflow.org/v1beta1
+ kind: Workspace
+ metadata:
+@@ -6,6 +12,9 @@
+   ## if the workspace is paused (no pods running)
+   paused: false
+ 
++  ## an optional human-readable name, displayed in the UI instead of metadata.name
++  displayName: "Example JupyterLab Workspace"
++
+   ## the WorkspaceKind to use
+   kind: "jupyterlab"
+ 
+# file: applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspacekind.yaml
+--- a/applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspacekind.yaml
++++ b/applications/workspaces/upstream/controller/samples/jupyterlab_v1beta1_workspacekind.yaml
+@@ -1,8 +1,15 @@
++## --> NOTE <--
++##
++## These are just example definitions for WorkspaceKind, please thoroughly vet
++## them and customize them for your usecase before using them in a production
++## setting!
++
+ apiVersion: kubeflow.org/v1beta1
+ kind: WorkspaceKind
+ metadata:
+   name: jupyterlab
+ spec:
++
+   ## ================================================================
+   ## SPAWNER CONFIGS
+   ##  - how the WorkspaceKind is displayed in the Workspace Spawner UI
+@@ -47,6 +54,88 @@
+       #   mediaType: "image/svg+xml"
+ 
+   ## ================================================================
++  ## FILTER RULES
++  ##  - admin-defined rules used by the backend API server to dynamically filter
++  ##    which WorkspaceKinds, imageConfig values, and podConfig values are visible
++  ##    or allowed in a given context
++  ##  - the controller does NOT evaluate these rules, it only persists and validates them
++  ## ================================================================
++  filterRules:
++
++    ## hide this WorkspaceKind in namespaces which are not labeled 'workspace_team=team_1'
++    - scope: WORKSPACE_KIND
++      effect:
++        ui:
++          hide: true
++      match:
++        - matchNamespace:
++            selector:
++              matchExpressions:
++                - key: "workspace_team"
++                  operator: NotIn
++                  values: ["team_1"]
++
++  ## ================================================================
++  ## ACTIVITY RULES
++  ##  - policies for handling inactivity in Workspaces of this kind
++  ##  - rules are evaluated sequentially from top to bottom (first-match-wins semantics)
++  ##    independently for each configured effect type (e.g., pauseWorkspace)
++  ## ================================================================
++  activityRules:
++
++    ## activityRule to pause workspaces which (AND)
++    ##  - have the namespaces with the label 'tier=development' set
++    ##  - have been running for at least 5 minutes (300 seconds)
++    ##  - have been inactive for at least 2 hours (7200 seconds)
++    - config:
++        secondsSinceActive: 7200
++        minRunningSeconds: 300
++      match:
++        matchNamespace:
++          selector:
++            matchLabels:
++              tier: development
++      effect:
++        pauseWorkspace: true
++
++    ## activityRule to pause workspaces which (AND)
++    ##  - the podconfig has the label 'gpu: "1"' set
++    ##  - have been running for at least 5 minutes (300 seconds)
++    ##  - have been inactive for at least 1 hour (3600 seconds)
++    #- config:
++    #    secondsSinceActive: 3600
++    #    minRunningSeconds: 300
++    #  match:
++    #    matchPodConfig:
++    #      selector:
++    #        matchLabels:
++    #          gpu: "1"
++    #  effect:
++    #    pauseWorkspace: true
++
++    ## activityRule to exempt from pausing workspaces which (AND)
++    ##  - have the namespaces with the label 'tier=production' set
++    #- config:
++    #  match:
++    #    matchNamespace:
++    #      selector:
++    #        matchLabels:
++    #          tier: production
++    #  effect:
++    #    pauseWorkspace: false
++
++    ## catch-all activityRule to pause workspaces which (AND)
++    ##  - have been inactive for at least 1 day
++    ##  - are not matched to any of the above pauseWorkspace rules
++    - config:
++        secondsSinceActive: 86400
++      ## empty match (`match: {}` or omitted `match`) matches all Workspaces.
++      ## At most one catch-all rule is allowed per effect type, and it must be the last rule.
++      match: {}
++      effect:
++        pauseWorkspace: true
++
++  ## ================================================================
+   ## DEFINITION CONFIGS
+   ##  - currently the only supported type is `podTemplate`
+   ##  - in the future, there will be MORE types like `virtualMachine`
+@@ -63,52 +152,51 @@
+         my-workspace-kind-annotation: "my-value"
+ 
+     ## service account configs for Workspace Pods
+-    ##
+-    serviceAccount:
+-
+-      ## the name of the ServiceAccount (NOT MUTABLE)
+-      ##  - this Service Account MUST already exist in the Namespace
+-      ##    of the Workspace, the controller will NOT create it
+-      ##  - we will not show this WorkspaceKind in the Spawner UI
+-      ##    if the SA does not exist in the Namespace
+-      ##
+-      name: "default-editor"
++    ##  - each Workspace runs as its own ServiceAccount named "ws-{WORKSPACE_NAME}",
++    ##    which the controller creates, owns, and deletes along with the Workspace
++    ##  - the resolved name is reported in the Workspace
++    ##    `status.podTemplatePod.serviceAccountName`
++    ##
++    ## NOTE: commented out because these ClusterRoles are provided by the Kubeflow
++    ##       platform, they do NOT exist in a standalone install of this controller
++    ##
++    #serviceAccount:
++    #
++    #  ## ClusterRoles to grant to the ServiceAccount of each Workspace (MUTABLE)
++    #  ##  - each entry becomes a RoleBinding in the Namespace of the Workspace, so the
++    #  ##    permissions are scoped to that Namespace and are NOT cluster-wide
++    #  ##  - these are ClusterRole names, NOT ServiceAccount names
++    #  ##
++    #  clusterRoles:
++    #    - name: "kubeflow-view"
+ 
+-    ## activity culling configs (MUTABLE)
+-    ##  - for pausing inactive Workspaces
++    ## activity probe configs (MUTABLE)
++    ##  - determines how to detect activity in the Workspace
+     ##
+-    culling:
++    activityProbe:
+ 
+-      ## if the culling feature is enabled
++      ## determines the minimum period in seconds between each Workspace probe
+       ##
+-      enabled: true
++      minProbeIntervalSeconds: 300
+ 
+-      ## the maximum number of seconds a Workspace can be inactive
++      ## determines the desired period in seconds between each Workspace probe
+       ##
+-      maxInactiveSeconds: 86400
++      probeIntervalSeconds: 3600
+ 
+-      ## the probe used to determine if the Workspace is active
++      ## OPTION 1: a script-based probe executed in the Pod
+       ##
+-      activityProbe:
++      #podExec:
++      #  timeoutSeconds: 60
++      #  script: |-
++      #    #!/usr/bin/env bash
++      #    echo '{"has_activity": true}' > "$OUTPUT_JSON_PATH"
++      #    exit 0
+ 
+-        ## OPTION 1: a shell command probe
+-        ##  - if the Workspace had activity in the last 60 seconds this command
+-        ##    should return status 0, otherwise it should return status 1
+-        ##
+-        #exec:
+-        #  command:
+-        #    - "bash"
+-        #    - "-c"
+-        #    - "exit 0"
+-
+-        ## OPTION 2: a Jupyter-specific probe
+-        ##  - will poll the `/api/status` endpoint of the Jupyter API, and use the `last_activity` field
+-        ##    https://github.com/jupyter-server/jupyter_server/blob/v2.13.0/jupyter_server/services/api/handlers.py#L62-L67
+-        ##  - note, users need to be careful that their other probes don't trigger a "last_activity" update
+-        ##    e.g. they should only check the health of Jupyter using the `/api/status` endpoint
+-        ##
+-        jupyter:
+-          lastActivity: true
++      ## OPTION 2: a Jupyter-specific API probe
++      ##
++      jupyter:
++        lastActivity: true
++        portId: "jupyterlab"
+ 
+     ## standard probes to determine Container health (MUTABLE)
+     ##  - spec for Probe:
+@@ -212,6 +300,8 @@
+     ##
+     securityContext:
+       fsGroup: 100
++      seccompProfile:
++        type: RuntimeDefault
+ 
+     ## container SecurityContext for Workspace Pods (MUTABLE)
+     ##  - spec for SecurityContext:
+@@ -223,6 +313,8 @@
+         drop:
+           - ALL
+       runAsNonRoot: true
++      seccompProfile:
++        type: RuntimeDefault
+ 
+     ## ==============================================================
+     ## WORKSPACE OPTIONS
+# file: applications/workspaces/upstream/controller/samples/rstudio_v1beta1_workspacekind.yaml
+--- a/applications/workspaces/upstream/controller/samples/rstudio_v1beta1_workspacekind.yaml
++++ b/applications/workspaces/upstream/controller/samples/rstudio_v1beta1_workspacekind.yaml
+@@ -1,3 +1,12 @@
++## --> NOTE <--
++##
++## These are just example definitions for WorkspaceKind, please thoroughly vet
++## them and customize them for your usecase before using them in a production
++## setting!
++
++## For detailed documentation and configuration examples, see:
++## jupyterlab_v1beta1_workspacekind.yaml
++
+ apiVersion: kubeflow.org/v1beta1
+ kind: WorkspaceKind
+ metadata:
+@@ -10,12 +19,45 @@
+       url: "https://upload.wikimedia.org/wikipedia/commons/1/1b/R_logo.svg"
+     logo:
+       url: "https://upload.wikimedia.org/wikipedia/commons/1/1b/R_logo.svg"
++
++  filterRules:
++    - scope: POD_CONFIG
++      effect:
++        ui:
++          hide: true
++      match:
++        - matchImageConfig:
++            selector:
++              matchExpressions:
++                - key: "cuda_version"
++                  operator: DoesNotExist
++        - matchPodConfig:
++            selector:
++              matchExpressions:
++                - key: "gpu"
++                  operator: Exists
++
++  activityRules:
++    - config:
++        secondsSinceActive: 7200
++      match: {}
++      effect:
++        pauseWorkspace: true
++
+   podTemplate:
+     podMetadata:
+       labels: {}
+       annotations: {}
+-    serviceAccount:
+-      name: "default-editor"
++    activityProbe:
++      minProbeIntervalSeconds: 300
++      probeIntervalSeconds: 3600
++      podExec:
++        timeoutSeconds: 60
++        script: |-
++          #!/usr/bin/env bash
++          # A mock probe that always reports activity (replace with real detection logic)
++          echo '{"has_activity": true}' > "$OUTPUT_JSON_PATH"
++          exit 0
+     volumeMounts:
+       home: "/home/jovyan"
+     ports:
+@@ -38,12 +80,16 @@
+           medium: "Memory"
+     securityContext:
+       fsGroup: 100
++      seccompProfile:
++        type: RuntimeDefault
+     containerSecurityContext:
+       allowPrivilegeEscalation: false
+       capabilities:
+         drop:
+           - ALL
+       runAsNonRoot: true
++      seccompProfile:
++        type: RuntimeDefault
+     options:
+       imageConfig:
+         spawner:
+# file: applications/workspaces/upstream/frontend/base/kustomization.yaml
+--- a/applications/workspaces/upstream/frontend/base/kustomization.yaml
++++ b/applications/workspaces/upstream/frontend/base/kustomization.yaml
+@@ -16,4 +16,4 @@
+ images:
+ - name: workspaces-frontend
+   newName: ghcr.io/kubeflow/notebooks/workspaces-frontend
+-  newTag: v2.0.0-alpha.3
++  newTag: v2.0.0-beta.0
+# file: applications/workspaces/upstream/frontend/components/common/kustomization.yaml
+--- a/applications/workspaces/upstream/frontend/components/common/kustomization.yaml
++++ b/applications/workspaces/upstream/frontend/components/common/kustomization.yaml
+@@ -4,6 +4,9 @@
+ labels:
+ - includeSelectors: true
+   pairs:
+-    app.kubernetes.io/managed-by: kustomize
+     app.kubernetes.io/name: workspaces-frontend
+     app.kubernetes.io/part-of: kubeflow-workspaces
++- includeSelectors: false
++  includeTemplates: true
++  pairs:
++    app.kubernetes.io/managed-by: kustomize
+# file: applications/workspaces/upstream/frontend/components/istio/authorization-policy.yaml
+--- a/applications/workspaces/upstream/frontend/components/istio/authorization-policy.yaml
++++ b/applications/workspaces/upstream/frontend/components/istio/authorization-policy.yaml
+@@ -8,7 +8,6 @@
+     matchLabels:
+       app: workspaces-frontend
+       app.kubernetes.io/component: ui
+-      app.kubernetes.io/managed-by: kustomize
+       app.kubernetes.io/name: workspaces-frontend
+       app.kubernetes.io/part-of: kubeflow-workspaces
+   rules:

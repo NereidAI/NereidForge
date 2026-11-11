@@ -1,0 +1,68 @@
+# file: common/oauth2-proxy/OWNERS
+--- a/common/oauth2-proxy/OWNERS
++++ b/common/oauth2-proxy/OWNERS
+@@ -1,3 +1,2 @@
+ approvers:
+-  - axel7083
+   - kromanow94
+# file: common/oauth2-proxy/README.md
+--- a/common/oauth2-proxy/README.md
++++ b/common/oauth2-proxy/README.md
+@@ -72,7 +72,7 @@
+ The authentication in Kubeflow evolved over time and we dropped envoyfilters and oidc-authservice in favor of RequestAuthentication and Oauth2-proxy in Kubeflow 1.9.
+ ![auth-flow](components/oauth2-flow.svg)
+ 
+-You can adjust OAuth2 Proxy to directly connect to your own IDP(Identity Provider) suchg as GCP, [AWS](https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html), Azure etc:
++You can adjust OAuth2 Proxy to directly connect to your own IDP(Identity Provider) such as GCP, [AWS](https://docs.aws.amazon.com/cognito/latest/developerguide/federation-endpoints-oauth-grants.html), Azure etc:
+ 
+ 1. Create an application on your IdP (purple line)
+ 2. Change your [OAuth2 Proxy issuer](https://github.com/kubeflow/community-distribution/blob/35539f162ea7fafc8c5035d8df0d8d8cf5a9d327/common/oauth2-proxy/base/oauth2-proxy-config.yaml#L10) to your IdP. Of course never ever directly, but with kustomize overlays and components.
+@@ -221,13 +221,13 @@
+ apiVersion: apps/v1
+ kind: Deployment
+ metadata:
+-  name: kserve-models-web-app
++  name: kserve-models-web-application
+   namespace: kubeflow
+ spec:
+   template:
+     spec:
+       containers:
+-        - name: kserve-models-web-app # repeat for all other *-web-app-(deployment)
++        - name: kserve-models-web-application # repeat for all other *-web-app-(deployment)
+           env:
+             - name: GUNICORN_CMD_ARGS
+               value: --limit-request-field_size 32000
+# file: common/oauth2-proxy/base/deployment.yaml
+--- a/common/oauth2-proxy/base/deployment.yaml
++++ b/common/oauth2-proxy/base/deployment.yaml
+@@ -14,6 +14,7 @@
+       labels:
+         app.kubernetes.io/name: oauth2-proxy
+     spec:
++      serviceAccountName: oauth2-proxy
+       volumes:
+       - name: oauth2-proxy-config
+         configMap:
+@@ -23,7 +24,7 @@
+           name: oauth2-proxy-theme
+       containers:
+       - name: oauth2-proxy
+-        image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.2
++        image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.3
+         args:
+         - --http-address=0.0.0.0:4180
+         - --config=/etc/oauth2_proxy/oauth2_proxy.cfg
+# file: common/oauth2-proxy/components/istio-external-auth-patches/patches/cm.enable-oauth2-proxy.yaml
+--- a/common/oauth2-proxy/components/istio-external-auth-patches/patches/cm.enable-oauth2-proxy.yaml
++++ b/common/oauth2-proxy/components/istio-external-auth-patches/patches/cm.enable-oauth2-proxy.yaml
+@@ -10,6 +10,9 @@
+       discoveryAddress: istiod.istio-system.svc:15012
+       proxyMetadata: {}
+       tracing: {}
++    defaultProviders:
++      metrics:
++      - prometheus
+     enablePrometheusMerge: true
+     rootNamespace: istio-system
+     tcpKeepalive:

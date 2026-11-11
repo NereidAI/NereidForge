@@ -1,0 +1,77 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "valkey.fullname" . }}-replica
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  serviceName: {{ include "valkey.replicaServiceName" . }}
+  replicas: {{ .Values.replica.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "valkey.labels" . | nindent 6 }}
+      app.kubernetes.io/component: replica
+  template:
+    metadata:
+      labels:
+        {{- include "valkey.labels" . | nindent 8 }}
+        app.kubernetes.io/component: replica
+    spec:
+      {{- with .Values.imagePullSecret }}
+      imagePullSecrets:
+        - name: {{ . }}
+      {{- end }}
+      containers:
+        - name: valkey
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 6379
+              name: valkey
+          command:
+            - valkey-server
+            - /etc/valkey/valkey.conf
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/valkey
+          resources:
+{{ toYaml .Values.replica.resources | indent 12 }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          livenessProbe:
+            exec:
+              command:
+                - valkey-cli
+                - ping
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command:
+                - valkey-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "valkey.fullname" . }}-replica
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.replica.persistenceSize }}

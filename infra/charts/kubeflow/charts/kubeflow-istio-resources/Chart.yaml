@@ -1,0 +1,5 @@
+apiVersion: v2
+name: kubeflow-istio-resources
+description: Kubeflow kubeflow istio resources component (helm subchart of charts/kubeflow)
+type: application
+version: 0.1.0

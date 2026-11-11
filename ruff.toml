@@ -1,0 +1,32 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Ruff's standard syntax and Pyflakes gate for first-party Python sources.
+# Generated pipelines and vendored upstream trees retain their own checks.
+target-version = "py314"
+line-length = 120
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "dist",
+    "build",
+    "*.egg-info",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "vendor",
+    "app/python-backend/out",
+]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+docstring-code-format = true
+docstring-code-line-length = 100

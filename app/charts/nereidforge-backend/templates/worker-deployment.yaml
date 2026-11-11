@@ -1,0 +1,77 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# Worker Deployment for the NereidForge backend chart.
+{{- if and .Values.enabled .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nereidforge-backend.worker.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      {{- include "nereidforge-backend.selectorLabels" . | nindent 6 }}
+      component: worker
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.worker.podAnnotations }}
+        {{- toYaml .Values.worker.podAnnotations | nindent 8 }}
+        {{- end }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/pg-credentials: {{ include (print $.Template.BasePath "/pg-credentials.yaml") . | sha256sum }}
+      labels:
+        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        component: worker
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - python
+            - -m
+            - app.worker
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          env:
+            {{- toYaml .Values.worker.env | nindent 12 }}
+            {{- if .Values.postgresql.existingSecret }}
+            - name: NEREIDFORGE_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.existingSecretKey | default "password" }}
+                  optional: false
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "nereidforge-backend.fullname" . }}-secrets
+          volumeMounts: []
+      volumes: []
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

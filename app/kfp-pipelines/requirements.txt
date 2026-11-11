@@ -1,0 +1,10 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+kfp>=2.8.0
+kubernetes>=30.0.0
+pyyaml>=6.0
+requests>=2.31.0
+pydantic>=2.5.0
+tenacity>=8.2.0
+python-dotenv>=1.0.0

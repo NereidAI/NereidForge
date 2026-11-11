@@ -1,0 +1,68 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-volume
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    component: volume
+spec:
+  serviceName: {{ include "seaweedfs.fullname" . }}-volume
+  replicas: {{ .Values.volume.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      component: volume
+  template:
+    metadata:
+      labels:
+        {{- include "seaweedfs.selectorLabels" . | nindent 8 }}
+        component: volume
+    spec:
+      containers:
+        - name: volume
+          image: "{{ .Values.image }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - "volume"
+            - '-mserver={{ include "seaweedfs.fullname" . }}-master:9333'
+            - "-port=8080"
+            - "-dir=/data"
+            - "-rack={{ .Values.rack }}"
+            - "-dataCenter={{ .Values.dataCenter }}"
+          ports:
+            - name: volume
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.volume.resources | nindent 12 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.storageClass }}
+        resources:
+          requests:
+            storage: {{ .Values.volume.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-volume
+  namespace: {{ .Release.Namespace }}
+spec:
+  clusterIP: None
+  ports:
+    - port: 8080
+      name: volume
+  selector:
+    app.kubernetes.io/name: {{ include "seaweedfs.name" . }}
+    component: volume

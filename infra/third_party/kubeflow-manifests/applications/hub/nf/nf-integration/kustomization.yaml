@@ -1,0 +1,42 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# NereidForge integration component for Kubeflow Hub (Model Registry).
+#
+# Declares the required live topology as a component instead of post-apply
+# `kubectl patch` calls or edits to vendored upstream files. A pristine
+# upstream checkout therefore reproduces the same state through
+# kubeflow-nf-patches/apply.sh.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  # Extra ALLOW AuthorizationPolicy so non-meshed NF api/worker pods in
+  # tenant namespaces can reach the registry server in `default`.
+  - nf-authorization-policy.yaml
+
+patches:
+  # The upstream API VirtualService routes to
+  # model-registry-service.kubeflow.svc.cluster.local, which does not exist
+  # in this topology: the server runs in `default`. Point it at the real
+  # in-cluster DNS name.
+  - target:
+      kind: VirtualService
+      name: model-registry
+    patch: |-
+      - op: replace
+        path: /spec/http/0/route/0/destination/host
+        value: model-registry-service.default.svc.cluster.local
+  # Run the BFF in federated mode so it resolves registries through the
+  # tenant alias Service annotation
+  # modelregistry.kubeflow.org/external-address-rest (a DNS name) instead
+  # of dialing the alias ClusterIP, which has no endpoints.
+  - target:
+      group: apps
+      version: v1
+      kind: Deployment
+      name: model-registry-ui
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/args/0
+        value: --deployment-mode=federated

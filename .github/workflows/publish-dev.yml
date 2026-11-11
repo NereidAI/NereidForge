@@ -1,0 +1,109 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Rolling dev channel (root treaty §19.5). Every push to main publishes the
+# two suite application images (backend, frontend) to GHCR with exactly two
+# tags sharing one index digest: the immutable 0.0.0-dev-<short-sha> for
+# traceability/rollback, listed first, and the floating 0.0.0-dev moved to the
+# new HEAD, listed last so GHCR displays it as the primary tag. Pull requests
+# deliberately do not trigger this workflow, so forks cannot publish into the
+# organization namespace. Vendor/trainer/runtime/base images stay
+# release-only in publish-images.yml; the local Makefile remains build-only.
+name: publish-dev
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+# Never cancel a dev publication: a cancelled run could leave the floating
+# 0.0.0-dev tag pointing at a superseded commit.
+concurrency:
+  group: publish-dev-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-backend:
+    name: Publish nereidforge-backend dev image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - id: stamp
+        name: Derive image build metadata
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish multi-architecture backend index
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: app/python-backend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            VERSION=0.0.0-dev
+          push: true
+          provenance: false
+          sbom: false
+          # Same gha cache scope as the release applications job (treaty
+          # §19.1): branch CI warms the layers both channels build from.
+          cache-from: type=gha,scope=nereidforge-backend
+          cache-to: type=gha,mode=max,scope=nereidforge-backend
+          tags: |
+            ghcr.io/nereidai/nereidforge-backend:0.0.0-dev-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/nereidforge-backend:0.0.0-dev
+
+  publish-frontend:
+    name: Publish nereidforge-frontend dev image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - id: stamp
+        name: Derive image build metadata
+        run: |
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish multi-architecture frontend index
+        uses: docker/build-push-action@v6
+        with:
+          context: app/frontend
+          file: app/frontend/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=0.0.0-dev
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            VITE_APP_VERSION=0.0.0-dev
+            VITE_IMAGE_TAG=0.0.0-dev
+          push: true
+          provenance: false
+          sbom: false
+          # Same gha cache scope as the release applications job (treaty
+          # §19.1): branch CI warms the layers both channels build from.
+          cache-from: type=gha,scope=nereidforge-frontend
+          cache-to: type=gha,mode=max,scope=nereidforge-frontend
+          tags: |
+            ghcr.io/nereidai/nereidforge-frontend:0.0.0-dev-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/nereidforge-frontend:0.0.0-dev

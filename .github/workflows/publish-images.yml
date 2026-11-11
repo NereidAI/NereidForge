@@ -1,0 +1,864 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Build and publish NereidForge production images exclusively to GHCR.
+#
+# Publication model (root treaty §19):
+# - Triggered ONLY by pushing a new git tag matching v*; there is no manual
+#   dispatch and no branch/PR publication. A fail-fast step validates the tag
+#   against v-prefixed SemVer and derives the bare version (v0.0.1 -> 0.0.1);
+#   there is no VERSION file, so tag protection rules are the compensating
+#   control (treaty §19.5).
+# - Every image is published by docker/build-push-action@v6 with the standard
+#   qemu + buildx + login action chain and exactly three tags: VERSION,
+#   VERSION-<utc-timestamp> and VERSION-<git-short-sha>. No floating tag is
+#   ever produced (the notebook workbench keeps py3.12 as its version
+#   component, with the same three-tag shape).
+# - Generic product images are linux/amd64 + linux/arm64 indexes. The
+#   hardware-bound CUDA/ROCm/Intel-XPU images are the sole single-arch
+#   (linux/amd64) exceptions alongside the dependency-bound images below.
+# - The local Makefile stays an independent build-only interface and is never
+#   called by this workflow. Local/air-gapped hub copies are the operator's
+#   own decision, performed with NereidOverview harbor-sync.sh.
+# The jobs stay inline instead of calling the organization reusable workflow
+# because NF needs specialized wheel-index variables and (for the applications)
+# per-architecture rootfs/runtime verification that the reusable call cannot
+# express; the action chain and tag scheme are otherwise identical.
+name: publish-images
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+# Never cancel a run during publication. The run ID prevents two deliberate
+# rebuilds of the mutable VERSION tag from blocking one another.
+concurrency:
+  group: publish-images-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+env:
+  TORCH_CPU_INDEX: ${{ vars.TORCH_CPU_INDEX }}
+  TORCH_XPU_INDEX: ${{ vars.TORCH_XPU_INDEX }}
+  TORCH_ROCM_INDEX: ${{ vars.TORCH_ROCM_INDEX }}
+  PADDLE_GPU_INDEX: ${{ vars.PADDLE_GPU_INDEX }}
+  HF_ENDPOINT: ${{ vars.HF_ENDPOINT }}
+
+jobs:
+  applications:
+    name: backend/frontend AMD64+ARM64 indexes
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        # build-args list bare ARG names on purpose: the validated bare version
+        # is only known after the 'ver' step, which the matrix cannot reference,
+        # so the build step exports those names in its env and buildx reads the
+        # values from there (--build-arg NAME with no value uses the environment).
+        include:
+          - component: backend
+            context: .
+            file: app/python-backend/Dockerfile
+            build-args: |
+              VERSION
+          - component: frontend
+            context: app/frontend
+            file: app/frontend/Dockerfile
+            build-args: |
+              VERSION
+              VITE_APP_VERSION
+              VITE_IMAGE_TAG
+    steps:
+      - uses: actions/checkout@v7
+      - id: ver
+        name: Validate tag and derive bare version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - id: stamp
+        name: Derive traceability tags
+        run: |
+          echo "ts=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish multi-architecture application index
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          VITE_APP_VERSION: ${{ steps.ver.outputs.version }}
+          VITE_IMAGE_TAG: ${{ steps.ver.outputs.version }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            ${{ matrix.build-args }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=nereidforge-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=nereidforge-${{ matrix.component }}
+          tags: |
+            ghcr.io/nereidai/nereidforge-${{ matrix.component }}:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/nereidforge-${{ matrix.component }}:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/nereidforge-${{ matrix.component }}:${{ steps.ver.outputs.version }}
+      - name: Verify per-platform rootfs and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          component="${{ matrix.component }}"
+          version="${{ steps.ver.outputs.version }}"
+
+          # platform_digest returns the exact child manifest for one required
+          # architecture, rejecting an AMD64-only or otherwise incomplete index.
+          platform_digest() {
+            local index_file="$1" architecture="$2"
+            python3 - "$index_file" "$architecture" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1]) as stream:
+              index = json.load(stream)
+          matches = [
+              item["digest"]
+              for item in index.get("manifests", [])
+              if item.get("platform", {}).get("os") == "linux"
+              and item["platform"].get("architecture") == sys.argv[2]
+          ]
+          if len(matches) != 1:
+              raise SystemExit(f"expected one linux/{sys.argv[2]} manifest, found {matches}")
+          print(matches[0])
+          PY
+          }
+
+          repository="ghcr.io/nereidai/nereidforge-${component}"
+          image="${repository}:${version}"
+          docker buildx imagetools inspect --raw "$image" > "/tmp/${component}-index.json"
+          for architecture in amd64 arm64; do
+            digest="$(platform_digest "/tmp/${component}-index.json" "$architecture")"
+            platform_image="${repository}@${digest}"
+            docker pull --platform "linux/${architecture}" "$platform_image"
+            docker image inspect "$platform_image" > "/tmp/${component}-${architecture}.json"
+          done
+          python3 - "$component" <<'PY'
+          import json
+          import sys
+
+          component = sys.argv[1]
+          images = {}
+          for architecture, expected in (("amd64", "amd64"), ("arm64", "arm64")):
+              with open(f"/tmp/{component}-{architecture}.json") as stream:
+                  image = json.load(stream)[0]
+              assert image["Architecture"] == expected, (component, image["Architecture"])
+              layers = image.get("RootFS", {}).get("Layers", [])
+              assert layers, (component, architecture, "empty rootfs")
+              images[architecture] = layers
+          assert images["amd64"] != images["arm64"], (component, "identical rootfs layers")
+          print(component, "distinct AMD64/ARM64 rootfs layers verified")
+          PY
+          for architecture in amd64 arm64; do
+            digest="$(platform_digest "/tmp/${component}-index.json" "$architecture")"
+            platform_image="${repository}@${digest}"
+            case "$architecture" in
+              amd64) expected_machine="x86_64" ;;
+              arm64) expected_machine="aarch64" ;;
+            esac
+            if [[ "$component" == "backend" ]]; then
+              docker run --rm --network none --platform "linux/${architecture}" \
+                --env EXPECTED_MACHINE="$expected_machine" \
+                --entrypoint python "$platform_image" -c \
+                'import os, platform, sys; from app.services.model_format import detect_family; assert platform.machine() == os.environ["EXPECTED_MACHINE"]; assert sys.version_info[:2] == (3, 14); assert detect_family(None, "bucket", "model.pt", declared="torch") == "torch"; print(platform.machine(), sys.version)'
+            else
+              docker run --rm --network none --platform "linux/${architecture}" \
+                --env EXPECTED_MACHINE="$expected_machine" \
+                --entrypoint /bin/sh "$platform_image" -c \
+                'test "$(uname -m)" = "$EXPECTED_MACHINE" && nginx -v'
+            fi
+          done
+
+  core:
+    name: core runtime, converters, optimizer, and evaluator
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - id: ver
+        name: Validate tag and derive bare version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - id: stamp
+        name: Derive traceability tags
+        run: |
+          echo "ts=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish runtime base
+        uses: docker/build-push-action@v6
+        with:
+          context: app/kfp-pipelines/docker
+          file: app/kfp-pipelines/docker/Dockerfile.runtime
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            VERSION=${{ steps.ver.outputs.version }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=nf-runtime
+          cache-to: type=gha,mode=max,scope=nf-runtime
+          tags: |
+            ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}
+      - name: Build and publish CPU torch trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-torch/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-torch-cpu
+          cache-to: type=gha,mode=max,scope=trainer-torch-cpu
+          tags: |
+            ghcr.io/nereidai/trainer-torch-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-torch-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-torch-cpu:${{ steps.ver.outputs.version }}
+      - name: Build and publish CPU paddle trainer (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-paddle/Dockerfile
+          # paddlepaddle 3.0.0 publishes no arm64 PyPI wheel; keep this image amd64-only.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            PYTHON_BASE_IMAGE=python:3.11-slim
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-paddle-cpu
+          cache-to: type=gha,mode=max,scope=trainer-paddle-cpu
+          tags: |
+            ghcr.io/nereidai/trainer-paddle-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-paddle-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-paddle-cpu:${{ steps.ver.outputs.version }}
+      - name: Build and publish torch converter
+        uses: docker/build-push-action@v6
+        with:
+          context: app/kfp-pipelines/docker
+          file: app/kfp-pipelines/docker/Dockerfile.convert
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            PYTHON_BASE_IMAGE=python:3.14-slim
+            TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-convert
+          cache-to: type=gha,mode=max,scope=trainer-convert
+          tags: |
+            ghcr.io/nereidai/trainer-convert:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-convert:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-convert:${{ steps.ver.outputs.version }}
+      - name: Build and publish TensorFlow converter
+        uses: docker/build-push-action@v6
+        with:
+          context: app/kfp-pipelines/docker
+          file: app/kfp-pipelines/docker/Dockerfile.convert-tf
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            PYTHON_BASE_IMAGE=python:3.11-slim
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-convert-tf
+          cache-to: type=gha,mode=max,scope=trainer-convert-tf
+          tags: |
+            ghcr.io/nereidai/trainer-convert-tf:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-convert-tf:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-convert-tf:${{ steps.ver.outputs.version }}
+      - name: Build and publish Paddle converter (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/kfp-pipelines/docker
+          file: app/kfp-pipelines/docker/Dockerfile.convert-pp
+          # Pins paddlepaddle==3.0.0, which has no arm64 PyPI wheel; keep amd64-only.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            PYTHON_BASE_IMAGE=python:3.11-slim
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-convert-pp
+          cache-to: type=gha,mode=max,scope=trainer-convert-pp
+          tags: |
+            ghcr.io/nereidai/trainer-convert-pp:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-convert-pp:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-convert-pp:${{ steps.ver.outputs.version }}
+      - name: Build and publish optimizer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/optimizer/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            VERSION=${{ steps.ver.outputs.version }}
+            RUNTIME_IMAGE=ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=train-optimizer
+          cache-to: type=gha,mode=max,scope=train-optimizer
+          tags: |
+            ghcr.io/nereidai/train-optimizer:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/train-optimizer:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/train-optimizer:${{ steps.ver.outputs.version }}
+      - name: Build and publish evaluator
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/evaluator/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            VERSION=${{ steps.ver.outputs.version }}
+            RUNTIME_IMAGE=ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=train-evaluator
+          cache-to: type=gha,mode=max,scope=train-evaluator
+          tags: |
+            ghcr.io/nereidai/train-evaluator:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/train-evaluator:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/train-evaluator:${{ steps.ver.outputs.version }}
+      - name: Build and publish Intel GPU OVMS (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders/inference-model-server-openvino-xpu
+          file: app/builders/inference-model-server-openvino-xpu/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=openvino/model_server:2025.1
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=inference-model-server-openvino-xpu
+          cache-to: type=gha,mode=max,scope=inference-model-server-openvino-xpu
+          tags: |
+            ghcr.io/nereidai/inference-model-server-openvino-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/inference-model-server-openvino-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/inference-model-server-openvino-xpu:${{ steps.ver.outputs.version }}
+      - name: Build and publish ml-backend (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders/ml-backend
+          file: app/builders/ml-backend/Dockerfile
+          # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=ml-backend
+          cache-to: type=gha,mode=max,scope=ml-backend
+          tags: |
+            ghcr.io/nereidai/ml-backend:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/ml-backend:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/ml-backend:${{ steps.ver.outputs.version }}
+      - name: Build and publish ml-backend-custom (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders/ml-backend-custom
+          file: app/builders/ml-backend-custom/Dockerfile
+          # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=ml-backend-custom
+          cache-to: type=gha,mode=max,scope=ml-backend-custom
+          tags: |
+            ghcr.io/nereidai/ml-backend-custom:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/ml-backend-custom:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/ml-backend-custom:${{ steps.ver.outputs.version }}
+      - name: Build and publish notebook workbench (single-arch exception, treaty §19.2.1)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders/notebook-base
+          file: app/builders/notebook-base/Dockerfile
+          # Installs paddlepaddle, unavailable as an arm64 PyPI wheel; keep amd64-only.
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            JUPYTER_BASE_IMAGE=quay.io/jupyter/base-notebook:python-3.12.9
+            TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=prediction-jupyter-base
+          cache-to: type=gha,mode=max,scope=prediction-jupyter-base
+          tags: |
+            ghcr.io/nereidai/prediction-jupyter-base:py3.12-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/prediction-jupyter-base:py3.12-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/prediction-jupyter-base:py3.12
+
+  vendor-xpu:
+    name: vendor trainers - Intel XPU (single-arch, treaty §19.2.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - id: ver
+        name: Validate tag and derive bare version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Verify Intel XPU wheel index configuration
+        run: |
+          if [[ -z "$TORCH_XPU_INDEX" ]]; then
+            echo '::error::Configure the TORCH_XPU_INDEX Actions variable before building XPU images.'
+            exit 1
+          fi
+      - id: stamp
+        name: Derive traceability tags
+        run: |
+          echo "ts=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish XPU vendor base
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders/trainer-xpu
+          file: app/builders/trainer-xpu/Dockerfile
+          platforms: linux/amd64
+          # PYPI_INDEX and the generic mirror args keep their empty Dockerfile
+          # defaults on hosted runners (treaty §17); only the specialized XPU
+          # wheel index is injected from Actions variables.
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            TORCH_XPU_INDEX=${{ env.TORCH_XPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-xpu-base
+          cache-to: type=gha,mode=max,scope=trainer-xpu-base
+          tags: |
+            ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}
+      - name: Build and publish XPU packaging evaluator
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/evaluator-xpu/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            XPU_BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=train-evaluator-xpu
+          cache-to: type=gha,mode=max,scope=train-evaluator-xpu
+          tags: |
+            ghcr.io/nereidai/train-evaluator-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/train-evaluator-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/train-evaluator-xpu:${{ steps.ver.outputs.version }}
+      - name: Build and publish XPU torch trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-torch/Dockerfile.xpu
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}
+            TORCH_XPU_INDEX=${{ env.TORCH_XPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-torch-xpu
+          cache-to: type=gha,mode=max,scope=trainer-torch-xpu
+          tags: |
+            ghcr.io/nereidai/trainer-torch-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-torch-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-torch-xpu:${{ steps.ver.outputs.version }}
+      - name: Build and publish XPU LLM trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-llm-xpu/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}
+            HF_ENDPOINT=${{ env.HF_ENDPOINT }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-llm-xpu
+          cache-to: type=gha,mode=max,scope=trainer-llm-xpu
+          tags: |
+            ghcr.io/nereidai/trainer-llm-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-llm-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-llm-xpu:${{ steps.ver.outputs.version }}
+
+  vendor-cu:
+    name: vendor trainers - NVIDIA CUDA (single-arch, treaty §19.2.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v7
+      - id: ver
+        name: Validate tag and derive bare version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Verify Paddle CUDA wheel index configuration
+        run: |
+          if [[ -z "$PADDLE_GPU_INDEX" ]]; then
+            echo '::error::Configure the PADDLE_GPU_INDEX Actions variable before building paddle-cu.'
+            exit 1
+          fi
+      - id: stamp
+        name: Derive traceability tags
+        run: |
+          echo "ts=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and publish CUDA torch trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-torch/Dockerfile.cu
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-torch-cu
+          cache-to: type=gha,mode=max,scope=trainer-torch-cu
+          tags: |
+            ghcr.io/nereidai/trainer-torch-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-torch-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-torch-cu:${{ steps.ver.outputs.version }}
+      - name: Build and publish CUDA paddle trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-paddle/Dockerfile.cu
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            PADDLE_GPU_INDEX=${{ env.PADDLE_GPU_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-paddle-cu
+          cache-to: type=gha,mode=max,scope=trainer-paddle-cu
+          tags: |
+            ghcr.io/nereidai/trainer-paddle-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-paddle-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-paddle-cu:${{ steps.ver.outputs.version }}
+      - name: Build and publish CUDA LLM trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-llm-cu/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-llm-cu
+          cache-to: type=gha,mode=max,scope=trainer-llm-cu
+          tags: |
+            ghcr.io/nereidai/trainer-llm-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-llm-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-llm-cu:${{ steps.ver.outputs.version }}
+
+  vendor-rocm:
+    name: vendor trainers - AMD ROCm (single-arch, treaty §19.2.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - id: ver
+        name: Validate tag and derive bare version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+      - name: Verify ROCm wheel index configuration
+        run: |
+          if [[ -z "$TORCH_ROCM_INDEX" ]]; then
+            echo '::error::Configure the TORCH_ROCM_INDEX Actions variable before building torch-rocm.'
+            exit 1
+          fi
+      - id: stamp
+        name: Derive traceability tags
+        run: |
+          echo "ts=$(date -u +%Y%m%d-%H%M)" >> "$GITHUB_OUTPUT"
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # Cost note: tag-triggered publication means the roughly 30 GB ROCm
+      # base (rocm/pytorch:rocm6.3_ubuntu24.04_...) is pulled on every release
+      # tag now that manual dispatch no longer gates this job. Revisit the
+      # trigger matrix if release frequency makes this too expensive.
+      - name: Build and publish ROCm torch trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-torch/Dockerfile.rocm
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
+            TORCH_ROCM_INDEX=${{ env.TORCH_ROCM_INDEX }}
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-torch-rocm
+          cache-to: type=gha,mode=max,scope=trainer-torch-rocm
+          tags: |
+            ghcr.io/nereidai/trainer-torch-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-torch-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-torch-rocm:${{ steps.ver.outputs.version }}
+      - name: Build and publish ROCm LLM trainer
+        uses: docker/build-push-action@v6
+        with:
+          context: app/builders
+          file: app/builders/trainer-llm-rocm/Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.ver.outputs.version }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
+            BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
+          push: true
+          provenance: false
+          sbom: false
+          # Shared GHA layer cache across CI and release runs; a cold cache
+          # falls back to a full build. If the 10 GB GHA quota proves too
+          # small for the CUDA/ROCm vendor jobs, switch those to
+          # type=registry against a dedicated GHCR cache repository.
+          cache-from: type=gha,scope=trainer-llm-rocm
+          cache-to: type=gha,mode=max,scope=trainer-llm-rocm
+          tags: |
+            ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
+            ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
+            ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}

@@ -1,0 +1,17 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+name: postgresql
+description: CloudNativePG PostgreSQL Cluster
+type: application
+version: 0.29.0
+appVersion: "16.4"
+dependencies:
+  - name: cloudnative-pg
+    version: "0.29.0"
+    # Repo moved to cloudnative-pg.io (the github.io URL 301-redirects and
+    # `helm dependency update` hangs on it; verified 2026-10-29).
+    repository: "https://cloudnative-pg.io/charts"
+    alias: cnpg
+    condition: cnpg.enabled

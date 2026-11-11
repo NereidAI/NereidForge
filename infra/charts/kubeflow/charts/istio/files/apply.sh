@@ -1,0 +1,88 @@
+#!/bin/bash
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Per-component install hook: kustomize build the upstream target(s) keeping
+# their upstream image references, then apply. Air-gapped nodes resolve the
+# public image refs through the containerd registry mirror rendered by
+# NereidOverview harbor-sync.sh (root treaty section 18), so no image rewrite
+# and no pull secret are embedded in this chart.
+set -euo pipefail
+
+MANIFESTS_DIR="${MANIFESTS_DIR:-/manifests}"
+DEX_STATIC_EMAIL="${DEX_STATIC_EMAIL:-admin@nereidforge.local}"
+DEX_STATIC_PASSWORD_HASH="${DEX_STATIC_PASSWORD_HASH:-}"
+SEAWEEDFS_S3_ACCESS_KEY="${SEAWEEDFS_S3_ACCESS_KEY:-}"
+SEAWEEDFS_S3_SECRET_KEY="${SEAWEEDFS_S3_SECRET_KEY:-}"
+TARGETS="${TARGETS:?TARGETS required}"
+
+WFP_DIR="$MANIFESTS_DIR/.wfp-$(echo "$TARGETS" | md5sum | cut -c1-8)"
+KUSTOMIZATION="$WFP_DIR/kustomization.yaml"
+mkdir -p "$WFP_DIR"
+
+python3 - "$MANIFESTS_DIR" "$TARGETS" "$WFP_DIR" <<'PY'
+import sys, os
+m, targets, wfp = sys.argv[1], sys.argv[2], sys.argv[3]
+res = "\n".join(f"  - ../{t}" for t in targets.split(","))
+open(os.path.join(wfp, "kustomization.yaml"), "w").write(
+    "apiVersion: kustomize.config.k8s.io/v1beta1\n"
+    "kind: Kustomization\n"
+    "resources:\n" + res + "\n"
+)
+PY
+
+rendered=$(mktemp)
+if ! kustomize build "$WFP_DIR" > "$rendered"; then
+  echo "[ERROR] kustomize build failed: $TARGETS" >&2
+  rm -f "$rendered"
+  exit 1
+fi
+
+# Replace complete YAML scalars with JSON strings, which are valid YAML and
+# preserve quotes, backslashes, newlines, comment markers, and boolean-like keys.
+python3 - "$rendered" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as stream:
+    text = stream.read()
+for name in ("SEAWEEDFS_S3_ACCESS_KEY", "SEAWEEDFS_S3_SECRET_KEY"):
+    token = "${" + name + "}"
+    encoded = json.dumps(os.environ.get(name, ""))
+    for scalar in (f'"{token}"', f"'{token}'", token):
+        text = text.replace(scalar, encoded)
+with open(path, "w", encoding="utf-8") as stream:
+    stream.write(text)
+PY
+
+# Only the tenant-specific Dex identity is substituted; image references stay
+# at their pristine upstream coordinates.
+sed -i -E \
+  -e "s#^  DEX_USER_PASSWORD: .*#  DEX_USER_PASSWORD: ${DEX_STATIC_PASSWORD_HASH}#" \
+  -e "s#email: user@example.com#email: ${DEX_STATIC_EMAIL}#g" \
+  "$rendered"
+
+if [ ! -s "$rendered" ]; then
+  echo "[INFO] (no resources to apply, skipping) $TARGETS"
+  rm -f "$rendered"
+  exit 0
+fi
+
+if ! kubectl apply -f "$rendered" 2>"$rendered.err"; then
+  if grep -qE "262144|Too long" "$rendered.err"; then
+    echo "[WARN] annotation limit, retrying with server-side apply"
+    if ! kubectl apply --server-side=true --field-manager=wfp --force-conflicts -f "$rendered"; then
+      echo "[ERROR] server-side apply failed: $TARGETS" >&2
+      cat "$rendered.err" >&2
+      exit 1
+    fi
+  else
+    echo "[ERROR] kubectl apply failed: $TARGETS" >&2
+    cat "$rendered.err" >&2
+    exit 1
+  fi
+fi
+rm -f "$rendered" "$rendered.err" "$KUSTOMIZATION"
+echo "[OK] applied: $TARGETS"

@@ -1,0 +1,149 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+# Install KServe in its upstream control-plane namespace
+- namespace.yaml
+- ./upstream/kserve.yaml
+- ./upstream/kserve-cluster-resources.yaml
+- aggregated-roles.yaml
+- kserve-networkpolicy.yaml
+
+patches:
+# ClusterStorageContainer is cluster-scoped, but the generated bundle assigns it
+# the KServe namespace. Remove the invalid namespace until the upstream manifest
+# is corrected.
+- patch: |-
+    - op: remove
+      path: /metadata/namespace
+  target:
+    group: serving.kserve.io
+    version: v1alpha1
+    kind: ClusterStorageContainer
+    name: default
+
+# Make storage initializer containers compatible with the restricted Pod
+# Security Standard used by Kubeflow Profile namespaces. runAsUser is not set
+# because the image already declares a numeric non-root user, which is what
+# runAsNonRoot needs to verify. Upstream follows the same rule and sets
+# runAsUser only for the runtimes whose images lack one.
+- patch: |-
+    - op: add
+      path: /spec/container/securityContext
+      value:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+  target:
+    group: serving.kserve.io
+    version: v1alpha1
+    kind: ClusterStorageContainer
+    name: default
+
+# The shared kserve namespace also hosts the Models Web Application, which
+# requires an Istio sidecar. Keep controller injection disabled per workload
+# instead of disabling the injection webhook for the entire namespace.
+- patch: |-
+    - op: add
+      path: /spec/template/metadata/annotations/sidecar.istio.io~1inject
+      value: "false"
+  target:
+    group: apps
+    version: v1
+    kind: Deployment
+    labelSelector: control-plane
+
+# Disable the local model node agent because its writable /models hostPath is
+# incompatible with the restricted Pod Security Standard. Remove all companion
+# authorization resources so a disabled workload leaves no unused permissions.
+- patch: |
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: kserve-localmodelnode-agent
+      namespace: kserve
+    $patch: delete
+
+- patch: |
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: kserve-localmodelnode-agent
+      namespace: kserve
+    $patch: delete
+
+- patch: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: kserve-localmodelnode-agent-role
+    $patch: delete
+
+- patch: |
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: kserve-localmodelnode-agent-rolebinding
+    $patch: delete
+
+# Preserve the existing Kubeflow policy of omitting LLMInferenceServiceConfig
+# resources. KServe 0.19 data-parallel templates still request IPC_LOCK,
+# SYS_RAWIO, and NET_RAW capabilities. Re-enable individual templates only with
+# runtime coverage under the restricted Pod Security Standard.
+# Ref: https://github.com/kubeflow/community-distribution/issues/3290
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: placeholder
+    $patch: delete
+  target:
+    group: serving.kserve.io
+    version: v1alpha2
+    kind: LLMInferenceServiceConfig
+
+# Preserve existing installation behavior while the LLM configuration templates
+# are omitted. Restore this validation webhook with the templates and runtime
+# coverage in a dedicated change.
+# Ref: https://github.com/kubeflow/community-distribution/issues/3290
+- patch: |
+    apiVersion: admissionregistration.k8s.io/v1
+    kind: ValidatingWebhookConfiguration
+    metadata:
+      name: llminferenceserviceconfig.serving.kserve.io
+    $patch: delete
+
+# Enable path-based routing via pathTemplate on the inferenceservice-config ConfigMap.
+# This replaces the whole ingress value, so every key upstream ships must be
+# repeated here. Compare against upstream/kserve.yaml on each synchronization,
+# otherwise a newly added key is dropped without any error.
+# This allows KServe to auto-generate VirtualServices for path-based URLs
+# (/serving/<namespace>/<name>/...), eliminating manual VirtualService creation.
+# Ref: https://github.com/kserve/kserve/issues/2257
+# Ref: https://github.com/kserve/kserve/blob/master/config/configmap/inferenceservice.yaml#L389
+- patch: |
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: inferenceservice-config
+      namespace: kserve
+    data:
+      ingress: |-
+        {
+          "disableHTTPRouteTimeout": false,
+          "enableGatewayApi": false,
+          "kserveIngressGateway": "kserve/kserve-ingress-gateway",
+          "ingressGateway": "kubeflow/kubeflow-gateway",
+          "localGateway": "knative-serving/knative-local-gateway",
+          "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
+          "ingressDomain": "example.com",
+          "ingressClassName": "istio",
+          "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
+          "urlScheme": "http",
+          "disableIstioVirtualHost": false,
+          "disableIngressCreation": false,
+          "pathTemplate": "/serving/{{ .Namespace }}/{{ .Name }}"
+        }

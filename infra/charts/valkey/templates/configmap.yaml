@@ -1,0 +1,40 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "valkey.fullname" . }}-master
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+data:
+  valkey.conf: |
+    bind 0.0.0.0
+    protected-mode no
+    port 6379
+    maxmemory {{ .Values.valkey.maxmemory }}
+    maxmemory-policy {{ .Values.valkey.maxmemory_policy }}
+    appendonly yes
+    dir /data
+    replicaof no one
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "valkey.fullname" . }}-replica
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "valkey.labels" . | nindent 4 }}
+data:
+  valkey.conf: |
+    bind 0.0.0.0
+    protected-mode no
+    port 6379
+    maxmemory {{ .Values.valkey.maxmemory }}
+    maxmemory-policy {{ .Values.valkey.maxmemory_policy }}
+    appendonly yes
+    dir /data
+    replicaof {{ include "valkey.fullname" . }}-master 6379

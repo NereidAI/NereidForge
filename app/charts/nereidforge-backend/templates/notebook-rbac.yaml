@@ -1,0 +1,52 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- /*
+Restricted RBAC for the interactive notebook workbench.
+
+The backend SA only manages Kubeflow Notebook CRs + their workspace PVCs in
+the release (tenant) namespace, and reads pods/services to surface status and
+to proxy Jupyter. No general cluster access is granted. The notebook proxy
+endpoint itself stays unauthenticated at the edge (JUPYTER_TOKEN is injected
+server-side), but CRUD routes carry the normal NF auth dependency.
+*/ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kubeflow.org"]
+    resources: ["notebooks"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch"]
+  # Read-only KServe status for the Deployed Model Services list: live
+  # readiness, scheduler node, predictor image and rollout error.
+  - apiGroups: ["serving.kserve.io"]
+    resources: ["inferenceservices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nereidforge-backend.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  apiGroup: rbac.authorization.k8s.io

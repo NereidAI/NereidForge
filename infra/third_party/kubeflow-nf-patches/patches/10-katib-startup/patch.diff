@@ -1,0 +1,18 @@
+# file: applications/katib/upstream/installs/katib-with-kubeflow/kustomization.yaml
+--- a/applications/katib/upstream/installs/katib-with-kubeflow/kustomization.yaml
++++ b/applications/katib/upstream/installs/katib-with-kubeflow/kustomization.yaml
+@@ -38,6 +38,13 @@
+   target:
+     kind: Deployment
+     name: katib-ui
++# Guard katib-mysql first-boot datadir init against the liveness probe killing
++# mid-initialization (half-created datadir -> permanent CrashLoopBackOff).
++- path: patches/katib-mysql-startup-probe.yaml
++  target:
++    kind: Deployment
++    name: katib-mysql
++    version: v1
+ - path: patches/remove-namespace.yaml
+ 
+ 
+

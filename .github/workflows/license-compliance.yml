@@ -1,0 +1,45 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+#
+# License compliance gate (see LICENSE-POLICY.md).
+#
+# Static scan runs on every push/PR: dependency manifests, container build
+# files, first-party imports, tracked weight blobs and copyleft license text.
+# The installed-dependency report runs weekly because installing the backend
+# dependency tree is too slow for the PR path.
+name: license-compliance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  static:
+    name: static scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test installed dependency license classification
+        run: python3 -m unittest infra.scripts.tests.test_license_env_report -v
+      - name: Scan deliverables for copyleft components
+        run: bash infra/scripts/check-license-compliance.sh
+
+  dependencies:
+    name: installed dependency report
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install backend dependencies
+        run: |
+          python -m venv .venv-license
+          .venv-license/bin/pip install --upgrade pip
+          .venv-license/bin/pip install -e ./app/python-backend
+      - name: Report installed dependency licenses
+        run: bash infra/scripts/check-license-compliance.sh --env .venv-license/bin/python

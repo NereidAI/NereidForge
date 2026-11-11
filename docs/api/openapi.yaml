@@ -1,0 +1,1845 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+openapi: 3.0.3
+info:
+  title: NereidForge API
+  version: 0.1.0
+  description: |
+    NereidForge — the control-plane API for the NereidAI model factory.
+    Training, optimization, and evaluation jobs are submitted uniformly to Kubeflow Pipelines; see the corresponding modules for dataset and model registration.
+    All model endpoints are tenant-isolated and require an NF-issued Bearer access token. Send `X-Tenant-Id` to select a tenant; when it is omitted, the backend uses `default`.
+servers:
+  - url: /api/v1
+tags:
+  - name: auth
+    description: Local and federated session authentication
+  - name: datasets
+    description: Dataset registry (versioning, lineage, and format export)
+  - name: training
+    description: Training jobs
+  - name: images
+    description: Container image catalog and trainer capability announcements
+  - name: optimization
+    description: Optimization, quantization, and export jobs
+  - name: evaluation
+    description: Evaluation jobs
+  - name: models
+    description: Model version queries (metadata in Kubeflow Hub)
+  - name: ml-backend
+    description: Semi-automated annotation ML Backend management
+  - name: projects
+    description: Annotation projects (Label Studio / CVAT integration)
+paths:
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh an access token
+      description: Exchange a valid refresh token for a new access token. The original refresh token remains unchanged and is not returned again.
+      operationId: refreshAccessToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Access token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefreshResponse'
+        '401':
+          description: Invalid or expired refresh token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthErrorResponse'
+
+  /datasets:
+    post:
+      tags: [datasets]
+      summary: Create a dataset (register SeaweedFS data and generate the initial version)
+      operationId: createDataset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatasetCreate'
+      responses:
+        '201':
+          description: Created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+    get:
+      tags: [datasets]
+      summary: Dataset list
+      operationId: listDatasets
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: query
+          name: page
+          schema: { type: integer, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, default: 20 }
+      responses:
+        '200':
+          description: Dataset list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Dataset' } }
+                  total: { type: integer }
+
+  /datasets/{dataset_id}/versions:
+    post:
+      tags: [datasets]
+      summary: Create a new dataset version (immutable snapshot)
+      operationId: createDatasetVersion
+      parameters:
+        - in: path
+          name: dataset_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [uri, format]
+              properties:
+                uri: { type: string, description: 'SeaweedFS data URI' }
+                format:
+                  type: string
+                  enum: [coco, yolo, voc, alpaca, sharegpt, jsonl, video-frames]
+                lineage: { type: object, description: 'Source annotation platform/annotator/export time' }
+      responses:
+        '201':
+          description: Version created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetVersion'
+    get:
+      tags: [datasets]
+      summary: List dataset versions (lineage chain)
+      operationId: listDatasetVersions
+      parameters:
+        - in: path
+          name: dataset_id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Version list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DatasetVersion' }
+
+  /datasets/{dataset_id}/versions/{version_id}/export:
+    post:
+      tags: [datasets]
+      summary: Export a dataset in the specified format (COCO/YOLO/VOC/alpaca/sharegpt)
+      operationId: exportDatasetVersion
+      parameters:
+        - in: path
+          name: dataset_id
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version_id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format]
+              properties:
+                format: { type: string, enum: [coco, yolo, voc, alpaca, sharegpt] }
+                split: { type: string, enum: [train, val, test], default: train }
+      responses:
+        '202':
+          description: Export job submitted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  export_uri: { type: string }
+                  job_id: { type: string }
+
+  /datasets/video/frame-extract:
+    post:
+      tags: [datasets]
+      summary: Extract video frames (CVAT video annotations → frames + COCO)
+      operationId: frameExtract
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cvat_export_uri]
+              properties:
+                cvat_export_uri: { type: string }
+                fps: { type: number, default: 2 }
+                strategy:
+                  type: string
+                  enum: [uniform, annotation-focused]
+                  default: annotation-focused
+                output_format: { type: string, enum: [coco, yolo], default: coco }
+      responses:
+        '202':
+          description: Frame-extraction job submitted (via KFP)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  job_id: { type: string }
+
+  /capabilities:
+    get:
+      tags: [images]
+      summary: List trainer image capabilities and entitlement lock states
+      operationId: listTrainerCapabilities
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+      responses:
+        '200':
+          description: Trainer images from the same catalog used by Image Management
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CapabilitiesResponse'
+
+  /training/jobs:
+    post:
+      tags: [training]
+      summary: Create a training job (for both CV and LLM)
+      operationId: createTrainingJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrainingJobCreate'
+      responses:
+        '201':
+          description: Training job submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+    get:
+      tags: [training]
+      summary: Training job list
+      operationId: listTrainingJobs
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  total: { type: integer }
+
+  /training/jobs/{job_id}:
+    get:
+      tags: [training]
+      summary: Training job details (including KFP run status/events/log links)
+      operationId: getTrainingJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetail'
+    post:
+      tags: [training]
+      summary: Cancel a training job
+      operationId: cancelTrainingJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Cancellation requested
+
+  /training/jobs/{job_id}/runtime:
+    get:
+      tags: [training]
+      summary: Get KFP and trainer workload runtime state
+      description: >-
+        Returns the TrainJob and trainer Pods associated with a job. Pod
+        started/finished values are the trainer container bounds, excluding
+        queueing and scheduling delay, and support historical duration display.
+      operationId: getTrainingJobRuntime
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Cluster resources mapped to the training job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrainingRuntime'
+        '404':
+          description: Job not found
+
+  /training/jobs/{job_id}/metrics:
+    get:
+      tags: [training]
+      summary: Get training metrics with legacy duration fallback
+      description: >-
+        Returns the trainer's metrics.json fields. New trainers use the
+        nf.training-metrics/1 contract. If a legacy trainer omitted
+        train_time_s, the service recovers the greatest cumulative time value
+        from its existing results.csv without rewriting the job record.
+      operationId: getTrainingJobMetrics
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Trainer-specific metrics and cumulative training seconds
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobMetrics'
+        '404':
+          description: Job not found
+
+  /training/jobs/{job_id}/{action}:
+    post:
+      tags: [training]
+      summary: Start, stop, cancel, or restart a training job
+      description: >-
+        Start and restart are idempotent for pending, running, and completed jobs.
+        Restarting a cancelled or failed job clears its previous run, results,
+        metrics, and timestamps, then submits exactly one new KFP run. Stop and
+        cancel terminate the current run and its cluster training resources.
+      operationId: controlTrainingJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - in: path
+          name: action
+          required: true
+          schema:
+            type: string
+            enum: [start, stop, cancel, restart]
+      responses:
+        '200':
+          description: Current job state after the lifecycle action
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '400':
+          description: Invalid job type or lifecycle action
+        '404':
+          description: Job not found
+        '500':
+          description: Pipeline submission or lifecycle reconciliation failed
+
+  /optimization/jobs:
+    post:
+      tags: [optimization]
+      summary: Create an optimization job (parallel multi-hardware processing + quantization)
+      operationId: createOptimizationJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OptimizationJobCreate'
+      responses:
+        '201':
+          description: Optimization job submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+    get:
+      tags: [optimization]
+      summary: Optimization job list
+      operationId: listOptimizationJobs
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  total: { type: integer }
+
+  /optimization/jobs/{job_id}:
+    get:
+      tags: [optimization]
+      summary: Optimization job details (status/report for each artifact)
+      operationId: getOptimizationJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetail'
+
+  /optimization/jobs/{job_id}/logs:
+    get:
+      tags: [optimization]
+      summary: Get live or historical optimization executor logs
+      description: >-
+        Returns the stored job log or, when available, the KFP run's aggregated
+        executor output. The optimization detail page polls this endpoint while
+        a job is running so baseline, optimizer, and gate activity remains visible.
+      operationId: getOptimizationJobLogs
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - in: query
+          name: tail
+          schema: { type: integer, minimum: 1, default: 400 }
+      responses:
+        '200':
+          description: Executor log text
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logs]
+                properties:
+                  logs: { type: string }
+        '400':
+          description: Invalid job type
+        '404':
+          description: Job not found
+
+  /evaluation/jobs:
+    post:
+      tags: [evaluation]
+      summary: Create an evaluation job
+      operationId: createEvaluationJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EvaluationJobCreate'
+      responses:
+        '201':
+          description: Evaluation job submitted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+    get:
+      tags: [evaluation]
+      summary: Evaluation job list
+      operationId: listEvaluationJobs
+      responses:
+        '200':
+          description: Job list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Job' } }
+                  total: { type: integer }
+
+  /evaluation/jobs/{job_id}:
+    get:
+      tags: [evaluation]
+      summary: Evaluation job details (report + quality-gate results)
+      operationId: getEvaluationJob
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Job details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobDetail'
+
+  /models/artifact-formats:
+    get:
+      tags: [models]
+      summary: List accepted model artifact formats and implemented capabilities
+      description: >-
+        Returns the authoritative upload allowlist. Capabilities describe actual
+        product workflows; registration or storage success never implies deployability.
+      operationId: listModelArtifactFormats
+      responses:
+        '200':
+          description: Artifact format catalog
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelArtifactFormatCatalog' }
+
+  /models:
+    get:
+      tags: [models]
+      summary: List registered models with pagination and filters
+      operationId: listModels
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, default: 20 }
+        - in: query
+          name: framework
+          schema: { type: string }
+        - in: query
+          name: task_type
+          schema: { type: string, example: detection }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200':
+          description: Paginated model list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelPage' }
+
+  /models/{model_name}:
+    delete:
+      tags: [models]
+      summary: Delete a model and all of its registry versions
+      description: >-
+        Restricted to the enabled local built-in admin in the default tenant with the
+        current admin role. Archives the Hub model and removes NF model/version records;
+        S3 artifact bytes are retained. If any version is deployed, deploying, terminating,
+        or still present after a failed undeploy, the operation returns 409 before changing
+        either registry. Tenant administrators, operators, and federated admin accounts are
+        not platform super administrators.
+      operationId: deleteModel
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Registry model deleted; artifact bytes retained
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '403':
+          description: Platform super administrator required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '404':
+          description: Model not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '409':
+          description: One or more versions are deployed or transitioning
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+
+  /models/{model_name}/versions:
+    get:
+      tags: [models]
+      summary: Model version list
+      operationId: listModelVersions
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: page_size
+          schema: { type: integer, minimum: 1, default: 20 }
+      responses:
+        '200':
+          description: Paginated version list, newest first
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelVersionPage' }
+    post:
+      tags: [models]
+      summary: Upload and register a model version artifact
+      description: >-
+        Accepts repeated file fields for one model, a related file group, or one
+        ZIP/tar.gz/TGZ archive. Archives are safely extracted and the complete
+        artifact is validated before the first storage write. OpenVINO IR requires
+        a same-basename .bin companion. Ambiguous bundles require metadata.primary_file.
+      operationId: createModelVersion
+      parameters:
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [version]
+              properties:
+                version: { type: string, example: v1 }
+                description: { type: string }
+                file:
+                  type: array
+                  description: >-
+                    One archive or one or more artifact files. Omit only for the
+                    legacy metadata-only registration path, which has no capability claims.
+                  items: { type: string, format: binary }
+                metadata:
+                  type: string
+                  description: >-
+                    JSON object. Optional artifact_format selects a catalog id,
+                    primary_file resolves ambiguity, and runtime_requirements records
+                    toolchain/device constraints without claiming compatibility.
+                  example: '{"artifact_format":"openvino-ir","primary_file":"model.xml","runtime_requirements":{"openvino":"2026.1"}}'
+      responses:
+        '200':
+          description: Registered version with canonical artifact metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelVersion' }
+        '400':
+          description: Invalid, unsafe, ambiguous, or incomplete artifact
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelUploadError' }
+        '404':
+          description: Model not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelUploadError' }
+
+  /models/{model_name}/versions/{version}:
+    get:
+      tags: [models]
+      summary: Get one model version and its registered artifact metadata
+      description: >-
+        Resolves model_name as either the NF model ID or unique model name. The
+        response's id is the package revision for directly uploaded versions;
+        ready package records also expose that revision through /packages.
+      operationId: getModelVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Registered model version
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelVersion' }
+        '404':
+          description: Model or version not found
+    delete:
+      tags: [models]
+      summary: Delete one model registry version
+      description: >-
+        Restricted to the enabled local built-in admin in the default tenant with the
+        current admin role. Archives the Hub version and removes its NF record; S3
+        artifact bytes are retained. A deployed, deploying, terminating, or failed-undeploy
+        version returns 409 and must be undeployed successfully before deletion.
+      operationId: deleteModelVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Registry version deleted; artifact bytes retained
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteResponse' }
+        '401':
+          description: Authentication required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '403':
+          description: Platform super administrator required
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '404':
+          description: Model or version not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+        '409':
+          description: Version is deployed or transitioning
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDeleteErrorResponse' }
+
+  /models/{model_name}/versions/{version}/files:
+    get:
+      tags: [models]
+      summary: List every file in a model version bundle
+      description: >-
+        Recursively lists below metadata.bundle_uri for new uploads, or below the
+        primary file's parent for legacy versions. Every name is relative to that root.
+      operationId: listModelVersionFiles
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Recursive bundle listing
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelVersionFileList' }
+        '404':
+          description: Model or version not found
+
+  /models/{model_name}/versions/{version}/download:
+    get:
+      tags: [models]
+      summary: Download the primary artifact or one exact bundle member
+      operationId: downloadModelVersion
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+        - in: query
+          name: path
+          required: false
+          schema: { type: string }
+          description: >-
+            Normalized relative path returned by the files endpoint. Nested paths
+            are supported; absolute paths, traversal, and objects absent from the
+            live bundle listing are rejected.
+      responses:
+        '200':
+          description: Artifact bytes
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '404':
+          description: Model, version, or exact bundle member not found
+
+  /models/{model_name}/versions/{version}/deploy:
+    post:
+      tags: [models]
+      summary: Deploy a model version when its artifact capabilities allow it
+      description: >-
+        Enqueues asynchronous conversion and KServe rollout. Newly uploaded versions
+        whose artifact_capabilities omit deploy are rejected before task creation.
+        Legacy versions without that metadata retain their existing behavior.
+      operationId: deployModelVersion
+      parameters:
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                target: { type: string, default: cpu }
+                runtime: { type: string }
+                runtime_type: { type: string, example: kserve-openvino }
+                runtime_image: { type: string }
+                gpu: { type: string }
+                domain: { type: string }
+                model_uri: { type: string, format: uri }
+      responses:
+        '200':
+          description: Deployment task accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  task_id: { type: string }
+                  state: { type: string, example: deploying }
+                  service: { type: string }
+                  namespace: { type: string }
+                  runtime: { type: string }
+                  image: { type: string }
+                  domain: { type: string }
+                  url: { type: string }
+                  message: { type: string }
+        '400':
+          description: Registration/download-only artifact or incompatible runtime
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelUploadError' }
+
+  /models/{model_name}/versions/{version}/try/schema:
+    get:
+      tags: [models]
+      summary: Inspect model tensors and available trial decoders
+      description: >-
+        Resolves one concrete artifact, inspects its ONNX graph in ML Backend, and
+        returns registered decoder choices plus the configuration saved for that
+        artifact. Input shape and model source are hints only, never proof of
+        output semantics.
+      operationId: inspectModelTrial
+      parameters:
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+        - in: query
+          name: path
+          required: false
+          schema: { type: string }
+          description: Exact normalized relative path returned by the recursive version files endpoint
+      responses:
+        '200':
+          description: Graph signature and decoder choices
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelTrialSchema' }
+        '400':
+          description: Invalid artifact path or unsupported artifact format
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelTrialError' }
+        '404':
+          description: Model version or artifact not found
+
+  /models/{model_name}/versions/{version}/try:
+    post:
+      tags: [models]
+      summary: Test a model artifact with one image
+      description: >-
+        Runs the selected auto, built-in, or custom decoder without deploying a
+        serving workload. A successful selection is saved under the concrete
+        artifact URI in metadata.trial_decoders. Failed inference never updates
+        saved configuration. Unknown graphs fail explicitly instead of inferring
+        semantics from tensor rank or shape.
+      operationId: runModelTrial
+      parameters:
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+        - in: query
+          name: path
+          required: false
+          schema: { type: string }
+          description: Exact normalized relative path returned by the recursive version files endpoint
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [image]
+              properties:
+                image: { type: string, format: binary }
+                conf: { type: number, minimum: 0, maximum: 1, default: 0.25 }
+                iou: { type: number, minimum: 0, maximum: 1, default: 0.7 }
+                cam: { type: boolean, default: false }
+                class_index: { type: integer }
+                top_k: { type: integer, minimum: 1, maximum: 100, default: 5 }
+                decoder_config:
+                  type: string
+                  description: JSON-encoded ModelTrialDecoderConfig; omitted to reuse the saved selection or auto mode
+                  example: '{"mode":"builtin","decoder_id":"yunet"}'
+      responses:
+        '200':
+          description: Normalized task-specific trial result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelTrialResult' }
+        '400':
+          description: Invalid image, artifact, or decoder JSON
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelTrialError' }
+        '422':
+          description: No decoder matched, or the selected decoder/mapping is invalid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelTrialError' }
+
+  /models/{model_name}/versions/{version}/artifacts/{hardware}/download:
+    get:
+      tags: [models]
+      summary: Download an artifact (presigned URL)
+      operationId: downloadArtifact
+      parameters:
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+        - in: path
+          name: hardware
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Presigned download URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  presigned_url: { type: string }
+                  expires_in: { type: integer }
+
+  /models/{model_name}/versions/{version}/packages:
+    get:
+      tags: [models]
+      summary: List ready FP32/FP16/INT8 edge packages for this version
+      description: |
+        Direct ONNX versions expose FP32 packages after graph, contract, and hash validation; no dataset, golden output, or device inference is claimed.
+        Optimized IR versions retain their FP16/INT8 numerical and quality-gate contracts. Devices are never package identities.
+        This endpoint is read-only and returns only ready packages. It supplies NH/NL with model_id, version, revision, package_sha256, and byte size without requiring tar inspection; it never triggers a build.
+      operationId: listModelPackages
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: List of available precision packages (only status=ready)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EdgePackageList' }
+        '404':
+          description: Model or version not found
+
+  /models/{model_name}/versions/{version}/package:
+    get:
+      tags: [models]
+      summary: Download a ready edge package as unchanged bytes
+      description: |
+        Returns `nereid-model-<precision>.tar.gz` (`application/gzip`). NH/NL must pass this response
+        **through as unchanged bytes** (no unpacking or repackaging); consumers compare its SHA-256 with package_sha256 from /packages.
+        Direct ONNX uses precision=fp32. Device selection belongs to runtime binding and is outside this endpoint.
+      operationId: downloadModelPackage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/TenantId'
+        - in: path
+          name: model_name
+          required: true
+          schema: { type: string }
+        - in: path
+          name: version
+          required: true
+          schema: { type: string }
+        - in: query
+          name: precision
+          required: false
+          schema: { type: string, enum: [fp32, fp16, int8], default: fp16 }
+      responses:
+        '200':
+          description: Edge-package tar.gz byte stream
+          headers:
+            Content-Disposition:
+              schema: { type: string }
+              description: 'attachment; filename=nereid-model-<precision>.tar.gz'
+          content:
+            application/gzip:
+              schema: { type: string, format: binary }
+        '400':
+          description: Invalid precision parameter
+        '404':
+          description: The package for this precision has not been built or its object is missing
+        '409':
+          description: The package for this precision is still building or its build failed
+
+  /ml-backend/deployments:
+    post:
+      tags: [ml-backend]
+      summary: Deploy a model version as an ML Backend preannotation service
+      operationId: createMlBackendDeployment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model_name, version, model_type]
+              properties:
+                model_name: { type: string }
+                version: { type: string }
+                model_type: { type: string, enum: [cnn, llm, vlm], default: cnn }
+                confidence_threshold: { type: number, default: 0.6 }
+                annotations_schema: { type: object, description: 'Label schema (LS project)' }
+      responses:
+        '201':
+          description: Deployed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deployment_id: { type: string }
+                  ml_backend_url: { type: string }
+
+  /projects:
+    post:
+      tags: [projects]
+      summary: Create an annotation project (LS or CVAT)
+      operationId: createAnnotationProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, annotation_tool, task_type]
+              properties:
+                name: { type: string }
+                annotation_tool: { type: string, enum: [label-studio, cvat] }
+                task_type:
+                  type: string
+                  enum: [image-detection, image-segmentation, image-classification, video-tracking, text, conversation]
+                schema: { type: object, description: 'Label definitions' }
+                import_uri: { type: string, description: 'SeaweedFS data URI' }
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id: { type: string }
+                  external_id: { type: string }
+                  external_url: { type: string }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: NF-issued access token obtained from the NF login or refresh endpoint
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: false
+      description: Tenant identifier; omission selects the default tenant
+      schema: { type: string, default: default }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string }
+
+  schemas:
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+          description: Refresh token issued by local login or SSO callback
+
+    RefreshResponse:
+      type: object
+      required: [access_token, token_type, expires_in]
+      properties:
+        access_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in:
+          type: integer
+          description: Access-token lifetime in seconds
+
+    AuthErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string, example: invalid refresh token }
+
+    Dataset:
+      type: object
+      properties:
+        dataset_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        latest_version: { $ref: '#/components/schemas/DatasetVersion' }
+        created_at: { type: string, format: date-time }
+
+    DatasetCreate:
+      type: object
+      required: [name, uri, format]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        uri: { type: string, description: 'SeaweedFS data URI' }
+        format: { type: string, enum: [coco, yolo, voc, alpaca, sharegpt, jsonl, video] }
+        lineage: { type: object }
+
+    DatasetVersion:
+      type: object
+      properties:
+        version_id: { type: string }
+        dataset_id: { type: string }
+        format: { type: string }
+        uri: { type: string }
+        checksum: { type: string }
+        lineage: { type: object }
+        immutable: { type: boolean, default: true }
+        created_at: { type: string, format: date-time }
+
+    AnnouncedArchitecture:
+      type: object
+      additionalProperties: true
+      required: [id, label, tier, requires, locked, missing]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        tier: { type: string }
+        requires: { type: array, items: { type: string } }
+        locked: { type: boolean }
+        missing: { type: array, items: { type: string } }
+
+    AnnouncedTask:
+      type: object
+      additionalProperties: true
+      required: [id, label, tier, requires, locked, missing, default_arch, architectures]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        tier: { type: string }
+        requires: { type: array, items: { type: string } }
+        locked: { type: boolean }
+        missing: { type: array, items: { type: string } }
+        default_arch: { type: string }
+        architectures:
+          type: array
+          items: { $ref: '#/components/schemas/AnnouncedArchitecture' }
+
+    AnnouncedCapability:
+      type: object
+      additionalProperties: true
+      required: [id, label, tier, requires, locked, missing]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        tier: { type: string }
+        requires: { type: array, items: { type: string } }
+        locked: { type: boolean }
+        missing: { type: array, items: { type: string } }
+
+    CapabilityImage:
+      type: object
+      additionalProperties: true
+      required: [id, name, repository, tag, full_ref, is_builtin, task_types, devices, announced, profile_error, tasks, capabilities]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        repository: { type: string }
+        tag: { type: string }
+        full_ref: { type: string }
+        is_builtin: { type: boolean }
+        task_types:
+          type: array
+          items: { type: string }
+          description: Legacy catalog task filter used when the image has no capability announcement
+        devices: { type: array, items: { type: string } }
+        announced: { type: boolean }
+        profile_error: { type: string }
+        tasks:
+          type: array
+          items: { $ref: '#/components/schemas/AnnouncedTask' }
+        capabilities:
+          type: array
+          items: { $ref: '#/components/schemas/AnnouncedCapability' }
+
+    CapabilitiesResponse:
+      type: object
+      required: [entitlements, images]
+      properties:
+        entitlements: { type: array, items: { type: string } }
+        images:
+          type: array
+          items: { $ref: '#/components/schemas/CapabilityImage' }
+
+    TrainingJobCreate:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        model_id:
+          type: string
+          description: 'Optional target model ID; the training output is registered as a new version of this model and does not determine its architecture or initial weights'
+        dataset_id: { type: string }
+        dataset_version: { type: integer }
+        config: { $ref: '#/components/schemas/TrainingJobConfig' }
+        params:
+          type: object
+          additionalProperties: true
+          description: 'Advanced orchestration parameters; prefer explicit fields'
+        custom_image: { type: string, description: 'Optional custom trainer image reference' }
+        custom_script_uri: { type: string, description: 'Optional custom training script S3 URI' }
+
+    TrainingJobConfig:
+      type: object
+      additionalProperties: true
+      description: 'Training configuration. CV architecture and initialization are separate; base_model is retained solely as a compatibility input for legacy clients'
+      properties:
+        task_type: { type: string, description: 'Task types such as detection/segmentation/classification/llm/vlm' }
+        architecture:
+          type: string
+          description: 'CV network architecture ID; may be omitted in checkpoint mode to use source metadata, a stock name, or the task default'
+        pretrained:
+          type: boolean
+          default: true
+          description: 'true=use the default pretrained initialization configured by the trainer; false=train from scratch or use explicit checkpoint initialization'
+        base_weights_uri:
+          type: string
+          description: 'Native training-weight URI for checkpoint mode; independent of architecture'
+        base_model_id:
+          type: string
+          description: 'Source model ID of a registered version used for continued training, for lineage and architecture-metadata resolution'
+        base_model:
+          type: string
+          description: 'Compatibility field: a combined architecture/weight value from legacy CV clients, or a foundation-model URI for LLM/VLM'
+        epochs: { type: integer }
+        batch: { type: integer }
+        imgsz: { type: integer }
+        workers:
+          type: integer
+          minimum: 0
+          description: 'Optional DataLoader worker count; omission preserves the selected trainer default, and values above zero require adequate /dev/shm'
+        split_ratio: { type: number }
+        accelerator: { type: string, enum: [cpu, nvidia, amd, intel] }
+        gpu_count: { type: integer, minimum: 0 }
+        augmentation: { type: object, additionalProperties: true }
+        llm: { type: object, additionalProperties: true }
+
+    OptimizationJobCreate:
+      type: object
+      required: [model_id, version]
+      properties:
+        model_id: { type: string }
+        version: { type: string }
+        targets:
+          type: array
+          items: { type: string, enum: [tensorrt, onnxruntime, openvino, gguf, acl, cann, musa] }
+        quantization:
+          type: object
+          properties:
+            precision: { type: string, enum: [fp32, fp16, int8, int4] }
+            method: { type: string, enum: [ptq, qat, awq, gptq, gguf-k-quant] }
+            calibration_uri: { type: string, description: 'User-selected calibration dataset (required for INT8; may be omitted to use the default subset)' }
+        gguf:
+          type: object
+          properties:
+            quant_type: { type: string, default: Q4_K_M }
+
+    EvaluationJobCreate:
+      type: object
+      required: [model_id, version]
+      properties:
+        model_id: { type: string }
+        version: { type: string }
+        artifact_ids: { type: array, items: { type: string }, description: 'Default = all hardware artifacts' }
+        evaluators:
+          type: array
+          items: { type: string, enum: [eval-cv, eval-bench, eval-gen, eval-chat] }
+        dataset_version_id: { type: string, description: 'Validation set (required for eval-cv/eval-gen)' }
+        judge_model: { type: string, description: 'LLM-as-judge model; defaults to qwen' }
+        hard_gate_thresholds: { type: object, description: 'Override the default quality-gate thresholds' }
+
+    TrainingRuntime:
+      type: object
+      required: [kfp_run_id, trainjobs, pods]
+      properties:
+        kfp_run_id: { type: string }
+        trainjobs:
+          type: array
+          items:
+            type: object
+            required: [name, state]
+            properties:
+              name: { type: string }
+              state: { type: string }
+              created: { type: string, format: date-time }
+        pods:
+          type: array
+          items:
+            type: object
+            required: [name, phase, container, job, node]
+            properties:
+              name: { type: string }
+              phase: { type: string }
+              container: { type: string }
+              job: { type: string }
+              node: { type: string }
+              started:
+                type: string
+                description: ISO-8601 trainer container start, or Pod start when unavailable
+              finished:
+                type: string
+                description: ISO-8601 trainer container finish; empty while running
+
+    JobMetrics:
+      type: object
+      additionalProperties: true
+      properties:
+        schema:
+          type: string
+          enum: [nf.training-metrics/1]
+          description: Final trainer metrics contract; absent on legacy documents
+        train_time_s:
+          type: number
+          minimum: 0
+          description: >-
+            Actual cumulative training seconds reported by the trainer, or
+            recovered from the Ultralytics results.csv time column. Pipeline
+            queueing and scheduling time are not included.
+        pipeline_stage:
+          type: string
+          enum: [baseline, optimizing, validating, finalizing]
+          description: >-
+            Current observable stage of a running fixed-DAG optimization.
+            Absent for terminal jobs, legacy jobs, and Katib search jobs.
+        completed_stages:
+          type: integer
+          minimum: 0
+          maximum: 3
+          description: >-
+            Completed optimization milestones. Baseline completion comes from
+            KFP; this job's metrics and gate report prove its own later stages.
+        total_stages:
+          type: integer
+          enum: [4]
+          description: >-
+            Baseline, optimization, gate validation, and finalization. The
+            finalization milestone is completed only by terminal reconciliation.
+
+    Job:
+      type: object
+      properties:
+        job_id: { type: string }
+        type: { type: string, enum: [training, optimization, evaluation, frame-extract, export] }
+        status:
+          type: string
+          enum: [pending, queued, running, completed, failed, cancelled]
+        pipeline_run_id: { type: string }
+        tenant: { type: string }
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: >-
+            Job completion percentage. For a running fixed-DAG optimization,
+            this counts the four documented milestones and is not a time estimate.
+        metrics:
+          $ref: '#/components/schemas/JobMetrics'
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    JobDetail:
+      allOf:
+        - $ref: '#/components/schemas/Job'
+        - type: object
+          properties:
+            steps:
+              type: array
+              items:
+                type: object
+                properties:
+                  name: { type: string }
+                  status: { type: string }
+                  logs_url: { type: string }
+                  artifacts: { type: array, items: { type: string } }
+            events: { type: array, items: { type: object }, description: 'K8s/KFP events' }
+            reports: { type: object, description: 'Quality-gate/evaluation/accuracy reports' }
+
+    ModelSummary:
+      type: object
+      properties:
+        id: { type: string }
+        tenant_id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        framework: { type: string }
+        task_type: { type: string }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        versions:
+          type: array
+          items: { $ref: '#/components/schemas/ModelVersion' }
+
+    ModelPage:
+      type: object
+      required: [items, total, page, page_size, total_pages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ModelSummary' }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        page_size: { type: integer, minimum: 1 }
+        total_pages: { type: integer, minimum: 0 }
+
+    ModelVersionPage:
+      type: object
+      required: [items, total, page, page_size, total_pages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ModelVersion' }
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        page_size: { type: integer, minimum: 1 }
+        total_pages: { type: integer, minimum: 0 }
+
+    ModelArtifactFormatDescriptor:
+      type: object
+      required: [id, label, extensions, primary_extensions, capabilities, compiled]
+      properties:
+        id: { type: string, example: openvino-ir }
+        label: { type: string, example: OpenVINO IR }
+        extensions: { type: array, items: { type: string }, example: ['.xml', '.bin'] }
+        primary_extensions: { type: array, items: { type: string }, example: ['.xml'] }
+        capabilities:
+          type: array
+          items: { type: string, enum: [download, train, convert, trial, deploy, optimize, package] }
+        compiled:
+          type: boolean
+          description: Vendor/toolchain-specific compiled artifact; constraints must be recorded explicitly
+
+    ModelArtifactFormatCatalog:
+      type: object
+      required: [formats, archive_suffixes]
+      properties:
+        formats:
+          type: array
+          items: { $ref: '#/components/schemas/ModelArtifactFormatDescriptor' }
+        archive_suffixes:
+          type: array
+          items: { type: string, enum: ['.zip', '.tar.gz', '.tgz'] }
+
+    ModelVersionMetadata:
+      type: object
+      additionalProperties: true
+      properties:
+        artifact_format: { type: string, example: openvino-ir }
+        artifact_layout: { type: string, enum: [single-file, multi-file, zip, tar.gz, tgz] }
+        artifact_capabilities:
+          type: array
+          items: { type: string, enum: [download, train, convert, trial, deploy, optimize, package] }
+        bundle_uri: { type: string, format: uri, example: 's3://nereidforge/models/demo/v1/' }
+        primary_file: { type: string, example: repository/demo/1/model.xml }
+        runtime_requirements:
+          type: object
+          additionalProperties: true
+          description: Recorded constraints only; never evidence of runtime compatibility
+        onnx_uri: { type: string, format: uri }
+        weights_uri: { type: string, format: uri }
+
+    ModelVersionFile:
+      type: object
+      required: [name, size, uri]
+      properties:
+        name: { type: string, description: Relative path below the version bundle root }
+        size: { type: integer, minimum: 0 }
+        uri: { type: string, format: uri }
+        modified_at: { type: string }
+
+    ModelVersionFileList:
+      type: object
+      required: [model_name, version, files, total]
+      properties:
+        model_name: { type: string }
+        version: { type: string }
+        files:
+          type: array
+          items: { $ref: '#/components/schemas/ModelVersionFile' }
+        total: { type: integer, minimum: 0 }
+
+    ModelUploadError:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string, example: 'OpenVINO IR requires a same-basename .bin companion' }
+
+    ModelDeleteResponse:
+      type: object
+      required: [deleted]
+      properties:
+        deleted: { type: boolean, enum: [true] }
+
+    ModelDeleteErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          example: 'model versions are still deployed or transitioning: v1; undeploy them before deletion'
+
+    ModelVersion:
+      type: object
+      properties:
+        id: { type: string }
+        model_id: { type: string }
+        version: { type: string }
+        description: { type: string }
+        file_path: { type: string, format: uri, description: Canonical primary artifact URI }
+        size_bytes: { type: integer, minimum: 0, description: Complete bundle size for new uploads }
+        metadata: { $ref: '#/components/schemas/ModelVersionMetadata' }
+        status: { type: string }
+        artifacts_count: { type: integer, minimum: 0 }
+        created_by: { type: string }
+        created_at: { type: string, format: date-time }
+        stage: { type: string }
+        artifacts:
+          type: array
+          items:
+            type: object
+            properties:
+              artifact_id: { type: string }
+              hardware: { type: string }
+              format: { type: string }
+              precision: { type: string }
+              status: { type: string, enum: [validated, failed, archived] }
+              metrics: { type: object }
+              benchmark: { type: object }
+        lineage: { type: object, description: 'base_model/dataset/code/hyperparams' }
+
+    ModelTrialTensor:
+      type: object
+      required: [name, shape, dtype]
+      properties:
+        name: { type: string }
+        shape:
+          type: array
+          items: { description: 'Static integer, symbolic dimension string, or null' }
+        dtype: { type: string, example: tensor(float) }
+
+    ModelTrialInputMapping:
+      type: object
+      required: [tensor, width, height, layout, color, resize, scale]
+      properties:
+        tensor: { type: string }
+        width: { type: integer, minimum: 1 }
+        height: { type: integer, minimum: 1 }
+        layout: { type: string, enum: [NCHW, NHWC] }
+        color: { type: string, enum: [RGB, BGR] }
+        resize: { type: string, enum: [letterbox, stretch] }
+        scale: { type: number, example: 0.00392156862745098 }
+        mean: { type: array, items: { type: number }, example: [0, 0, 0] }
+        std: { type: array, items: { type: number }, example: [1, 1, 1] }
+
+    ModelTrialDetectionMapping:
+      type: object
+      required: [prediction, layout, bbox_start, bbox_encoding, score_index, class_index, coordinate_space, score_activation]
+      properties:
+        prediction: { type: string, description: Combined prediction tensor name }
+        layout: { type: string, enum: [rows, columns], description: N-by-D or D-by-N after removing a unit batch }
+        bbox_start: { type: integer, minimum: 0 }
+        bbox_encoding: { type: string, enum: [xyxy, cxcywh] }
+        score_index: { type: integer, minimum: 0 }
+        class_index: { type: integer, minimum: 0 }
+        coordinate_space: { type: string, enum: [pixels, normalized] }
+        score_activation: { type: string, enum: [none, sigmoid] }
+
+    ModelTrialInstanceSegmentationMapping:
+      type: object
+      required: [boxes, scores, labels, masks, bbox_encoding, coordinate_space, mask_activation, mask_threshold]
+      properties:
+        boxes: { type: string }
+        scores: { type: string }
+        labels: { type: string }
+        masks: { type: string }
+        bbox_encoding: { type: string, enum: [xyxy, cxcywh] }
+        coordinate_space: { type: string, enum: [pixels, normalized] }
+        mask_activation: { type: string, enum: [sigmoid, none] }
+        mask_threshold: { type: number, minimum: 0, maximum: 1 }
+
+    ModelTrialSemanticSegmentationMapping:
+      type: object
+      required: [output, format]
+      properties:
+        output: { type: string }
+        format: { type: string, enum: [logits, class_ids] }
+        class_axis:
+          type: integer
+          description: Required for logits and rank-4 N1HW class-ID maps (the declared axis must be singleton); omit for batch-1 NHW class-ID maps
+        ignore_index: { type: integer }
+
+    ModelTrialClassificationMapping:
+      type: object
+      required: [output, class_axis, activation]
+      properties:
+        output: { type: string }
+        class_axis: { type: integer }
+        activation: { type: string, enum: [softmax, sigmoid, none] }
+
+    ModelTrialDecoderConfig:
+      type: object
+      required: [mode]
+      properties:
+        mode: { type: string, enum: [auto, builtin, custom] }
+        decoder_id: { type: string, description: Required for builtin mode, for example yunet or mask_rcnn }
+        task:
+          type: string
+          enum: [detection, instance_segmentation, semantic_segmentation, classification]
+          description: Required for custom mode; the result-kind registry remains extensible for future tasks
+        input: { $ref: '#/components/schemas/ModelTrialInputMapping' }
+        output:
+          description: Task-specific declarative output mapping; executable decoder code is not accepted
+          oneOf:
+            - { $ref: '#/components/schemas/ModelTrialDetectionMapping' }
+            - { $ref: '#/components/schemas/ModelTrialInstanceSegmentationMapping' }
+            - { $ref: '#/components/schemas/ModelTrialSemanticSegmentationMapping' }
+            - { $ref: '#/components/schemas/ModelTrialClassificationMapping' }
+        labels: { type: array, items: { type: string } }
+
+    ModelTrialDecoderDescriptor:
+      type: object
+      required: [id, label, task, matched]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        task: { type: string }
+        matched: { type: boolean, description: Whether automatic matching verified this graph contract }
+
+    ModelTrialSchema:
+      type: object
+      required: [artifact, inputs, outputs, decoders, auto_decoder, mapping_required, names, saved_decoder]
+      properties:
+        artifact: { type: string, description: Canonical artifact URI }
+        inputs: { type: array, items: { $ref: '#/components/schemas/ModelTrialTensor' } }
+        outputs: { type: array, items: { $ref: '#/components/schemas/ModelTrialTensor' } }
+        decoders: { type: array, items: { $ref: '#/components/schemas/ModelTrialDecoderDescriptor' } }
+        auto_decoder:
+          nullable: true
+          type: object
+          required: [id, task]
+          properties:
+            id: { type: string }
+            task: { type: string }
+        mapping_required: { type: boolean }
+        names: { type: object, additionalProperties: { type: string } }
+        saved_decoder:
+          nullable: true
+          allOf:
+            - { $ref: '#/components/schemas/ModelTrialDecoderConfig' }
+        input_shape: { type: array, items: { type: integer }, nullable: true, description: Upload-time preprocessing hint }
+
+    ModelTrialBox:
+      type: object
+      required: [bbox, score, cls, label]
+      properties:
+        bbox: { type: array, minItems: 4, maxItems: 4, items: { type: number }, description: Original-image xyxy coordinates }
+        score: { type: number }
+        cls: { type: integer }
+        label: { type: string }
+
+    ModelTrialPolygon:
+      type: object
+      required: [score, cls, label, points]
+      properties:
+        score: { type: number }
+        cls: { type: integer }
+        label: { type: string }
+        points:
+          type: array
+          items: { type: array, minItems: 2, maxItems: 2, items: { type: number } }
+
+    ModelTrialResult:
+      type: object
+      required: [task, kind, width, height, names, boxes, probs, time_ms, decoder]
+      properties:
+        task: { type: string, description: Legacy task name retained for compatibility }
+        kind: { type: string, example: instance_segmentation, description: Extensible normalized result-kind identifier }
+        width: { type: integer }
+        height: { type: integer }
+        names: { type: object, additionalProperties: { type: string } }
+        boxes: { type: array, items: { $ref: '#/components/schemas/ModelTrialBox' } }
+        polygons: { type: array, items: { $ref: '#/components/schemas/ModelTrialPolygon' } }
+        mask_overlay: { type: string, description: Base64 RGBA PNG at original image resolution for semantic segmentation }
+        mask_legend:
+          type: array
+          items:
+            type: object
+            required: [cls, label, color]
+            properties:
+              cls: { type: integer }
+              label: { type: string }
+              color: { type: array, minItems: 4, maxItems: 4, items: { type: integer, minimum: 0, maximum: 255 } }
+        probs:
+          nullable: true
+          type: object
+          properties:
+            class_index: { type: integer }
+            label: { type: string }
+            score: { type: number }
+            top5: { type: array, items: { type: array, items: {}, description: 'Legacy [label, probability] tuple' } }
+            topk:
+              type: array
+              items:
+                type: object
+                properties:
+                  class_index: { type: integer }
+                  label: { type: string }
+                  score: { type: number }
+        decoder:
+          type: object
+          required: [mode, id, task]
+          properties:
+            mode: { type: string, enum: [auto, builtin, custom] }
+            id: { type: string }
+            task: { type: string }
+        heatmap: { type: string, description: Optional base64 JPEG Grad-CAM overlay }
+        cam_target: { type: object }
+        mask_note: { type: string }
+        served_artifact: { type: string }
+        time_ms: { type: number }
+
+    ModelTrialError:
+      type: object
+      properties:
+        detail: { type: string, example: decoder mapping required }
+        error: { type: string, example: decoder mapping required }
+        code: { type: string, example: decoder_mapping_required }
+
+    EdgePackageDevice:
+      type: object
+      required: [device, status]
+      properties:
+        device: { type: string, description: 'For example intel:CPU, intel:GPU, or intel:NPU' }
+        status: { type: string, enum: [passed, failed, unverified] }
+
+    EdgePackageSummary:
+      type: object
+      required: [precision, status]
+      description: One ready precision package returned by GET .../packages
+      properties:
+        precision: { type: string, enum: [FP32, FP16, INT8] }
+        status: { type: string, enum: [ready], description: 'Pending and failed package records are omitted' }
+        revision:
+          type: string
+          nullable: true
+          description: Same model.revision embedded in nereid-model.json; no tar inspection is needed
+        package_uri: { type: string, nullable: true, description: 'Internal S3 URI, not a download URL' }
+        package_sha256: { type: string, nullable: true, description: SHA-256 of the exact downloadable tar.gz bytes }
+        package_bytes: { type: integer, format: int64, nullable: true }
+        detection_count: { type: integer, nullable: true }
+        devices:
+          type: array
+          description: 'Executed/unavailable device checks; empty for structural FP32 ONNX packages'
+          items: { $ref: '#/components/schemas/EdgePackageDevice' }
+        quality_gate_passed: { type: boolean, nullable: true }
+        map50_baseline: { type: number, nullable: true }
+        map50_candidate: { type: number, nullable: true }
+
+    EdgePackageList:
+      type: object
+      required: [model_id, version]
+      properties:
+        model_id: { type: string }
+        version: { type: string }
+        packages:
+          type: array
+          items: { $ref: '#/components/schemas/EdgePackageSummary' }

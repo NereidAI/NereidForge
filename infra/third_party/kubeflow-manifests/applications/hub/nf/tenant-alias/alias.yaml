@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-registry-service
+  labels:
+    app: model-registry-service
+    component: model-registry
+    app.kubernetes.io/component: model-registry
+    app.kubernetes.io/instance: model-registry-service
+    app.kubernetes.io/name: model-registry-service
+    app.kubernetes.io/part-of: model-registry
+  annotations:
+    displayName: Kubeflow Model Registry
+    description: Cross-namespace alias to the shared registry in the default namespace
+    # Federated BFF mode resolves the registry through this DNS name
+    # instead of this Service's unused ClusterIP.
+    modelregistry.kubeflow.org/external-address-rest: model-registry-service.default.svc.cluster.local:8080
+spec:
+  ports:
+    - appProtocol: http
+      name: http-api
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  type: ClusterIP

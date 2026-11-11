@@ -1,0 +1,25 @@
+apiVersion: "serving.kserve.io/v1alpha1"
+kind: ClusterStorageContainer
+metadata:
+  name: model-registry-storage-initializer
+spec:
+  container:
+    name: storage-initializer
+    image: ghcr.io/kubeflow/hub/storage-initializer:latest
+    env:
+    - name: MODEL_REGISTRY_BASE_URL
+      value: "model-registry-service.kubeflow.svc.cluster.local:8080"
+    # Uncomment to restrict artifact URIs the storage-initializer will download.
+    # Comma-separated list of URI prefixes. If unset, all URIs with supported
+    # protocols are allowed. Use trailing slashes to avoid partial bucket name
+    # matches (e.g., "s3://my-bucket/" not "s3://my-bucket").
+    # - name: ALLOWED_ARTIFACT_URI_PREFIXES
+    #   value: "s3://my-trusted-bucket/,gs://my-gcs-bucket/"
+    resources:
+      requests:
+        memory: 100Mi
+        cpu: 100m
+      limits:
+        memory: 1Gi
+  supportedUriFormats:
+    - prefix: model-registry://

@@ -1,0 +1,405 @@
+{
+  "schema": "nf.trainer-profile/1",
+  "name": "vision/torch",
+  "framework": {
+    "name": "torch",
+    "version": ">=2.9,<3"
+  },
+  "devices": [
+    "cpu",
+    "cuda",
+    "rocm",
+    "xpu"
+  ],
+  "tier": "core",
+  "tasks": [
+    {
+      "id": "classification",
+      "label": "Image classification",
+      "tier": "core",
+      "default_arch": "resnet50",
+      "architectures": [
+        {
+          "id": "resnet18",
+          "label": "ResNet-18",
+          "size": 224,
+          "params_m": 11.7,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet34",
+          "label": "ResNet-34",
+          "size": 224,
+          "params_m": 21.8,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet50",
+          "label": "ResNet-50",
+          "size": 224,
+          "params_m": 25.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet101",
+          "label": "ResNet-101",
+          "size": 224,
+          "params_m": 44.5,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "efficientnet_b0",
+          "label": "EfficientNet-B0",
+          "size": 224,
+          "params_m": 5.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "efficientnet_b2",
+          "label": "EfficientNet-B2",
+          "size": 260,
+          "params_m": 9.1,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "mobilenet_v3_large",
+          "label": "MobileNetV3-Large",
+          "size": 224,
+          "params_m": 5.5,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "convnext_tiny",
+          "label": "ConvNeXt-Tiny",
+          "size": 224,
+          "params_m": 28.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "swin_t",
+          "label": "Swin-T",
+          "size": 224,
+          "params_m": 28.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "vit_b_16",
+          "label": "ViT-B/16",
+          "size": 224,
+          "params_m": 86.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "id": "multilabel",
+      "label": "Multi-label classification",
+      "tier": "core",
+      "default_arch": "resnet50",
+      "architectures": [
+        {
+          "id": "resnet18",
+          "label": "ResNet-18",
+          "size": 224,
+          "params_m": 11.7,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet34",
+          "label": "ResNet-34",
+          "size": 224,
+          "params_m": 21.8,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet50",
+          "label": "ResNet-50",
+          "size": 224,
+          "params_m": 25.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "resnet101",
+          "label": "ResNet-101",
+          "size": 224,
+          "params_m": 44.5,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "efficientnet_b0",
+          "label": "EfficientNet-B0",
+          "size": 224,
+          "params_m": 5.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "efficientnet_b2",
+          "label": "EfficientNet-B2",
+          "size": 260,
+          "params_m": 9.1,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "mobilenet_v3_large",
+          "label": "MobileNetV3-Large",
+          "size": 224,
+          "params_m": 5.5,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "convnext_tiny",
+          "label": "ConvNeXt-Tiny",
+          "size": 224,
+          "params_m": 28.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "swin_t",
+          "label": "Swin-T",
+          "size": 224,
+          "params_m": 28.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "vit_b_16",
+          "label": "ViT-B/16",
+          "size": 224,
+          "params_m": 86.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "id": "detection",
+      "label": "Object detection",
+      "tier": "core",
+      "default_arch": "fasterrcnn_mobilenet_v3_large_fpn",
+      "architectures": [
+        {
+          "id": "fasterrcnn_mobilenet_v3_large_fpn",
+          "label": "Faster R-CNN (MobileNetV3)",
+          "size": 640,
+          "params_m": 19.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "fasterrcnn_resnet50_fpn_v2",
+          "label": "Faster R-CNN (ResNet-50 v2)",
+          "size": 640,
+          "params_m": 43.4,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "retinanet_resnet50_fpn_v2",
+          "label": "RetinaNet (ResNet-50 v2)",
+          "size": 640,
+          "params_m": 38.1,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "fcos_resnet50_fpn",
+          "label": "FCOS (ResNet-50)",
+          "size": 640,
+          "params_m": 32.2,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "id": "instance_seg",
+      "label": "Instance segmentation",
+      "tier": "core",
+      "default_arch": "maskrcnn_resnet50_fpn_v2",
+      "architectures": [
+        {
+          "id": "maskrcnn_resnet50_fpn_v2",
+          "label": "Mask R-CNN (ResNet-50 v2)",
+          "size": 640,
+          "params_m": 46.4,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "id": "semantic_seg",
+      "label": "Semantic segmentation",
+      "tier": "core",
+      "default_arch": "deeplabv3_mobilenet_v3_large",
+      "architectures": [
+        {
+          "id": "smp:Unet",
+          "label": "U-Net (ResNet-34 encoder)",
+          "size": 512,
+          "params_m": 24.4,
+          "encoder": "resnet34",
+          "tier": "core",
+          "license": "MIT"
+        },
+        {
+          "id": "smp:DeepLabV3Plus",
+          "label": "DeepLabV3+ (ResNet-34 encoder)",
+          "size": 512,
+          "params_m": 26.7,
+          "encoder": "resnet34",
+          "tier": "core",
+          "license": "MIT"
+        },
+        {
+          "id": "deeplabv3_mobilenet_v3_large",
+          "label": "DeepLabV3 (MobileNetV3)",
+          "size": 512,
+          "params_m": 11.0,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "deeplabv3_resnet50",
+          "label": "DeepLabV3 (ResNet-50)",
+          "size": 512,
+          "params_m": 39.6,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "fcn_resnet50",
+          "label": "FCN (ResNet-50)",
+          "size": 512,
+          "params_m": 35.3,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        },
+        {
+          "id": "lraspp_mobilenet_v3_large",
+          "label": "LR-ASPP (MobileNetV3)",
+          "size": 512,
+          "params_m": 3.2,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "id": "pose",
+      "label": "Pose / keypoints",
+      "tier": "core",
+      "default_arch": "keypointrcnn_resnet50_fpn",
+      "architectures": [
+        {
+          "id": "keypointrcnn_resnet50_fpn",
+          "label": "Keypoint R-CNN (ResNet-50)",
+          "size": 640,
+          "params_m": 59.0,
+          "tier": "core",
+          "license": "BSD-3-Clause"
+        }
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "export.onnx",
+      "label": "ONNX export",
+      "tier": "core",
+      "entrypoint": "export"
+    },
+    {
+      "id": "optimization.tensorrt",
+      "label": "TensorRT optimisation (INT8/FP16)",
+      "tier": "extended",
+      "requires": [
+        "extended.optimization"
+      ],
+      "entrypoint": "optimize"
+    }
+  ],
+  "entrypoints": {
+    "train": "python /app/train.py",
+    "evaluate": "python /app/evaluate.py",
+    "export": "python /app/export.py",
+    "catalog": "python /app/catalog.py",
+    "profile": "python /app/nf_profile.py"
+  },
+  "env": [
+    "INPUT_URI",
+    "OUTPUT_DIR",
+    "CONFIG_JSON",
+    "ARTIFACT_ID"
+  ],
+  "artifacts": [
+    "<id>.onnx",
+    "<id>.metadata.json",
+    "<id>.metrics.json",
+    "<id>.pt"
+  ],
+  "config_schema": {
+    "task": {
+      "type": "string",
+      "enum": [
+        "classification",
+        "multilabel",
+        "detection",
+        "instance_seg",
+        "semantic_seg",
+        "pose"
+      ]
+    },
+    "model": {
+      "type": "string"
+    },
+    "epochs": {
+      "type": "integer",
+      "default": 50
+    },
+    "batch": {
+      "type": "integer",
+      "default": 16
+    },
+    "workers": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 2
+    },
+    "image_size": {
+      "type": "integer"
+    },
+    "learning_rate": {
+      "type": "number"
+    },
+    "base_weights_uri": {
+      "type": "string"
+    },
+    "freeze_backbone": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "license": {
+    "code": "Apache-2.0",
+    "weights": "per-model"
+  }
+}

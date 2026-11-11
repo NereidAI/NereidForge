@@ -1,0 +1,38 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: model-registry-service
+spec:
+  action: ALLOW
+  selector:
+    matchLabels:
+      component: model-registry-server
+  rules:
+  # Allow all requests from the ingress gateway.
+  # External users are authenticated by oauth2-proxy/authservice at the gateway,
+  # which injects the kubeflow-userid header.
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account
+  # Allow internal service-to-service requests that carry a Kubernetes JWT
+  # (authorization header) and no kubeflow-userid header, but ONLY from the
+  # Kubeflow control plane namespace. Without a source constraint this rule
+  # matched any in-mesh pod, so any tenant pod could present its own
+  # ServiceAccount token, omit kubeflow-userid, and reach another tenant's
+  # Model Registry. The only component that legitimately uses this path is the
+  # control-plane inferenceservice-controller (the UI BFF forwards user traffic
+  # with the kubeflow-userid header, so it is covered by the ingress-gateway
+  # rule above, not this one). If your control plane runs in a namespace other
+  # than "kubeflow", set it here.
+  - from:
+    - source:
+        namespaces:
+        - "kubeflow"
+    when:
+    - key: request.headers[authorization]
+      values:
+      - "*"
+    - key: request.headers[kubeflow-userid]
+      notValues:
+      - "*"

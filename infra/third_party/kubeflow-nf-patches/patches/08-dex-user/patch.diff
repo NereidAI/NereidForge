@@ -1,0 +1,29 @@
+# file: common/dex/base/config-map.yaml
+--- a/common/dex/base/config-map.yaml
++++ b/common/dex/base/config-map.yaml
+@@ -18,9 +18,9 @@
+       skipApprovalScreen: true
+     enablePasswordDB: true
+     staticPasswords:
+-    - email: user@example.com
++    - email: admin@nereidforge.local
+       hashFromEnv: DEX_USER_PASSWORD
+-      username: user
++      username: nereidforge-admin
+       userID: "15841185641784"
+     staticClients:
+     # https://github.com/dexidp/dex/pull/1664
+
+# file: common/dex/overlays/oauth2-proxy/config-map.yaml
+--- a/common/dex/overlays/oauth2-proxy/config-map.yaml
++++ b/common/dex/overlays/oauth2-proxy/config-map.yaml
+@@ -18,7 +18,7 @@
+       skipApprovalScreen: true
+     enablePasswordDB: true
+     staticPasswords:
+-    - email: user@example.com
++    - email: admin@nereidforge.local
+       hashFromEnv: DEX_USER_PASSWORD
+       username: user
+       userID: "15841185641784"
+
