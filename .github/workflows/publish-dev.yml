@@ -46,7 +46,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish multi-architecture backend index
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: app/python-backend/Dockerfile
@@ -86,7 +86,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish multi-architecture frontend index
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/frontend
           file: app/frontend/Dockerfile
