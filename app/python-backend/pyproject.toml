@@ -33,7 +33,7 @@ dependencies = [
     # files into native KFP v2 pipelines, then strips network installs and
     # submits the run. The console script `kale` runs as a subprocess of the
     # worker; require_python >=3.11 is satisfied by the project's 3.14 base.
-    "kubeflow-kale==2.2.0",
+    "kubeflow-kale==2.3.0",
 ]
 
 [tool.setuptools]
