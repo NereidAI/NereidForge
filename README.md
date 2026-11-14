@@ -2,6 +2,27 @@
 
 # NereidForge — model factory control plane
 
+[![CI](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
+[![Dev Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml)
+[![Release Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml)
+[![DCO](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml)
+[![License Compliance](https://github.com/NereidAI/NereidForge/actions/workflows/license-compliance.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/license-compliance.yml)
+
+[![License](https://img.shields.io/github/license/NereidAI/NereidForge)](LICENSE)
+[![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-627185?logo=linux&logoColor=white)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.14-3776AB?logo=python&logoColor=white)](app/python-backend/pyproject.toml)
+[![Node](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](app/frontend/package.json)
+
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](app/frontend/package.json)
+[![Ant Design](https://img.shields.io/badge/Ant%20Design-5-0170FE?logo=antdesign&logoColor=white)](app/frontend/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](app/frontend/package.json)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](app/frontend/package.json)
+[![Kubeflow](https://img.shields.io/badge/Kubeflow-integrated-4279F3?logo=kubeflow&logoColor=white)](https://www.kubeflow.org/)
+
+[![GHCR backend](https://img.shields.io/badge/GHCR-backend-2496ED?logo=docker&logoColor=white)](https://github.com/NereidAI/NereidForge/pkgs/container/nereidforge-backend)
+[![GHCR frontend](https://img.shields.io/badge/GHCR-frontend-2496ED?logo=docker&logoColor=white)](https://github.com/NereidAI/NereidForge/pkgs/container/nereidforge-frontend)
+
 ![NereidForge dashboard](docs/images/nereidforge.png)
 
 NereidForge provides dataset and annotation workflows, training, optimization,
