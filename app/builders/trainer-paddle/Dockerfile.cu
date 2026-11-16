@@ -1,19 +1,25 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# NereidForge Paddle vision trainer — NVIDIA CUDA (per-vendor image, ADR-012/014).
+# NereidForge Paddle vision trainer — NVIDIA CUDA (per-vendor image, ADR-012/014;
+# Blackwell sm_120 baseline per ADR-023).
 #
 # Context MUST be app/builders (the trainer sources plus the shared SDK package).
 #
-# GPU wheels come from the official Paddle index (cu126), not from PyPI: `pip
+# GPU wheels come from the official Paddle cu129 index, not from PyPI: `pip
 # install paddlepaddle` on a GPU host installs the CPU build and silently trains
-# on CPU. The wheel is the manylinux x86_64 cp311 build shipped for CUDA 12.6,
-# pinned by filename so the index cannot hand back a different flavour.
+# on CPU. The wheel is the manylinux x86_64 cp311 build for CUDA 12.9, pinned by
+# filename so the index cannot hand back a different flavour. Paddle 3.3.x is
+# the first line whose cu129 wheels embed sm_120 (Blackwell, e.g. RTX 5060 Ti)
+# cubins; the former cu126 / paddle 3.0.0 combination stops at sm_90 and fails
+# on Blackwell with an architecture-mismatch error. The wheel bundles its own
+# CUDA 12.9 runtime libraries, so it runs on the CUDA 12.8 PyTorch base as long
+# as the host driver supports CUDA 12.9 (Linux driver >= 575, R580 recommended).
 #
-# Base: the already-mirrored LLaMA-Factory image (Ubuntu 22.04 / Python 3.11).
-# It brings a CUDA userspace runtime; torch is present in the base but is NOT a
-# dependency of this trainer — nothing here installs or relies on torch.
-ARG BASE_IMAGE=hiyouga/llamafactory:0.9.4
+# Base: the official PyTorch devel image (Ubuntu 22.04 / Python 3.11), used only
+# for its CUDA userspace and interpreter; torch is present in the base but is
+# NOT a dependency of this trainer — nothing here installs or relies on torch.
+ARG BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 FROM ${BASE_IMAGE}
 ARG VERSION=0.0.0-dev
 ARG GIT_SHA=unknown
@@ -38,11 +44,14 @@ ARG PIP_TRUSTED_HOST=""
 ARG APT_MIRROR=""
 # Vendor-built Paddle GPU wheel index, injected at build time. It is mandatory:
 # the default package index must never substitute a CPU or unverified GPU wheel.
-# Paddle is pinned to 3.0.0 on purpose (see the CPU Dockerfile header): 3.1+
-# PIR export + paddle2onnx 2.1.0 is a broken combination for PicoDet; 3.0.0 +
-# paddle2onnx 2.0.2rc3 is the verified train -> PIR export -> ONNX chain.
+# Paddle is pinned to 3.3.1 because sm_120 Blackwell support first ships in the
+# cu129 wheel line (the cu126 / 3.0.0 line stops at sm_90). The earlier 3.1+
+# PIR export regression against paddle2onnx 2.1.0 on PicoDet was documented on
+# the old stack, so paddle2onnx stays at the verified 2.0.2rc3 and the full
+# train -> PIR export -> ONNX chain on 3.3.1 is a required on-device release
+# gate (ADR-023): it cannot be exercised without an sm_120 GPU.
 ARG PADDLE_GPU_INDEX=""
-ARG PADDLE_GPU_WHEEL=paddlepaddle_gpu-3.0.0-cp311-cp311-linux_x86_64.whl
+ARG PADDLE_GPU_WHEEL=paddlepaddle_gpu-3.3.1-cp311-cp311-linux_x86_64.whl
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 ENV PYTHONUNBUFFERED=1
@@ -63,7 +72,10 @@ RUN if [ -z "$PADDLE_GPU_INDEX" ]; then \
 
 # The direct pinned wheel URL keeps generic indexes limited to dependencies;
 # they can never select a different Paddle build during resolution.
-RUN python -c "import paddle; assert paddle.__version__ == '3.0.0', paddle.__version__; assert paddle.device.is_compiled_with_cuda(), 'CPU-only paddle in the GPU image'; print('paddle', paddle.__version__)"
+# Fail fast if the base image ever moves off Python 3.11: a later layer writes
+# into a hardcoded python3.11 site-packages path for the PaddleX repo tree.
+RUN python -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version" \
+    && python -c "import paddle; assert paddle.__version__ == '3.3.1', paddle.__version__; assert paddle.device.is_compiled_with_cuda(), 'CPU-only paddle in the GPU image'; print('paddle', paddle.__version__, 'cuda', paddle.version.cuda())"
 
 RUN pip install --no-cache-dir --timeout 300 --retries 20 \
         "paddlex==3.7.2" "paddle2onnx==2.0.2rc3" \

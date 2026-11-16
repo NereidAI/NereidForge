@@ -17,7 +17,8 @@ true upstream coordinates. Air-gapped clusters resolve them through the
 node-level containerd mirror; there is no registry/layout switch in code.
 
 NOT covered (keep their own tags): upstream bases
-(python:3.14-slim, hiyouga/llamafactory:0.9.4, rocm/pytorch:rocm6.3, ...) and
+(python:3.14-slim, pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel,
+rocm/pytorch:rocm6.3, ...) and
 prediction/jupyter-base, whose tag is the Python version (py3.12) by product
 decision.
 

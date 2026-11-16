@@ -1,13 +1,19 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# NereidForge vision trainer — NVIDIA CUDA (per-vendor image, ADR-012/014).
+# NereidForge vision trainer — NVIDIA CUDA (per-vendor image, ADR-012/014;
+# Blackwell sm_120 baseline per ADR-023).
 #
-# Base: the already-mirrored LLaMA-Factory image, which ships torch 2.6+cu124
-# and torchvision (avoids re-pulling the ~5 GB CUDA wheel set on slow links).
+# Base: the official PyTorch devel image carrying torch 2.8.0 + CUDA 12.8 on
+# Ubuntu 22.04 / Python 3.11. Its prebuilt cubins cover sm_120 (RTX 50-series
+# Blackwell such as the RTX 5060 Ti) while retaining sm_80/86/89/90, so Ampere
+# and Ada cards keep working from the same image. The previous
+# hiyouga/llamafactory:0.9.4 base shipped torch 2.6+cu124, whose arch list ends
+# at sm_90 and fails on Blackwell with "no kernel image is available".
 # torch/torchvision come FROM the base on purpose — reinstalling would let pip
-# swap in a CPU build.
-ARG BASE_IMAGE=hiyouga/llamafactory:0.9.4
+# swap in a CPU build. Host requirement: NVIDIA driver >= 570 (R580 recommended
+# once the CUDA 12.9 Paddle stack runs on the same node).
+ARG BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 FROM ${BASE_IMAGE}
 ARG VERSION=0.0.0-dev
 ARG GIT_SHA=unknown
@@ -41,7 +47,9 @@ RUN if [ -n "$APT_MIRROR" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 
-RUN python -c "import torch, torchvision; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+RUN python -c "import torch, torchvision; print('torch', torch.__version__, 'cuda', torch.version.cuda); \
+    arches=torch.cuda.get_arch_list(); print('arch list:', arches); \
+    assert any('sm_120' in a for a in arches), 'Blackwell sm_120 cubin missing from the torch build'" \
     && pip install --no-cache-dir --timeout 120 --retries 10 \
         "timm>=1.0" "segmentation-models-pytorch>=0.3" \
         "numpy<2.3" "pillow>=10.0" "pyyaml>=6.0" "boto3>=1.34" \

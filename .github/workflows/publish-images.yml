@@ -708,7 +708,7 @@ jobs:
             VERSION=${{ steps.ver.outputs.version }}
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.stamp.outputs.build_date }}
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
           push: true
           provenance: false
           sbom: false
@@ -732,7 +732,7 @@ jobs:
             VERSION=${{ steps.ver.outputs.version }}
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.stamp.outputs.build_date }}
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
             PADDLE_GPU_INDEX=${{ env.PADDLE_GPU_INDEX }}
           push: true
           provenance: false
@@ -757,7 +757,7 @@ jobs:
             VERSION=${{ steps.ver.outputs.version }}
             GIT_SHA=${{ github.sha }}
             BUILD_DATE=${{ steps.stamp.outputs.build_date }}
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
           push: true
           provenance: false
           sbom: false

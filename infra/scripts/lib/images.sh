@@ -33,7 +33,7 @@ docker.io/library/python:3.11-slim
 docker.io/library/python:3.12-slim
 docker.io/library/python:3.14-slim
 docker.io/library/python:3.14
-$IMG_LLAMAFACTORY
+$IMG_PYTORCH_CUDA
 $IMG_ROCM_PYTORCH
 $IMG_JUPYTER_BASE
 docker.io/library/ubuntu:24.04

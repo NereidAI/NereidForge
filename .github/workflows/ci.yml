@@ -389,7 +389,7 @@ jobs:
           file: app/builders/trainer-torch/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
           push: false
           provenance: false
           sbom: false
@@ -402,7 +402,7 @@ jobs:
           file: app/builders/trainer-paddle/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
             PADDLE_GPU_INDEX=${{ env.PADDLE_GPU_INDEX }}
           push: false
           provenance: false
@@ -416,7 +416,7 @@ jobs:
           file: app/builders/trainer-llm-cu/Dockerfile
           platforms: linux/amd64
           build-args: |
-            BASE_IMAGE=hiyouga/llamafactory:0.9.4
+            BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
           push: false
           provenance: false
           sbom: false
