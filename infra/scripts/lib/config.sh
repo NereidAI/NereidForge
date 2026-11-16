@@ -70,7 +70,11 @@ IMG_LABEL_STUDIO_ML_BACKEND="heartexlabs/label-studio-ml-backend:$LABEL_STUDIO_V
 IMG_OPA="openpolicyagent/opa:1.12.2"
 IMG_PYTHON_BASE="python:3.11-slim"
 IMG_PYTHON_314_BASE="python:3.14-slim"
-IMG_LLAMAFACTORY="hiyouga/llamafactory:0.9.4"
+# CUDA vendor-trainer base (ADR-023): the official PyTorch CUDA 12.8 devel
+# image carries sm_120 Blackwell cubins (RTX 50-series) plus sm_80/86/89/90.
+# It replaced hiyouga/llamafactory:0.9.4, whose torch 2.6+cu124 build stops at
+# sm_90. LLaMA-Factory itself is pip-pinned inside the trainer Dockerfiles.
+IMG_PYTORCH_CUDA="pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel"
 # Upstream has no short "rocm6.3" tag; use the full py3.12/ubuntu24.04 tag.
 IMG_ROCM_PYTORCH="rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0"
 IMG_JUPYTER_BASE="quay.io/jupyter/base-notebook:python-3.12.9"
@@ -89,12 +93,12 @@ IMG_KUBECTL="alpine/k8s:1.36.2"
 : "${IMG_OPENVINO:?}"; : "${IMG_TRITONSERVER:?}"; : "${IMG_PYTORCH:?}"; : "${IMG_TGI:?}"
 : "${IMG_CVAT_SERVER:?}"; : "${IMG_CVAT_UI:?}"; : "${IMG_LABEL_STUDIO:?}"
 : "${IMG_LABEL_STUDIO_ML_BACKEND:?}"; : "${IMG_OPA:?}"
-: "${IMG_PYTHON_BASE:?}"; : "${IMG_PYTHON_314_BASE:?}"; : "${IMG_LLAMAFACTORY:?}"; : "${IMG_ROCM_PYTORCH:?}"; : "${IMG_JUPYTER_BASE:?}"
+: "${IMG_PYTHON_BASE:?}"; : "${IMG_PYTHON_314_BASE:?}"; : "${IMG_PYTORCH_CUDA:?}"; : "${IMG_ROCM_PYTORCH:?}"; : "${IMG_JUPYTER_BASE:?}"
 : "${IMG_BUSYBOX:?}"; : "${IMG_ALPINE:?}"; : "${IMG_CURL:?}"; : "${IMG_KUBECTL:?}"
 export IMG_POSTGRESQL IMG_POSTGRESQL_INSTANCE_MGR IMG_VALKEY IMG_SEAWEEDFS
 export IMG_OPENVINO IMG_TRITONSERVER IMG_PYTORCH IMG_TGI
 export IMG_CVAT_SERVER IMG_CVAT_UI IMG_LABEL_STUDIO IMG_LABEL_STUDIO_ML_BACKEND IMG_OPA
-export IMG_PYTHON_BASE IMG_PYTHON_314_BASE IMG_LLAMAFACTORY IMG_ROCM_PYTORCH IMG_JUPYTER_BASE
+export IMG_PYTHON_BASE IMG_PYTHON_314_BASE IMG_PYTORCH_CUDA IMG_ROCM_PYTORCH IMG_JUPYTER_BASE
 export IMG_BUSYBOX IMG_ALPINE IMG_CURL IMG_KUBECTL
 
 # Build network endpoints for self-built images. Generic empty values select
@@ -208,7 +212,7 @@ export_all() {
     export IMG_VALKEY IMG_SEAWEEDFS
     export IMG_OPENVINO IMG_TRITONSERVER IMG_PYTORCH IMG_TGI
     export IMG_CVAT_SERVER IMG_CVAT_UI IMG_LABEL_STUDIO IMG_LABEL_STUDIO_ML_BACKEND IMG_OPA
-    export IMG_PYTHON_BASE IMG_PYTHON_314_BASE IMG_LLAMAFACTORY IMG_ROCM_PYTORCH IMG_JUPYTER_BASE
+    export IMG_PYTHON_BASE IMG_PYTHON_314_BASE IMG_PYTORCH_CUDA IMG_ROCM_PYTORCH IMG_JUPYTER_BASE
     export IMG_BUSYBOX IMG_ALPINE IMG_CURL IMG_KUBECTL
     export PIP_INDEX_URL PIP_TRUSTED_HOST APT_MIRROR
     export TORCH_CPU_INDEX TORCH_XPU_INDEX TORCH_ROCM_INDEX HF_ENDPOINT PADDLE_GPU_INDEX

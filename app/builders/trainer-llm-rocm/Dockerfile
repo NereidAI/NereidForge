@@ -16,8 +16,9 @@
 #   docker tag  rocm/pytorch:rocm6.3_..._2.4.0 <registry>/rocm/pytorch:rocm6.3
 #   docker push <registry>/rocm/pytorch:rocm6.3
 # That base ships torch 2.4.0 + ROCm 6.3 (py3.12, ubuntu24.04). LLaMA-Factory
-# 0.9.4 runs on that torch; torch is NOT reinstalled here. All other pip
-# packages use the injected pip index (empty = default PyPI).
+# 0.9.5 runs on that torch (its floor is torch>=2.4); torch is NOT reinstalled
+# here. All other pip packages use the injected pip index (empty = default
+# PyPI).
 # Cards without prebuilt gfx kernels may need HSA_OVERRIDE_GFX_VERSION=11.0.0
 # (set it in the AMD accelerator profile env).
 # The full upstream tag is the only public default (no short rocm6.3 tag
@@ -48,7 +49,7 @@ ARG PIP_TRUSTED_HOST=""
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 COPY sdk /opt/nf-trainer-sdk
-RUN pip install --no-cache-dir "llamafactory[torch,metrics]==0.9.4" \
+RUN pip install --no-cache-dir "llamafactory[torch,metrics]==0.9.5" \
     && pip install --no-cache-dir \
         "boto3>=1.34" "pyyaml>=6.0" "sentencepiece" "tiktoken" "protobuf" \
         /opt/nf-trainer-sdk && rm -rf /opt/nf-trainer-sdk

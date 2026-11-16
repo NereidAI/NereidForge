@@ -19,7 +19,7 @@ docker.io/library/python:3.11-slim
 docker.io/library/python:3.12-slim
 docker.io/library/python:3.14-slim
 docker.io/library/python:3.14
-hiyouga/llamafactory:0.9.4
+pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
 quay.io/jupyter/base-notebook:python-3.12.9
 docker.io/library/ubuntu:24.04

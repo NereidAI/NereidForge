@@ -56,7 +56,7 @@ GIT_SHA="${GIT_SHA:-$(git -C "$ROOT_DIR" rev-parse --short HEAD 2>/dev/null || e
 BUILD_DATE="${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
 
 case "$VENDOR" in
-    cu)   base="$IMG_LLAMAFACTORY" ;;
+    cu)   base="$IMG_PYTORCH_CUDA" ;;
     rocm) base="$IMG_ROCM_PYTORCH" ;;
     xpu)  base="$IMG_XPU_BASE" ;;
     *) echo "unknown vendor: $VENDOR" >&2; exit 2 ;;

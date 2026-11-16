@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Legacy pre-vendor-split file (see ADR-012; trainer-llm-cu replaces it).
-# Kept parameterized per the no-hardcoded-FROM iron rule.
-ARG BASE_IMAGE=hiyouga/llamafactory:0.9.4
+# Kept parameterized per the no-hardcoded-FROM iron rule. The CUDA 12.8 base
+# carries torch with Blackwell sm_120 cubins (ADR-023) but no LLaMA-Factory, so
+# the pinned release is pip-installed here like in the per-vendor builders.
+ARG BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
 FROM ${BASE_IMAGE}
 ARG VERSION=0.0.0-dev
 ARG GIT_SHA=unknown
@@ -27,11 +29,14 @@ ARG PIP_INDEX_URL=""
 ARG PIP_TRUSTED_HOST=""
 # Injected at build time for regional networks; empty uses pip's default index.
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
-# LLaMA-Factory base ships torch (NVIDIA CUDA build); this image adds the
-# SeaweedFS S3 glue used to fetch the base model / llm-sft dataset and to push
-# back the LoRA adapter + progress.json/metrics.json. No internet is required
-# at runtime: models and data come from the cluster S3 store.
-RUN pip install --no-cache-dir "boto3>=1.34" "pyyaml>=6.0"
+# The CUDA 12.8 base ships torch (NVIDIA CUDA build with sm_120 cubins); this
+# image adds the pinned LLaMA-Factory release plus the SeaweedFS S3 glue used
+# to fetch the base model / llm-sft dataset and to push back the LoRA adapter +
+# progress.json/metrics.json. No internet is required at runtime: models and
+# data come from the cluster S3 store.
+RUN pip install --no-cache-dir "llamafactory[torch,metrics]==0.9.5" \
+        "boto3>=1.34" "pyyaml>=6.0" \
+    && python -c "from importlib.metadata import version; assert version('llamafactory').startswith('0.9.5')"
 COPY llm_train.py /app/llm_train.py
 WORKDIR /app
 ENTRYPOINT ["python", "/app/llm_train.py"]

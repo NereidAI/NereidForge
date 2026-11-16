@@ -20,7 +20,8 @@ feeds the frontend build (VITE_IMAGE_TAG) so UI dropdowns can never select a
 different version than the backend.
 
 NOT covered (keep their own tags):
-  * Upstream images: python:3.14-slim, hiyouga/llamafactory:0.9.4,
+  * Upstream images: python:3.14-slim,
+    pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel (CUDA trainer base, ADR-023),
     rocm/pytorch:rocm6.3_..., intel/intel-gpu-plugin:0.36.0, ...
   * prediction/jupyter-base keeps its Python-version tag (py3.12) by product
     decision (rebuild-in-place dual-use workbench image).
