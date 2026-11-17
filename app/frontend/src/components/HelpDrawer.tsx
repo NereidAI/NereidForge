@@ -8,7 +8,29 @@ import { useTranslation } from 'react-i18next';
 
 const { Paragraph } = Typography;
 
-// Minimal Markdown renderer for help documents (headings, lists, paragraphs, and emphasis).
+// renderInline converts the small inline-markdown subset used by the help
+// documents (**bold** and `code`) into React nodes. Unmatched text is kept
+// verbatim, and every fragment receives a stable key for list rendering.
+const renderInline = (text: string, keyPrefix: string): React.ReactNode[] => {
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter((part) => part.length > 0);
+  return parts.map((part, i) => {
+    const key = `${keyPrefix}-${i}`;
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={key}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return (
+        <code key={key} style={{ background: '#f5f5f5', padding: '0 4px', borderRadius: 4 }}>
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={key}>{part}</React.Fragment>;
+  });
+};
+
+// Minimal Markdown renderer for help documents (headings, lists, paragraphs,
+// plus the inline bold/code subset handled by renderInline).
 const renderMD = (text: string): React.ReactNode[] => {
   const lines = text.split('\n');
   const out: React.ReactNode[] = [];
@@ -17,7 +39,7 @@ const renderMD = (text: string): React.ReactNode[] => {
     if (list.length) {
       out.push(
         <ul key={key}>
-          {list.map((li, i) => <li key={i}>{li}</li>)}
+          {list.map((li, i) => <li key={i}>{renderInline(li, `li-${key}-${i}`)}</li>)}
         </ul>
       );
       list = [];
@@ -38,7 +60,7 @@ const renderMD = (text: string): React.ReactNode[] => {
       flushList(k++);
     } else {
       flushList(k++);
-      out.push(<Paragraph key={k++} style={{ marginBottom: 4 }}>{line}</Paragraph>);
+      out.push(<Paragraph key={k++} style={{ marginBottom: 4 }}>{renderInline(line, `p-${k}`)}</Paragraph>);
     }
   }
   flushList(k++);
@@ -54,14 +76,17 @@ export const HelpDrawer: React.FC<{ module: string; open: boolean; onClose: () =
     if (!open || !module) return;
     setLoading(true);
     const lang = i18n.language?.startsWith('zh') ? 'zh' : 'en';
-    const path = `${import.meta.env.BASE_URL || '/'}help/${module}.md`;
-    // Help documents are bilingual at paragraph level; load them directly.
-    fetch(path)
-      .then((res) => (res.ok ? res.text() : Promise.reject()))
+    const base = import.meta.env.BASE_URL || '/';
+    // Help documents live per language under public/help/<lang>/<module>.md.
+    // English is the fallback whenever a localized document does not exist.
+    const docPath = (language: string) => `${base}help/${language}/${module}.md`;
+    const fetchDoc = (path: string): Promise<string> =>
+      fetch(path).then((res) => (res.ok ? res.text() : Promise.reject(new Error(`help document not found: ${path}`))));
+    fetchDoc(docPath(lang))
+      .catch((err: unknown) => (lang === 'en' ? Promise.reject(err) : fetchDoc(docPath('en'))))
       .then(setContent)
       .catch(() => setContent(`# ${t('common.help')}\n\n${t('common.helpUnavailable')}`))
       .finally(() => setLoading(false));
-    void lang;
   }, [open, module, i18n.language, t]);
 
   return (
