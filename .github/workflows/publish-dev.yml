@@ -9,6 +9,13 @@
 # deliberately do not trigger this workflow, so forks cannot publish into the
 # organization namespace. Vendor/trainer/runtime/base images stay
 # release-only in publish-images.yml; the local Makefile remains build-only.
+#
+# Path scoping: a plain-git path-scope job gates each publication on the real
+# inputs of its image. Unlike the ci.yml cache-warm filter, app/frontend/public/
+# help/ is NOT excluded here: the help corpus ships inside the frontend image,
+# so a docs-only merge must still publish a fresh frontend dev image while the
+# unchanged backend image is skipped. Pure documentation paths outside image
+# contexts (docs/, root markdown) publish nothing.
 name: publish-dev
 
 on:
@@ -26,8 +33,58 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # path-scope mirrors ci.yml's classifier with publication semantics: the
+  # frontend image bundles the help corpus, so app/frontend changes always
+  # publish the frontend, while backend scoping follows its COPY inputs.
+  path-scope:
+    name: Determine changed-path publication scope
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.scope.outputs.backend }}
+      frontend: ${{ steps.scope.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        run: |
+          set -euo pipefail
+          # publish-dev only fires on main pushes; github.event.before is the
+          # previous main tip (zero sha on the rare first-push case).
+          base="${{ github.event.before }}"
+          case "$base" in ""|0000000000000000000000000000000000000000) base="HEAD~1" ;; esac
+          mapfile -t changed < <(git diff --name-only "$base" HEAD)
+          echo "Changed ${#changed[@]} path(s) against $base:"
+          printf '  %s\n' "${changed[@]}"
+          backend=false; frontend=false; broad=false; docs=0
+          for f in "${changed[@]}"; do
+            case "$f" in
+              .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
+              LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
+                broad=true ;;
+              app/python-backend/*|app/kfp-pipelines/*|app/builders/*|infra/configs/*)
+                backend=true ;;
+              app/frontend/*)
+                frontend=true ;;
+              docs/*|*.md)
+                docs=$((docs + 1)) ;;
+              # Unknown paths fail safe and publish both images.
+              *)
+                echo "Uncatalogued path '$f': failing safe to full scope"
+                broad=true ;;
+            esac
+          done
+          if "$broad"; then backend=true; frontend=true; fi
+          {
+            echo "backend=$backend"
+            echo "frontend=$frontend"
+          } >> "$GITHUB_OUTPUT"
+          echo "Scope decision -> backend=$backend frontend=$frontend (documentation-only files: $docs)"
+
   publish-backend:
     name: Publish nereidforge-backend dev image
+    needs: path-scope
+    if: needs.path-scope.outputs.backend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -68,6 +125,8 @@ jobs:
 
   publish-frontend:
     name: Publish nereidforge-frontend dev image
+    needs: path-scope
+    if: needs.path-scope.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
