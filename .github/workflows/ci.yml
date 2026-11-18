@@ -131,7 +131,7 @@ jobs:
       # Two explicit steps instead of a matrix: the per-component build args
       # are baked at the fixed rolling dev version below.
       - name: Warm backend multi-architecture image (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: app/python-backend/Dockerfile
@@ -144,7 +144,7 @@ jobs:
           cache-from: type=gha,scope=nereidforge-backend
           cache-to: type=gha,mode=max,scope=nereidforge-backend
       - name: Warm frontend multi-architecture image (no push)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/frontend
           file: app/frontend/Dockerfile
@@ -175,7 +175,7 @@ jobs:
           df -h /
       - name: Warm runtime base
         id: runtime-base
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/kfp-pipelines/docker
           file: app/kfp-pipelines/docker/Dockerfile.runtime
@@ -195,7 +195,7 @@ jobs:
           tar -xf /tmp/nf-runtime.tar -C /tmp/nf-runtime
           test -f /tmp/nf-runtime/index.json
       - name: Warm CPU torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-torch/Dockerfile
@@ -208,7 +208,7 @@ jobs:
           cache-from: type=gha,scope=trainer-torch-cpu
           cache-to: type=gha,mode=max,scope=trainer-torch-cpu
       - name: Warm CPU paddle trainer (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-paddle/Dockerfile
@@ -223,7 +223,7 @@ jobs:
           cache-from: type=gha,scope=trainer-paddle-cpu
           cache-to: type=gha,mode=max,scope=trainer-paddle-cpu
       - name: Warm torch converter
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/kfp-pipelines/docker
           file: app/kfp-pipelines/docker/Dockerfile.convert
@@ -237,7 +237,7 @@ jobs:
           cache-from: type=gha,scope=trainer-convert
           cache-to: type=gha,mode=max,scope=trainer-convert
       - name: Warm TensorFlow converter
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/kfp-pipelines/docker
           file: app/kfp-pipelines/docker/Dockerfile.convert-tf
@@ -250,7 +250,7 @@ jobs:
           cache-from: type=gha,scope=trainer-convert-tf
           cache-to: type=gha,mode=max,scope=trainer-convert-tf
       - name: Warm Paddle converter (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/kfp-pipelines/docker
           file: app/kfp-pipelines/docker/Dockerfile.convert-pp
@@ -264,7 +264,7 @@ jobs:
           cache-from: type=gha,scope=trainer-convert-pp
           cache-to: type=gha,mode=max,scope=trainer-convert-pp
       - name: Warm optimizer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/optimizer/Dockerfile
@@ -280,7 +280,7 @@ jobs:
           cache-from: type=gha,scope=train-optimizer
           cache-to: type=gha,mode=max,scope=train-optimizer
       - name: Warm evaluator
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/evaluator/Dockerfile
@@ -296,7 +296,7 @@ jobs:
           cache-from: type=gha,scope=train-evaluator
           cache-to: type=gha,mode=max,scope=train-evaluator
       - name: Warm Intel GPU OVMS (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders/inference-model-server-openvino-xpu
           file: app/builders/inference-model-server-openvino-xpu/Dockerfile
@@ -309,7 +309,7 @@ jobs:
           cache-from: type=gha,scope=inference-model-server-openvino-xpu
           cache-to: type=gha,mode=max,scope=inference-model-server-openvino-xpu
       - name: Warm ml-backend (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders/ml-backend
           file: app/builders/ml-backend/Dockerfile
@@ -323,7 +323,7 @@ jobs:
           cache-from: type=gha,scope=ml-backend
           cache-to: type=gha,mode=max,scope=ml-backend
       - name: Warm ml-backend-custom (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders/ml-backend-custom
           file: app/builders/ml-backend-custom/Dockerfile
@@ -337,7 +337,7 @@ jobs:
           cache-from: type=gha,scope=ml-backend-custom
           cache-to: type=gha,mode=max,scope=ml-backend-custom
       - name: Warm notebook workbench (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders/notebook-base
           file: app/builders/notebook-base/Dockerfile
@@ -376,7 +376,7 @@ jobs:
           df -h /
       - name: Warm XPU vendor base
         id: xpu-base
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders/trainer-xpu
           file: app/builders/trainer-xpu/Dockerfile
@@ -400,7 +400,7 @@ jobs:
           tar -xf /tmp/trainer-xpu-base.tar -C /tmp/trainer-xpu-base
           test -f /tmp/trainer-xpu-base/index.json
       - name: Warm XPU packaging evaluator
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/evaluator-xpu/Dockerfile
@@ -415,7 +415,7 @@ jobs:
           cache-from: type=gha,scope=train-evaluator-xpu
           cache-to: type=gha,mode=max,scope=train-evaluator-xpu
       - name: Warm XPU torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-torch/Dockerfile.xpu
@@ -431,7 +431,7 @@ jobs:
           cache-from: type=gha,scope=trainer-torch-xpu
           cache-to: type=gha,mode=max,scope=trainer-torch-xpu
       - name: Warm XPU LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-llm-xpu/Dockerfile
@@ -469,7 +469,7 @@ jobs:
                       /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
           df -h /
       - name: Warm CUDA torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-torch/Dockerfile.cu
@@ -482,7 +482,7 @@ jobs:
           cache-from: type=gha,scope=trainer-torch-cu
           cache-to: type=gha,mode=max,scope=trainer-torch-cu
       - name: Warm CUDA paddle trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-paddle/Dockerfile.cu
@@ -496,7 +496,7 @@ jobs:
           cache-from: type=gha,scope=trainer-paddle-cu
           cache-to: type=gha,mode=max,scope=trainer-paddle-cu
       - name: Warm CUDA LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-llm-cu/Dockerfile
@@ -534,7 +534,7 @@ jobs:
       # (rocm/pytorch:rocm6.3_ubuntu24.04_...) on every warmed commit, mirroring
       # the tag workflow. Revisit the trigger matrix if this proves too costly.
       - name: Warm ROCm torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-torch/Dockerfile.rocm
@@ -548,7 +548,7 @@ jobs:
           cache-from: type=gha,scope=trainer-torch-rocm
           cache-to: type=gha,mode=max,scope=trainer-torch-rocm
       - name: Warm ROCm LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: app/builders
           file: app/builders/trainer-llm-rocm/Dockerfile
