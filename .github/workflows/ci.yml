@@ -19,6 +19,15 @@
 # The hardware-bound vendor jobs additionally skip on forks (and any context
 # missing the specialized wheel-index repository variables), instead of
 # hard-failing like the tag workflow does.
+#
+# Path scoping: the path-scope job classifies the files changed by the push or
+# PR with plain git (no third-party action), and every cache-warm job runs only
+# when its real image inputs changed. Documentation-only changes (docs/, root
+# markdown, the in-image help corpus under app/frontend/public/help/) therefore
+# complete without a single image build. Skipped jobs stay mergeable: this
+# repository's required-check rules already treat the vendor jobs' conditional
+# skips as success, as proven by every PR since the rules were enabled. Any
+# unrecognized path fails safe and runs every job.
 name: ci
 
 on:
@@ -42,8 +51,77 @@ env:
   HF_ENDPOINT: ${{ vars.HF_ENDPOINT }}
 
 jobs:
+  # path-scope classifies the changed files with plain git and emits one
+  # boolean output per cache-warm job. Patterns mirror the Dockerfile COPY
+  # inputs, not directory conventions: the backend image copies python-backend,
+  # kfp-pipelines, two trainer profiles, infra/configs and root license files,
+  # while the frontend image takes everything under app/frontend except the
+  # help corpus, which is documentation shipped as static assets but excluded
+  # from cache-warm triggers to keep docs-only PRs cheap.
+  path-scope:
+    name: Determine changed-path build scope
+    runs-on: ubuntu-latest
+    outputs:
+      applications: ${{ steps.scope.outputs.applications }}
+      core: ${{ steps.scope.outputs.core }}
+      vendor: ${{ steps.scope.outputs.vendor }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            base="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
+          else
+            base="${{ github.event.before }}"
+            case "$base" in ""|0000000000000000000000000000000000000000) base="HEAD~1" ;; esac
+          fi
+          mapfile -t changed < <(git diff --name-only "$base" HEAD)
+          echo "Changed ${#changed[@]} path(s) against $base:"
+          printf '  %s\n' "${changed[@]}"
+          apps=false; core=false; vendor=false; broad=false; docs=0
+          for f in "${changed[@]}"; do
+            case "$f" in
+              # Build system, image references and root legal files can affect
+              # every image: run the full matrix.
+              .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
+              LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
+                broad=true ;;
+              app/python-backend/*|infra/configs/*)
+                apps=true ;;
+              app/kfp-pipelines/*)
+                apps=true; core=true ;;
+              app/builders/*)
+                # Backend image copies two trainer profiles from this tree.
+                apps=true; core=true; vendor=true ;;
+              app/frontend/*)
+                # The help corpus is bilingual documentation only; everything
+                # else under app/frontend is a real frontend image input.
+                case "$f" in app/frontend/public/help/*) docs=$((docs + 1)) ;; *) apps=true ;; esac ;;
+              docs/*|*.md)
+                docs=$((docs + 1)) ;;
+              # Unknown paths fail safe: warm every scope rather than skip a
+              # build whose inputs were not catalogued here.
+              *)
+                echo "Uncatalogued path '$f': failing safe to full scope"
+                broad=true ;;
+            esac
+          done
+          if "$broad"; then apps=true; core=true; vendor=true; fi
+          {
+            echo "applications=$apps"
+            echo "core=$core"
+            echo "vendor=$vendor"
+          } >> "$GITHUB_OUTPUT"
+          echo "Scope decision -> applications=$apps core=$core vendor=$vendor (documentation-only files: $docs)"
+
   applications:
     name: backend/frontend multi-arch cache warm
+    needs: path-scope
+    if: needs.path-scope.outputs.applications == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -82,6 +160,8 @@ jobs:
 
   core:
     name: core runtime, converters, optimizer, and evaluator cache warm
+    needs: path-scope
+    if: needs.path-scope.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -274,12 +354,15 @@ jobs:
 
   vendor-xpu:
     name: vendor trainers - Intel XPU cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the specialized wheel index; the tag
-    # workflow hard-fails instead, because publication cannot proceed.
+    needs: path-scope
+    # Skip fork PRs, contexts without the specialized wheel index, and changes
+    # outside the trainer builder tree; the tag workflow hard-fails instead,
+    # because publication cannot proceed.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.TORCH_XPU_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           (github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository) &&
+           vars.TORCH_XPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -366,11 +449,14 @@ jobs:
 
   vendor-cu:
     name: vendor trainers - NVIDIA CUDA cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the Paddle GPU wheel index.
+    needs: path-scope
+    # Skip fork PRs, contexts without the Paddle GPU wheel index, and changes
+    # outside the trainer builder tree.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.PADDLE_GPU_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           (github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository) &&
+           vars.PADDLE_GPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -425,11 +511,14 @@ jobs:
 
   vendor-rocm:
     name: vendor trainers - AMD ROCm cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the ROCm wheel index.
+    needs: path-scope
+    # Skip fork PRs, contexts without the ROCm wheel index, and changes outside
+    # the trainer builder tree.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.TORCH_ROCM_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           (github.event_name != 'pull_request' ||
+            github.event.pull_request.head.repo.full_name == github.repository) &&
+           vars.TORCH_ROCM_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
