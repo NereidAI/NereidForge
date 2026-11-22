@@ -1,7 +1,10 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and publish NereidForge production images exclusively to GHCR.
+# Build and publish NereidForge production images, nine active Helm charts, and
+# the repository-shaped source/installer archive. Images and charts use GHCR;
+# the installer and chart/image manifests are attached to the GitHub Release.
+# The legacy Kubeflow Helm umbrella is not an active installer and is excluded.
 #
 # Publication model (root treaty §19):
 # - Triggered ONLY by pushing a new git tag matching v*; there is no manual
@@ -17,10 +20,20 @@
 # - Generic product images are linux/amd64 + linux/arm64 indexes. The
 #   hardware-bound CUDA/ROCm/Intel-XPU images are the sole single-arch
 #   (linux/amd64) exceptions alongside the dependency-bound images below.
+# - Chart jobs start only after every image job succeeds. Product charts inject
+#   the bare release version into version/appVersion; third-party wrappers keep
+#   their pinned Chart.yaml metadata. Packaged charts are rendered and checked
+#   for development-image leaks before their authenticated pull verification.
+# - The installer job runs only after all nine chart publications succeed. Its
+#   archive carries generated release.env metadata, so installation without a
+#   .git directory cannot silently select 0.0.0-dev. The custom installer is the
+#   sole supported Release installation archive; raw Source code archives fail
+#   closed. Existing published Releases are never modified and assets are never
+#   clobbered; a draft is published only after all four assets upload.
 # - The local Makefile stays an independent build-only interface and is never
 #   called by this workflow. Local/air-gapped hub copies are the operator's
 #   own decision, performed with NereidOverview harbor-sync.sh.
-# The jobs stay inline instead of calling the organization reusable workflow
+# The image jobs stay inline instead of calling the organization reusable workflow
 # because NF needs specialized wheel-index variables and (for the applications)
 # per-architecture rootfs/runtime verification that the reusable call cannot
 # express; the action chain and tag scheme are otherwise identical.
@@ -79,7 +92,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - id: stamp
         name: Derive traceability tags
@@ -206,7 +231,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - id: stamp
         name: Derive traceability tags
@@ -532,7 +569,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify Intel XPU wheel index configuration
         run: |
@@ -671,7 +720,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify Paddle CUDA wheel index configuration
         run: |
@@ -782,7 +843,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify ROCm wheel index configuration
         run: |
@@ -862,3 +935,216 @@ jobs:
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}
+
+  publish-charts:
+    name: Publish ${{ matrix.name }} OCI chart
+    needs: [applications, core, vendor-xpu, vendor-cu, vendor-rocm]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgresql
+            path: infra/charts/postgresql
+            version_mode: upstream
+            values_files: infra/charts/postgresql/values-prod.yaml
+            set_values: bootstrap.password=ci-render-only-placeholder
+          - name: valkey
+            path: infra/charts/valkey
+            version_mode: upstream
+            values_files: ''
+            set_values: ''
+          - name: seaweedfs
+            path: infra/charts/seaweedfs
+            version_mode: upstream
+            values_files: ''
+            set_values: ''
+          - name: labelstudio
+            path: infra/charts/labelstudio
+            version_mode: upstream
+            values_files: ''
+            set_values: ''
+          - name: cvat
+            path: infra/charts/cvat
+            version_mode: upstream
+            values_files: infra/configs/cvat-values.yaml
+            set_values: ingress.hostname=cvat.example.test
+          - name: nereidforge-ml-backend
+            path: app/charts/ml-backend
+            version_mode: product
+            values_files: ''
+            set_values: ''
+          - name: nereidforge-backend
+            path: app/charts/nereidforge-backend
+            version_mode: product
+            values_files: ''
+            set_values: ''
+          - name: nereidforge-frontend
+            path: app/charts/nereidforge-frontend
+            version_mode: product
+            values_files: ''
+            set_values: ingress.host=forge.example.test
+          - name: nereidforge-tenant-check
+            path: app/charts/tenant-check
+            version_mode: product
+            values_files: ''
+            set_values: ''
+    uses: NereidAI/.github/.github/workflows/publish-chart.yml@v1
+    with:
+      chart-path: ${{ matrix.path }}
+      chart-name: ${{ matrix.name }}
+      channel: release
+      version-mode: ${{ matrix.version_mode }}
+      values-files: ${{ matrix.values_files }}
+      set-values: ${{ matrix.set_values }}
+
+  release-installer:
+    name: Attach source installer and artifact manifests
+    needs: publish-charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Validate tag and derive bare version
+        id: ver
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and reparse the source installer
+        env:
+          RELEASE_TAG: ${{ steps.ver.outputs.version }}
+          INSTALLER_OUTPUT_DIR: ${{ runner.temp }}/release
+        run: bash infra/scripts/04_package-installer.sh
+
+      - name: Log in to GHCR with Helm for chart manifest verification
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${GHCR_TOKEN}" | helm registry login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+
+      - name: Pull charts and record package digests
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          pull_dir="${RUNNER_TEMP}/release-chart-pull"
+          manifest="${release_dir}/nereidforge-charts-${VERSION}.txt"
+          mkdir -p "$pull_dir"
+          charts=(
+            "infra/charts/postgresql:postgresql:upstream"
+            "infra/charts/valkey:valkey:upstream"
+            "infra/charts/seaweedfs:seaweedfs:upstream"
+            "infra/charts/labelstudio:labelstudio:upstream"
+            "infra/charts/cvat:cvat:upstream"
+            "app/charts/ml-backend:nereidforge-ml-backend:product"
+            "app/charts/nereidforge-backend:nereidforge-backend:product"
+            "app/charts/nereidforge-frontend:nereidforge-frontend:product"
+            "app/charts/tenant-check:nereidforge-tenant-check:product"
+          )
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# OCI reference | chart archive SHA-256 | appVersion'
+          } > "$manifest"
+          for entry in "${charts[@]}"; do
+            IFS=':' read -r path name mode <<< "$entry"
+            source_metadata="$(helm show chart "$path")"
+            chart_version="$VERSION"
+            if [[ "$mode" == upstream ]]; then
+              chart_version="$(awk '/^version:/ {print $2; exit}' <<< "$source_metadata")"
+            fi
+            reference="oci://ghcr.io/nereidai/charts/${name}:${chart_version}"
+            helm pull "oci://ghcr.io/nereidai/charts/${name}" \
+              --version "$chart_version" --destination "$pull_dir"
+            package="${pull_dir}/${name}-${chart_version}.tgz"
+            test -f "$package"
+            actual_metadata="$(helm show chart "$package")"
+            actual_version="$(awk '/^version:/ {print $2; exit}' <<< "$actual_metadata")"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$actual_metadata" | tr -d '"')"
+            test "$actual_version" = "$chart_version"
+            if [[ "$mode" == product ]]; then
+              test "$actual_version" = "$VERSION"
+              test "$app_version" = "$VERSION"
+            else
+              source_app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+              test "$app_version" = "$source_app_version"
+            fi
+            digest="$(sha256sum "$package" | awk '{print $1}')"
+            printf '%s %s %s\n' "$reference" "$digest" "$app_version" >> "$manifest"
+          done
+          test "$(grep -c '^oci://' "$manifest")" -eq 9
+
+      - name: Export release image manifest and verify assets
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          archive="${release_dir}/nereidforge-installer-${VERSION}.tar.gz"
+          images="${release_dir}/nereidforge-images-${VERSION}.txt"
+          tar -xzf "$archive" -C "$release_dir" --strip-components=1 \
+            "NereidForge-${VERSION}/images-manifest.txt"
+          mv "${release_dir}/images-manifest.txt" "$images"
+          (cd "$release_dir" && sha256sum -c "$(basename "$archive").sha256")
+          test "$(grep -c '^ghcr.io/nereidai/' "$images")" -eq 23
+          test -s "${release_dir}/nereidforge-charts-${VERSION}.txt"
+
+      - name: Publish the GitHub Release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          assets=(
+            "${release_dir}/nereidforge-installer-${VERSION}.tar.gz"
+            "${release_dir}/nereidforge-installer-${VERSION}.tar.gz.sha256"
+            "${release_dir}/nereidforge-images-${VERSION}.txt"
+            "${release_dir}/nereidforge-charts-${VERSION}.txt"
+          )
+          notes="Supported installer: nereidforge-installer-${VERSION}.tar.gz. GitHub Source code archives do not contain release metadata and are not supported for installation."
+          prerelease_flags=(--prerelease=false)
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease_flags=(--prerelease)
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != true ]]; then
+              echo "::error::Release ${GITHUB_REF_NAME} is already published; refusing to replace or append assets"
+              exit 1
+            fi
+            # No --clobber: a conflict leaves the draft and all existing assets intact.
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
+            gh release edit "$GITHUB_REF_NAME" --draft=false --notes "$notes" "${prerelease_flags[@]}"
+          else
+            # gh creates a draft, uploads every asset, and only then publishes it.
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --generate-notes --notes "$notes" "${prerelease_flags[@]}"
+          fi

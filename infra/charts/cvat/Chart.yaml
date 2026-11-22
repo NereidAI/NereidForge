@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 apiVersion: v2
-appVersion: latest
+appVersion: 2.73.0
 dependencies:
 - condition: postgresql.enabled
   name: postgresql

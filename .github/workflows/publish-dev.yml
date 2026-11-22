@@ -11,9 +11,9 @@
 # release-only in publish-images.yml; the local Makefile remains build-only.
 #
 # Path scoping: a plain-git path-scope job gates each publication on the real
-# inputs of its image. Unlike the ci.yml cache-warm filter, app/frontend/public/
-# help/ is NOT excluded here: the help corpus ships inside the frontend image,
-# so a docs-only merge must still publish a fresh frontend dev image while the
+# inputs of its image. Unlike the optional manual cache-warm filter,
+# app/frontend/public/help/ is NOT excluded here: the help corpus ships inside
+# the frontend image, so a docs-only merge must still publish a fresh frontend dev image while the
 # unchanged backend image is skipped. Pure documentation paths outside image
 # contexts (docs/, root markdown) publish nothing.
 name: publish-dev
@@ -33,9 +33,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # path-scope mirrors ci.yml's classifier with publication semantics: the
-  # frontend image bundles the help corpus, so app/frontend changes always
-  # publish the frontend, while backend scoping follows its COPY inputs.
+  # path-scope mirrors the manual cache-warm classifier with publication
+  # semantics: the frontend image bundles the help corpus, so app/frontend
+  # changes always publish the frontend, while backend scoping follows its COPY inputs.
   path-scope:
     name: Determine changed-path publication scope
     runs-on: ubuntu-latest
@@ -115,8 +115,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          # Same gha cache scope as the release applications job (treaty
-          # §19.1): branch CI warms the layers both channels build from.
+          # Share the release applications cache scope (treaty §19.1).
+          # Publication is self-sufficient; no separate cache-warm run is required.
           cache-from: type=gha,scope=nereidforge-backend
           cache-to: type=gha,mode=max,scope=nereidforge-backend
           tags: |
@@ -159,8 +159,8 @@ jobs:
           push: true
           provenance: false
           sbom: false
-          # Same gha cache scope as the release applications job (treaty
-          # §19.1): branch CI warms the layers both channels build from.
+          # Share the release applications cache scope (treaty §19.1).
+          # Publication is self-sufficient; no separate cache-warm run is required.
           cache-from: type=gha,scope=nereidforge-frontend
           cache-to: type=gha,mode=max,scope=nereidforge-frontend
           tags: |

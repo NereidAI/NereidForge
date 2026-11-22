@@ -4,6 +4,16 @@ SPDX-License-Identifier: Apache-2.0
 */}}
 
 {{- if .Values.enabled }}
+{{- /*
+Tracked runtime configuration uses the rolling-dev placeholder for suite-owned
+images. Rewrite exact inline references and adjacent repository/tag fields to
+the package appVersion so OCI releases cannot retain development references in
+embedded YAML.
+*/}}
+{{- $suiteImagePattern := `(ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*):0\.0\.0-dev` -}}
+{{- $suiteImageReplacement := printf "${1}:%s" .Chart.AppVersion -}}
+{{- $suiteImageFieldPattern := `(?m)(repository:[^\n]*ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*[^\n]*\n[ \t]*tag:[ \t]*["']?)0\.0\.0-dev` -}}
+{{- $suiteImageFieldReplacement := printf "${1}%s" .Chart.AppVersion -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,9 +23,12 @@ metadata:
     {{- include "nereidforge-backend.labels" . | nindent 4 }}
 data:
   config.yaml: |
-    {{- .Files.Get "config.rendered.yaml" | nindent 4 }}
-    {{- $cfg := .Values.config | default dict | toYaml | nindent 4 }}
-    {{- $cfg }}
+    {{- $baseConfig := .Files.Get "config.rendered.yaml" }}
+    {{- $baseConfig = regexReplaceAll $suiteImagePattern $baseConfig $suiteImageReplacement }}
+    {{- regexReplaceAll $suiteImageFieldPattern $baseConfig $suiteImageFieldReplacement | nindent 4 }}
+    {{- $overrideConfig := .Values.config | default dict | toYaml }}
+    {{- $overrideConfig = regexReplaceAll $suiteImagePattern $overrideConfig $suiteImageReplacement }}
+    {{- regexReplaceAll $suiteImageFieldPattern $overrideConfig $suiteImageFieldReplacement | nindent 4 }}
 ---
 apiVersion: v1
 kind: Secret

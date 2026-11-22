@@ -23,10 +23,11 @@ replicaCount: 2
 
 image:
   repository: ghcr.io/nereidai/nereidforge-frontend
-  # In-branch default is the rolling dev channel (root treaty §19.5); deploy
-  # scripts override the tag with the tag-sourced bare release SemVer.
+  # Empty selects Chart.AppVersion: rolling dev in source, or the matching
+  # release/commit-qualified version in a packaged chart. Deploy scripts may
+  # still override it with the explicitly resolved RELEASE_TAG.
   pullPolicy: Always
-  tag: "0.0.0-dev"
+  tag: ""
 
 # Pull secret for private mirrors; empty for public GHCR images.
 imagePullSecrets: []

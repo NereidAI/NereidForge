@@ -60,7 +60,7 @@ nereidforge-backend:
   enabled: true
   image:
     repository: ghcr.io/nereidai/nereidforge-backend
-    tag: v1.3.7
+    tag: ""  # default to the packaged chart's appVersion
   worker:
     enabled: true
     replicas: 1
@@ -201,7 +201,7 @@ nereidforge-frontend:
     value: ""  # derive from the operator's frontend origin
   image:
     repository: ghcr.io/nereidai/nereidforge-frontend
-    tag: v1.3.7
+    tag: ""  # default to the packaged chart's appVersion
   ingress:
     annotations:
       cert-manager.io/cluster-issuer: internal-ca

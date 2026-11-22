@@ -18,7 +18,7 @@
         build-api build-frontend build-ml-backend \
         build-trainer build-trainer-paddle build-trainer-timm build-trainer-llm \
         build-optimizer build-evaluator build-evaluator-xpu build-ovms-xpu \
-        plugin-build plugin-validate images-build helm-package \
+        plugin-build plugin-validate images-build helm-package installer-package \
         build-runtime build-xpu-base build-trainer-vendor \
         build-ml-backend-custom build-jupyter-base \
         test lint fmt license-check license-report scaffold-plugin
@@ -54,18 +54,24 @@ help:
 	@echo "Plugins, packaging, and verification:"
 	@echo "  make plugin-build name=tensorrt  Build the local opt-tensorrt plugin image"
 	@echo "  make plugin-validate name=tensorrt out=/tmp/out"
-	@echo "  make helm-package       Archive all infrastructure/product charts (no upload)"
+	@echo "  make helm-package       Archive the nine active charts (no upload)"
+	@echo "  make installer-package  Build the versioned source/installer archive"
 	@echo "  make test / lint / fmt / license-check"
 	@echo ""
 	@echo "Every image build carries three tags (VERSION, VERSION-<utc-ts>, VERSION-<git-sha>);"
 	@echo "no target publishes an artifact or deploys to a cluster."
 
 # Shared local build variables. Node tools resolve from PATH on every host.
-# No VERSION file: the signed git tag is the single version source (treaty
-# §19.5). On an exact v* tag checkout use its bare SemVer (v0.0.1 -> 0.0.1);
-# any other checkout builds the rolling dev channel 0.0.0-dev. ?= lets CI
-# inject VERSION explicitly.
-VERSION ?= $(shell ref=$$(git describe --tags --exact-match 2>/dev/null) && echo "$${ref#v}" || echo 0.0.0-dev)
+# No tracked VERSION file: an explicit RELEASE_TAG, generated installer
+# release.env, or exact Git tag supplies the version (treaty §19.5). GitHub's
+# automatic source archives have neither Git metadata nor release.env and fail
+# closed instead of silently building the rolling development channel.
+ifeq ($(wildcard .git),)
+ifeq ($(wildcard release.env),)
+$(error Unsupported unversioned source archive; use nereidforge-installer-<version>.tar.gz or a Git checkout)
+endif
+endif
+VERSION ?= $(shell if [ -n "$${RELEASE_TAG:-}" ]; then printf '%s\n' "$$RELEASE_TAG"; elif [ -f release.env ]; then . ./release.env; printf '%s\n' "$$RELEASE_TAG"; else ref=$$(git describe --tags --exact-match 2>/dev/null) && printf '%s\n' "$${ref#v}" || printf '%s\n' 0.0.0-dev; fi)
 # Three-tag scheme (treaty §19.2): every local image build tags the moving
 # VERSION coordinate plus UTC-timestamp and git-short-SHA traceability tags.
 # Local builds stay native/single-arch; multi-arch indexes are a publication-
@@ -290,12 +296,16 @@ plugin-validate:
 images-build:
 	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash infra/scripts/02_build-images.sh
 
-# === Local chart packaging (no push target) ===
-# helm-package archives all infrastructure and product charts under
-# charts-packaged/ for offline use. Any operator-selected chart delivery happens
-# outside this repository's build interface; no upload command is provided here.
+# === Local chart and installer packaging (no push target) ===
+# helm-package archives the nine active infrastructure and product charts under
+# charts-packaged/ for offline use. The legacy Kubeflow umbrella is excluded.
+# installer-package preserves the repository-shaped online installation path,
+# including Kubeflow manifests and generated release metadata, under dist/.
 helm-package:
 	bash infra/scripts/03_package-charts.sh
+
+installer-package:
+	bash infra/scripts/04_package-installer.sh
 
 # === Code quality ===
 test:

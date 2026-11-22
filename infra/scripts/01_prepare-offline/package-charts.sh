@@ -2,7 +2,7 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Delegate offline chart preparation to the canonical ten-chart packager. Its
+# Delegate offline chart preparation to the canonical nine-chart packager. Its
 # staging area owns dependency downloads, product renames, and release-version
 # updates (tag-sourced CHART_VERSION, root treaty §19.5); the offline-tree
 # archive layout preserves the loader's infra/app contract.

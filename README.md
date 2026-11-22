@@ -2,7 +2,7 @@
 
 # NereidForge — model factory control plane
 
-[![CI](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
+[![Manual cache warm](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
 [![Dev Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml)
 [![Release Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml)
 [![DCO](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml)
@@ -90,6 +90,42 @@ Every image reference remains at its public coordinate: suite-built images use
 upstream registry references. Air-gapped operators can resolve the same
 references through node-level registry mirrors without rewriting tracked
 configuration.
+
+### Release packaging
+
+Package the nine charts used by the active installation stages with:
+
+```bash
+make helm-package
+```
+
+The legacy `infra/charts/kubeflow` Helm umbrella is not an active installation
+path and is not packaged. Kubeflow integration still uses the repository's
+Kustomize stages and vendored manifests.
+
+Build the repository-shaped installer archive with an explicit bare release
+version when no exact Git tag is available:
+
+```bash
+RELEASE_TAG=0.1.0 make installer-package
+```
+
+The archive includes the deployment scripts, chart sources, configuration,
+licenses, image manifest, and Kubeflow manifests. Its generated `release.env`
+preserves the selected version after extraction without `.git`; an explicitly
+exported `RELEASE_TAG` still takes precedence. The packager verifies all 23
+suite-owned runtime/training image references and reparses the archive to prove
+that it does not fall back to `0.0.0-dev`.
+
+For a GitHub Release, `nereidforge-installer-<version>.tar.gz` is the **only
+supported release installer**. GitHub's automatic **Source code** tar/zip
+archives contain raw development chart metadata and no `release.env`; the
+deployment scripts reject them rather than silently installing `0.0.0-dev`.
+Use a real Git checkout for development or the custom installer for a release.
+
+The rolling development workflow publishes only backend and frontend images.
+It is not a complete Forge installation channel; use a formal release when the
+ML backend and runtime/training images are required.
 
 ## License and security
 
