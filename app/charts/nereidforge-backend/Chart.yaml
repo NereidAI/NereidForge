@@ -5,7 +5,7 @@ apiVersion: v2
 name: nereidforge-backend
 description: NereidForge Backend Helm Chart (API + Worker)
 type: application
-version: 0.0.1
+version: 0.0.0-dev
 # In-branch placeholder (root treaty §19.5): release packaging injects the
 # bare SemVer via helm package --app-version; no release version is committed.
 appVersion: "0.0.0-dev"

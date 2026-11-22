@@ -18,6 +18,20 @@ set -euo pipefail
 # from the repository parent so sibling checkouts share one deployment root.
 LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$LIB_DIR/../../.." && pwd)"
+# Release installer archives carry generated metadata because they have no .git
+# directory. An explicit operator RELEASE_TAG still wins; tracked source trees
+# do not contain release.env and retain the exact-tag/development fallback.
+if [[ -z "${RELEASE_TAG:-}" && -f "$ROOT_DIR/release.env" ]]; then
+    # shellcheck disable=SC1091
+    source "$ROOT_DIR/release.env"
+fi
+# GitHub's automatic Source code archives contain raw 0.0.0-dev chart metadata
+# and no generated release.env. Never let those archives silently install the
+# development channel; use the custom installer or a real Git checkout instead.
+if [[ ! -e "$ROOT_DIR/.git" && ! -f "$ROOT_DIR/release.env" ]]; then
+    echo "Unsupported unversioned source archive: use nereidforge-installer-<version>.tar.gz or a Git checkout." >&2
+    exit 1
+fi
 WORKSPACE_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 : "${DEPLOYMENT_ROOT:=$WORKSPACE_ROOT/.deployment}"
 : "${DEPLOY_VALUES_DIR:=$DEPLOYMENT_ROOT/deploy-values/nereidforge}"
@@ -163,10 +177,11 @@ interactive_config() {
 # ========== Namespace / registry / secret helpers ==========
 
 # nf_version derives the bare SemVer image version (root treaty §19.5). There
-# is no VERSION file: an exported RELEASE_TAG wins (operator/CI override),
-# otherwise the exact v* git tag at this checkout is used with its leading v
-# stripped (v0.0.1 -> 0.0.1), and every non-tag checkout builds the rolling
-# 0.0.0-dev dev channel.
+# is no tracked VERSION file: an exported RELEASE_TAG wins (operator/CI
+# override), then a generated installer release.env is loaded above, otherwise
+# the exact v* git tag at this checkout is used with its leading v stripped
+# (v0.0.1 -> 0.0.1), and every non-tag checkout builds the rolling 0.0.0-dev
+# development channel.
 nf_version() {
     if [[ -n "${RELEASE_TAG:-}" ]]; then
         printf '%s\n' "$RELEASE_TAG"

@@ -88,3 +88,6 @@ app/builders/ml-backend/vendor/**/*.egg-info/
 
 # Local Helm chart packaging output from `make helm-package`.
 /charts-packaged/
+
+# Generated only inside release installer archives; never a tracked VERSION file.
+/release.env

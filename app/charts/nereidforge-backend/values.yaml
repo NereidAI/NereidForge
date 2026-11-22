@@ -28,10 +28,10 @@ image:
   # Always: live deploys are registry-backed and the tag is mutable (the
   # tag-sourced bare SemVer, root treaty §19.5); IfNotPresent makes multi-node
   # clusters reuse stale ctr-imported images (pits 35/109/115). Switch back only
-  # for an offline/air-gapped install. In-branch default is the rolling dev
-  # channel; deploy scripts override it with the release tag (--set image.tag).
+  # for an offline/air-gapped install. Empty selects Chart.AppVersion in source
+  # and packaged installations; deploy scripts may still inject RELEASE_TAG.
   pullPolicy: Always
-  tag: "0.0.0-dev"
+  tag: ""
 
 # Pull secret for private mirrors; empty for public GHCR images.
 imagePullSecrets: []
