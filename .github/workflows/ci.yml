@@ -1,40 +1,28 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Branch/PR cache-warming mirror of publish-images.yml (root treaty §19.1).
+# Optional manual cache-warming mirror of publish-images.yml (root treaty §19.1).
+#
+# These builds are expensive and are not CI acceptance gates. Never trigger this
+# workflow from a push, pull request, or schedule. An operator may run it
+# deliberately before a release; ordinary validation stays in the lightweight
+# DCO and license-compliance workflows, while publish-dev.yml and
+# publish-images.yml perform the actual artifact builds.
 #
 # Every docker/build-push-action invocation of the tag workflow is reproduced
-# here with push: false and no registry login, so the shared GitHub Actions
-# buildx cache (type=gha) is warmed on every commit and the tag-triggered
-# release reuses these layers. Keep the build matrix below — contexts, files,
-# platforms, build arguments — in sync with publish-images.yml.
+# here with push: false and no registry login, so a manual run can warm the
+# shared GitHub Actions buildx cache (type=gha). Keep the build matrix below —
+# contexts, files, platforms, build arguments — in sync with publish-images.yml.
+# Publication-only mechanics deliberately remain in publish-images.yml.
 #
-# Deliberately absent (publication-only mechanics that stay in
-# publish-images.yml): the SemVer tag guard, the traceability stamp, registry
-# logins, the three-tag inputs, and the post-push per-architecture rootfs/
-# runtime verification. No secret or package-write permission is needed: all
-# referenced base images are public. Warm builds bake the rolling 0.0.0-dev
-# version (root treaty §19.5), matching the publish-dev.yml dev channel.
-#
-# The hardware-bound vendor jobs additionally skip on forks (and any context
-# missing the specialized wheel-index repository variables), instead of
-# hard-failing like the tag workflow does.
-#
-# Path scoping: the path-scope job classifies the files changed by the push or
-# PR with plain git (no third-party action), and every cache-warm job runs only
-# when its real image inputs changed. Documentation-only changes (docs/, root
-# markdown, the in-image help corpus under app/frontend/public/help/) therefore
-# complete without a single image build. Skipped jobs stay mergeable: this
-# repository's required-check rules already treat the vendor jobs' conditional
-# skips as success, as proven by every PR since the rules were enabled. Any
-# unrecognized path fails safe and runs every job.
-name: ci
+# A manual run classifies HEAD against its parent and builds only scopes whose
+# real image inputs changed. Documentation-only changes complete without an
+# image build. Any unrecognized path fails safe and selects every scope. Vendor
+# jobs skip when their specialized wheel-index variables are not configured.
+name: cache-warm
 
 on:
-  push:
-    branches: [v2, main]
-  pull_request:
-    branches: [v2, main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -57,7 +45,7 @@ jobs:
   # kfp-pipelines, two trainer profiles, infra/configs and root license files,
   # while the frontend image takes everything under app/frontend except the
   # help corpus, which is documentation shipped as static assets but excluded
-  # from cache-warm triggers to keep docs-only PRs cheap.
+  # from cache-warm triggers to keep documentation-only manual runs cheap.
   path-scope:
     name: Determine changed-path build scope
     runs-on: ubuntu-latest
@@ -72,13 +60,9 @@ jobs:
       - id: scope
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags origin "${{ github.base_ref }}"
-            base="$(git merge-base HEAD "origin/${{ github.base_ref }}")"
-          else
-            base="${{ github.event.before }}"
-            case "$base" in ""|0000000000000000000000000000000000000000) base="HEAD~1" ;; esac
-          fi
+          # workflow_dispatch supplies no push base; compare the selected HEAD
+          # with its first parent for this optional, on-demand warm run.
+          base="HEAD~1"
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed ${#changed[@]} path(s) against $base:"
           printf '  %s\n' "${changed[@]}"
@@ -355,13 +339,10 @@ jobs:
   vendor-xpu:
     name: vendor trainers - Intel XPU cache warm (single-arch, treaty §19.2.1)
     needs: path-scope
-    # Skip fork PRs, contexts without the specialized wheel index, and changes
-    # outside the trainer builder tree; the tag workflow hard-fails instead,
-    # because publication cannot proceed.
+    # Skip contexts without the specialized wheel index and changes outside
+    # the trainer builder tree; the tag workflow hard-fails instead.
     if: >-
       ${{ needs.path-scope.outputs.vendor == 'true' &&
-           (github.event_name != 'pull_request' ||
-            github.event.pull_request.head.repo.full_name == github.repository) &&
            vars.TORCH_XPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -450,12 +431,10 @@ jobs:
   vendor-cu:
     name: vendor trainers - NVIDIA CUDA cache warm (single-arch, treaty §19.2.1)
     needs: path-scope
-    # Skip fork PRs, contexts without the Paddle GPU wheel index, and changes
-    # outside the trainer builder tree.
+    # Skip contexts without the Paddle GPU wheel index and changes outside
+    # the trainer builder tree.
     if: >-
       ${{ needs.path-scope.outputs.vendor == 'true' &&
-           (github.event_name != 'pull_request' ||
-            github.event.pull_request.head.repo.full_name == github.repository) &&
            vars.PADDLE_GPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
@@ -512,12 +491,10 @@ jobs:
   vendor-rocm:
     name: vendor trainers - AMD ROCm cache warm (single-arch, treaty §19.2.1)
     needs: path-scope
-    # Skip fork PRs, contexts without the ROCm wheel index, and changes outside
-    # the trainer builder tree.
+    # Skip contexts without the ROCm wheel index and changes outside the
+    # trainer builder tree.
     if: >-
       ${{ needs.path-scope.outputs.vendor == 'true' &&
-           (github.event_name != 'pull_request' ||
-            github.event.pull_request.head.repo.full_name == github.repository) &&
            vars.TORCH_ROCM_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240

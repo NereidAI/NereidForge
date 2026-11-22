@@ -2,7 +2,7 @@
 
 # NereidForge — model factory control plane
 
-[![CI](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
+[![Manual cache warm](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
 [![Dev Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-dev.yml)
 [![Release Images](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/publish-images.yml)
 [![DCO](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml/badge.svg)](https://github.com/NereidAI/NereidForge/actions/workflows/dco.yml)
