@@ -1,0 +1,47 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# LoRA inference smoke pod for the VLM trainer.
+# Replace every empty env value below before deployment. S3_BUCKET selects the
+# object bucket; S3_ACCESS_KEY and S3_SECRET_KEY authenticate to it. BASE_PREFIX,
+# ADAPTER_PREFIX and DATA_PREFIX select the base model, trained adapter and
+# sharegpt+image SFT dataset respectively. Prefixes must end in "/". The Python
+# script fails fast if any of these required values is empty.
+# S3_ENDPOINT retains the generic in-cluster service DNS convention, and
+# HF_HUB_OFFLINE=1 prevents model downloads from the Hugging Face Hub.
+# Deploy steps:
+#   kubectl create configmap xpu-vlm-lora-script-e2e \
+#     --from-file=vlm_lora_infer_e2e.py=builders/trainer-llm-xpu/e2e/vlm_lora_infer_e2e.py \
+#     -n nereidforge
+#   kubectl apply -f builders/trainer-llm-xpu/e2e/vlm_lora_infer_e2e.yaml
+#   kubectl logs -n nereidforge -f xpu-vlm-lora-infer-e2e
+# The gpu.intel.com/xe resource request drives scheduling to an Intel XPU node.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: xpu-vlm-lora-infer-e2e
+  namespace: nereidforge
+spec:
+  restartPolicy: Never
+  containers:
+    - name: v
+      image: ghcr.io/nereidai/trainer-llm-xpu:0.0.0-dev
+      imagePullPolicy: IfNotPresent
+      command: ["python", "/scripts/vlm_lora_infer_e2e.py"]
+      env:
+        - {name: S3_ENDPOINT, value: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"}
+        - {name: S3_BUCKET, value: ""}
+        - {name: S3_ACCESS_KEY, value: ""}
+        - {name: S3_SECRET_KEY, value: ""}
+        - {name: BASE_PREFIX, value: ""}
+        - {name: ADAPTER_PREFIX, value: ""}
+        - {name: DATA_PREFIX, value: ""}
+        - {name: HF_HUB_OFFLINE, value: "1"}
+      volumeMounts:
+        - {name: scr, mountPath: /scripts}
+      resources:
+        requests: {cpu: "4", memory: 8Gi, gpu.intel.com/xe: "1"}
+        limits: {gpu.intel.com/xe: "1"}
+  volumes:
+    - name: scr
+      configMap: {name: xpu-vlm-lora-script-e2e}

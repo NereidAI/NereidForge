@@ -10,15 +10,15 @@
 
 [![License](https://img.shields.io/github/license/NereidAI/NereidForge)](LICENSE)
 [![Architectures](https://img.shields.io/badge/arch-amd64%20%7C%20arm64-627185?logo=linux&logoColor=white)](https://github.com/NereidAI/NereidForge/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.14-3776AB?logo=python&logoColor=white)](app/python-backend/pyproject.toml)
-[![Node](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](app/frontend/package.json)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.14-3776AB?logo=python&logoColor=white)](python-backend/pyproject.toml)
+[![Node](https://img.shields.io/badge/node-%3E%3D24-339933?logo=node.js&logoColor=white)](frontend/package.json)
 [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-fe519e?logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org/)
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](app/frontend/package.json)
-[![Ant Design](https://img.shields.io/badge/Ant%20Design-5-0170FE?logo=antdesign&logoColor=white)](app/frontend/package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](app/frontend/package.json)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](app/frontend/package.json)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](frontend/package.json)
+[![Ant Design](https://img.shields.io/badge/Ant%20Design-5-0170FE?logo=antdesign&logoColor=white)](frontend/package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](frontend/package.json)
+[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](frontend/package.json)
 [![Kubeflow](https://img.shields.io/badge/Kubeflow-integrated-4279F3?logo=kubeflow&logoColor=white)](https://www.kubeflow.org/)
 
 [![GHCR backend](https://img.shields.io/badge/GHCR-backend-2496ED?logo=docker&logoColor=white)](https://github.com/NereidAI/NereidForge/pkgs/container/nereidforge-backend)
@@ -28,27 +28,31 @@
 
 NereidForge provides dataset and annotation workflows, training, optimization,
 evaluation, model registration, and inference integrations. First-party
-application code lives under `app/`; deployment and integration artifacts live
-under `infra/`. Vendored third-party stacks are isolated under
-`infra/third_party/`.
+application code and shared tooling live at the repository root. Deployment
+assets for the pre-NereidForge infrastructure and Kubeflow stages live under
+`deploy/pre-nereidforge/`; inactive legacy assets and externally owned CRDs
+remain under `infra/`.
 
 ## Directory map
 
 | Layer | Directory | Contents |
 |----|------|------|
-| **Applications** | `app/python-backend/` | FastAPI API, synchronous SQLAlchemy worker, and notebook runtime |
-| | `app/frontend/` | React, TypeScript, Ant Design, and Vite frontend |
-| | `app/kfp-pipelines/` | Training, optimization, and evaluation pipeline components |
-| | `app/optimizer-plugins/` | Manifest-driven optimization plugins |
-| | `app/builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
-| **Application charts** | `app/charts/` | Backend, frontend, ML-backend, and tenant-check Helm charts |
-| **Infrastructure** | `infra/charts/` | Supporting-service Helm charts |
-| | `infra/scripts/` | Deployment, rendering, local verification, and image-build entry points |
-| | `infra/configs/` | Host-neutral runtime configuration and templates |
-| | `infra/third_party/` | Vendored upstream manifests and public-safe integration patches |
+| **Applications** | `python-backend/` | FastAPI API, synchronous SQLAlchemy worker, and notebook runtime |
+| | `frontend/` | React, TypeScript, Ant Design, and Vite frontend |
+| | `kfp-pipelines/` | Training, optimization, and evaluation pipeline components |
+| | `optimizer-plugins/` | Manifest-driven optimization plugins |
+| | `builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
+| **Application charts** | `charts/` | Backend, frontend, ML-backend, and tenant-check Helm charts |
+| **Shared tooling** | `configs/` | Host-neutral runtime configuration, templates, and development monitoring |
+| | `scripts/` | Full-stack compatibility, application, build, verification, and packaging entry points |
+| **Pre-NereidForge deployment** | `deploy/pre-nereidforge/charts/` | Supporting-service Helm charts |
+| | `deploy/pre-nereidforge/platform/` | Vendored Kubeflow manifests and public-safe integration patches |
+| | `deploy/pre-nereidforge/scripts/` | Infrastructure, Kubeflow, and corresponding verification entry points |
+| | `deploy/pre-nereidforge/values/` | Pre-NereidForge chart value overlays |
+| **Legacy/external assets** | `infra/` | Inactive Kubeflow umbrella chart and externally owned cert-manager CRDs |
 | **Public documentation** | `docs/product/` | Product overview and whitepaper |
 | | `docs/api/openapi.yaml` | Hand-maintained HTTP API contract |
-| | `app/builders/` | Trainer SDK, runtime, artifact, and dataset contracts |
+| | `builders/` | Trainer SDK, runtime, artifact, and dataset contracts |
 
 ## Development and verification
 
@@ -73,10 +77,11 @@ configuration; no shared development secret is supplied.
 
 ## Deployment
 
-The deployment entry point is `infra/scripts/00_deploy-all.sh`, with separate
-stages for infrastructure, Kubeflow integration, and NereidForge applications.
-Configuration is rendered from `infra/configs/unified/config.yaml.j2` and the
-host-neutral files under `infra/configs/`. Supply site-specific domains,
+The full-stack deployment entry point is `scripts/00_deploy-all.sh`, which calls
+the infrastructure and Kubeflow stages under `deploy/pre-nereidforge/scripts/`
+before deploying NereidForge applications. Configuration is rendered from
+`configs/unified/config.yaml.j2` and the host-neutral files under `configs/`.
+Supply site-specific domains,
 object-store settings, NFS settings, identity-provider URLs, and secrets
 through the documented environment inputs or untracked operator overrides.
 Production overlays must not contain real credentials. Deployment requires

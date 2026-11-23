@@ -23,9 +23,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Test installed dependency license classification
-        run: python3 -m unittest infra.scripts.tests.test_license_env_report -v
+        run: python3 -m unittest scripts.tests.test_license_env_report -v
       - name: Scan deliverables for copyleft components
-        run: bash infra/scripts/check-license-compliance.sh
+        run: bash scripts/check-license-compliance.sh
 
   dependencies:
     name: installed dependency report
@@ -40,6 +40,6 @@ jobs:
         run: |
           python -m venv .venv-license
           .venv-license/bin/pip install --upgrade pip
-          .venv-license/bin/pip install -e ./app/python-backend
+          .venv-license/bin/pip install -e ./python-backend
       - name: Report installed dependency licenses
-        run: bash infra/scripts/check-license-compliance.sh --env .venv-license/bin/python
+        run: bash scripts/check-license-compliance.sh --env .venv-license/bin/python

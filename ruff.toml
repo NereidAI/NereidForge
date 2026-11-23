@@ -17,7 +17,7 @@ exclude = [
     ".pytest_cache",
     ".ruff_cache",
     "vendor",
-    "app/python-backend/out",
+    "python-backend/out",
 ]
 
 [lint]

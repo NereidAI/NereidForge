@@ -270,7 +270,7 @@ postgresql:
       size: 50Gi
       storageClass: nfs-csi
 # Valkey is the standalone cache for Label Studio / CVAT
-# (infra/charts/valkey, release name valkey, service valkey-master:6379);
+# (deploy/pre-nereidforge/charts/valkey, release name valkey, service valkey-master:6379);
 # the NF backend does not use a cache service.
 seaweedfs:
   filer:

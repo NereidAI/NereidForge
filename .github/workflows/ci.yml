@@ -42,8 +42,8 @@ jobs:
   # path-scope classifies the changed files with plain git and emits one
   # boolean output per cache-warm job. Patterns mirror the Dockerfile COPY
   # inputs, not directory conventions: the backend image copies python-backend,
-  # kfp-pipelines, two trainer profiles, infra/configs and root license files,
-  # while the frontend image takes everything under app/frontend except the
+  # kfp-pipelines, two trainer profiles, configs and root license files,
+  # while the frontend image takes everything under frontend except the
   # help corpus, which is documentation shipped as static assets but excluded
   # from cache-warm triggers to keep documentation-only manual runs cheap.
   path-scope:
@@ -71,20 +71,21 @@ jobs:
             case "$f" in
               # Build system, image references and root legal files can affect
               # every image: run the full matrix.
-              .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
+              .github/workflows/*|scripts/*|deploy/pre-nereidforge/scripts/*|\
+              configs/monitoring/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              app/python-backend/*|infra/configs/*)
+              python-backend/*|configs/*|deploy/pre-nereidforge/values/*)
                 apps=true ;;
-              app/kfp-pipelines/*)
+              kfp-pipelines/*)
                 apps=true; core=true ;;
-              app/builders/*)
+              builders/*)
                 # Backend image copies two trainer profiles from this tree.
                 apps=true; core=true; vendor=true ;;
-              app/frontend/*)
+              frontend/*)
                 # The help corpus is bilingual documentation only; everything
-                # else under app/frontend is a real frontend image input.
-                case "$f" in app/frontend/public/help/*) docs=$((docs + 1)) ;; *) apps=true ;; esac ;;
+                # else under frontend is a real frontend image input.
+                case "$f" in frontend/public/help/*) docs=$((docs + 1)) ;; *) apps=true ;; esac ;;
               docs/*|*.md)
                 docs=$((docs + 1)) ;;
               # Unknown paths fail safe: warm every scope rather than skip a
@@ -118,7 +119,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: app/python-backend/Dockerfile
+          file: python-backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -130,8 +131,8 @@ jobs:
       - name: Warm frontend multi-architecture image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: app/frontend
-          file: app/frontend/Dockerfile
+          context: frontend
+          file: frontend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VITE_APP_VERSION=0.0.0-dev
@@ -161,8 +162,8 @@ jobs:
         id: runtime-base
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.runtime
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.runtime
           platforms: linux/amd64,linux/arm64
           # Export the exact new multi-arch index locally. Dependent builds
           # consume its digest through an OCI named context, never an old GHCR tag.
@@ -181,8 +182,8 @@ jobs:
       - name: Warm CPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile
+          context: builders
+          file: builders/trainer-torch/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
@@ -194,8 +195,8 @@ jobs:
       - name: Warm CPU paddle trainer (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile
+          context: builders
+          file: builders/trainer-paddle/Dockerfile
           # paddlepaddle 3.0.0 publishes no arm64 PyPI wheel; arm64 builds fail
           # at metadata generation, so this image is intentionally amd64-only.
           platforms: linux/amd64
@@ -209,8 +210,8 @@ jobs:
       - name: Warm torch converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert
           platforms: linux/amd64,linux/arm64
           build-args: |
             PYTHON_BASE_IMAGE=python:3.14-slim
@@ -223,8 +224,8 @@ jobs:
       - name: Warm TensorFlow converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-tf
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-tf
           platforms: linux/amd64,linux/arm64
           build-args: |
             PYTHON_BASE_IMAGE=python:3.11-slim
@@ -236,8 +237,8 @@ jobs:
       - name: Warm Paddle converter (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-pp
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-pp
           # Pins paddlepaddle==3.0.0, which has no arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -250,8 +251,8 @@ jobs:
       - name: Warm optimizer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/optimizer/Dockerfile
+          context: builders
+          file: builders/optimizer/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -266,8 +267,8 @@ jobs:
       - name: Warm evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator/Dockerfile
+          context: builders
+          file: builders/evaluator/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -282,8 +283,8 @@ jobs:
       - name: Warm Intel GPU OVMS (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/inference-model-server-openvino-xpu
-          file: app/builders/inference-model-server-openvino-xpu/Dockerfile
+          context: builders/inference-model-server-openvino-xpu
+          file: builders/inference-model-server-openvino-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=openvino/model_server:2025.1
@@ -295,8 +296,8 @@ jobs:
       - name: Warm ml-backend (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend
-          file: app/builders/ml-backend/Dockerfile
+          context: builders/ml-backend
+          file: builders/ml-backend/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -309,8 +310,8 @@ jobs:
       - name: Warm ml-backend-custom (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend-custom
-          file: app/builders/ml-backend-custom/Dockerfile
+          context: builders/ml-backend-custom
+          file: builders/ml-backend-custom/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -323,8 +324,8 @@ jobs:
       - name: Warm notebook workbench (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/notebook-base
-          file: app/builders/notebook-base/Dockerfile
+          context: builders/notebook-base
+          file: builders/notebook-base/Dockerfile
           # Installs paddlepaddle, unavailable as an arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -359,8 +360,8 @@ jobs:
         id: xpu-base
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/trainer-xpu
-          file: app/builders/trainer-xpu/Dockerfile
+          context: builders/trainer-xpu
+          file: builders/trainer-xpu/Dockerfile
           platforms: linux/amd64
           # PYPI_INDEX and the generic mirror args keep their empty Dockerfile
           # defaults on hosted runners (treaty §17); only the specialized XPU
@@ -383,8 +384,8 @@ jobs:
       - name: Warm XPU packaging evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator-xpu/Dockerfile
+          context: builders
+          file: builders/evaluator-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             XPU_BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -398,8 +399,8 @@ jobs:
       - name: Warm XPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.xpu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.xpu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -414,8 +415,8 @@ jobs:
       - name: Warm XPU LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-xpu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -450,8 +451,8 @@ jobs:
       - name: Warm CUDA torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.cu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -463,8 +464,8 @@ jobs:
       - name: Warm CUDA paddle trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile.cu
+          context: builders
+          file: builders/trainer-paddle/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -477,8 +478,8 @@ jobs:
       - name: Warm CUDA LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-cu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-cu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -513,8 +514,8 @@ jobs:
       - name: Warm ROCm torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.rocm
+          context: builders
+          file: builders/trainer-torch/Dockerfile.rocm
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
@@ -527,8 +528,8 @@ jobs:
       - name: Warm ROCm LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-rocm/Dockerfile
+          context: builders
+          file: builders/trainer-llm-rocm/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0

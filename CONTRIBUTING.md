@@ -25,10 +25,10 @@ make license-check
 make license-report
 ```
 
-For frontend-only work, the scripts declared in `app/frontend/package.json` are:
+For frontend-only work, the scripts declared in `frontend/package.json` are:
 
 ```bash
-cd app/frontend
+cd frontend
 npm test
 npm run lint
 npm run build
@@ -69,10 +69,10 @@ Header coverage exceptions are:
 
 - `LICENSE`, `NOTICE`, and `THIRD_PARTY_NOTICES.md`;
 - JSON files, lockfiles, Helm `*.tgz` archives, images, and other binary assets;
-- `app/frontend/public/netron/`, `app/frontend/public/label-studio/`, `infra/charts/kubeflow/`, `infra/third_party/`, and `vendor/` directories;
+- `frontend/public/netron/`, `frontend/public/label-studio/`, `infra/charts/kubeflow/`, `infra/third_party/`, `deploy/pre-nereidforge/platform/`, and `vendor/` directories;
 - generated files only while their generator controls the header.
 
-Runtime code, comments, documentation additions, and API response messages must be English. The bilingual files in `app/frontend/public/help/` are product functionality: preserve their Chinese-English paired content and HelpDrawer behavior. Maintain `app/frontend/src/locales/en.ts` and `app/frontend/src/locales/zh.ts` together when changing user-facing text; Chinese in the Chinese locale and language selector is intentional.
+Runtime code, comments, documentation additions, and API response messages must be English. The bilingual files in `frontend/public/help/` are product functionality: preserve their Chinese-English paired content and HelpDrawer behavior. Maintain `frontend/src/locales/en.ts` and `frontend/src/locales/zh.ts` together when changing user-facing text; Chinese in the Chinese locale and language selector is intentional.
 
 ## Backend API contracts
 
