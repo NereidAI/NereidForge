@@ -168,27 +168,30 @@ EOF
     # does not abort the whole apply. Client-side apply stores the config in a
     # last-applied annotation capped at 262144 bytes; on that limit we retry the
     # whole target with server-side apply instead of silently dropping the CRD.
-    local rendered err
+    local rendered err status=0
     rendered="$(mktemp)"
     if ! timeout 180 $KUBECTL kustomize "$W" > "$rendered" 2>/dev/null; then
-        log_ok "WARN: kustomize render failed: $name"
+        log_err "kustomize render failed: $name"
         rm -f "$rendered"
-        return 0
+        return 1
     fi
     err="$(mktemp)"
     if $KUBECTL apply -f "$rendered" > /dev/null 2>"$err"; then
         log_ok "Applied: $name"
     elif grep -qE "262144|Too long" "$err"; then
-        log_ok "WARN: annotation limit for $name, retrying server-side apply"
+        log_warn "Annotation limit for $name, retrying server-side apply"
         if $KUBECTL apply --server-side=true --field-manager=wfp --force-conflicts -f "$rendered" > /dev/null 2>"$err"; then
             log_ok "Applied (server-side): $name"
         else
-            log_ok "WARN: server-side apply failed: $name ($(tail -n1 "$err"))"
+            log_err "server-side apply failed: $name ($(tail -n1 "$err"))"
+            status=1
         fi
     else
-        log_ok "WARN: apply failed: $name ($(tail -n1 "$err"))"
+        log_err "apply failed: $name ($(tail -n1 "$err"))"
+        status=1
     fi
     rm -f "$rendered" "$err"
+    return "$status"
 }
 
 # ordered list: name '|' targets (comma-separated, no spaces around pipe)
@@ -227,9 +230,16 @@ fi
 
 PASS=0; FAIL=0
 while IFS='|' read -r name targets; do
-    tapply "$name" "$targets"
-    PASS=$((PASS+1))
+    if tapply "$name" "$targets"; then
+        PASS=$((PASS+1))
+    else
+        FAIL=$((FAIL+1))
+    fi
 done <<< "$ORDER"
+if (( FAIL > 0 )); then
+    log_err "Kubeflow kustomize deployment failed: $PASS targets applied, $FAIL failed"
+    exit 1
+fi
 log_info "Kubeflow kustomize deployment complete: $PASS targets applied"
 
 # ---- post-apply customizations ----
