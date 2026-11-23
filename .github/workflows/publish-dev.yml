@@ -15,7 +15,8 @@
 # frontend/public/help/ is NOT excluded here: the help corpus ships inside
 # the frontend image, so a docs-only merge must still publish a fresh frontend dev image while the
 # unchanged backend image is skipped. Pure documentation paths outside image
-# contexts (docs/, root markdown) publish nothing.
+# contexts (docs/, root markdown), the self-contained pre module, and pre-only
+# workflows publish no NF image. Unknown/shared NF inputs still fail safe.
 name: publish-dev
 
 on:
@@ -56,14 +57,18 @@ jobs:
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed ${#changed[@]} path(s) against $base:"
           printf '  %s\n' "${changed[@]}"
-          backend=false; frontend=false; broad=false; docs=0
+          backend=false; frontend=false; broad=false; docs=0; pre=0
           for f in "${changed[@]}"; do
             case "$f" in
-              .github/workflows/*|scripts/*|deploy/pre-nereidforge/scripts/*|\
+              # The self-contained pre module and its workflows never supply
+              # either NF application image build context.
+              deploy/pre-nereidforge/*|.github/workflows/pre-*.yml)
+                pre=$((pre + 1)) ;;
+              .github/workflows/*|scripts/*|\
               configs/monitoring/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              python-backend/*|kfp-pipelines/*|builders/*|configs/*|deploy/pre-nereidforge/values/*)
+              python-backend/*|kfp-pipelines/*|builders/*|configs/*)
                 backend=true ;;
               frontend/*)
                 frontend=true ;;
@@ -80,7 +85,7 @@ jobs:
             echo "backend=$backend"
             echo "frontend=$frontend"
           } >> "$GITHUB_OUTPUT"
-          echo "Scope decision -> backend=$backend frontend=$frontend (documentation-only files: $docs)"
+          echo "Scope decision -> backend=$backend frontend=$frontend (documentation-only files: $docs; pre-only files: $pre)"
 
   publish-backend:
     name: Publish nereidforge-backend dev image

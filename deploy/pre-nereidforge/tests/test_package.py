@@ -92,7 +92,9 @@ class PrePackageTests(unittest.TestCase):
                         "install-lock.json",
                         "scripts/lib/common.sh",
                         "scripts/lib/config.sh",
+                        "scripts/lib/publication.sh",
                         "scripts/package.sh",
+                        "scripts/package-charts.sh",
                         "platform/kubeflow-patches/apply.sh",
                         "platform/kubeflow-manifests/common/dex/base/dex-passwords.yaml",
                     ] + [f"charts/{name}/Chart.yaml" for name in EXPECTED_CHARTS]

@@ -2,11 +2,12 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Build a repository-shaped online installer archive from tracked source files.
-# The archive preserves the scripts, charts, configuration, licenses, and
-# Kubeflow manifests required by 00_deploy-all.sh. Generated release.env metadata
-# replaces the unavailable .git tag context, while images-manifest.txt is
-# regenerated for the selected release. No cluster or registry is contacted.
+# Deprecated local-only compatibility path: build a repository-shaped online
+# installer from tracked source files. NF release workflows never call this
+# script and NF GitHub Releases do not attach its archive. New installations use
+# the four NF OCI Helm charts against a separately published pre-NereidForge
+# release. Generated release.env metadata still supports existing local users.
+# No cluster or registry is contacted.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

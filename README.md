@@ -96,41 +96,52 @@ upstream registry references. Air-gapped operators can resolve the same
 references through node-level registry mirrors without rewriting tracked
 configuration.
 
-### Release packaging
+### Chart packaging and release contract
 
-Package the nine charts used by the active installation stages with:
+Local chart packaging is split by ownership:
 
 ```bash
+# Exactly four NF product charts; no upload.
 make helm-package
+
+# Exactly five supporting-service charts with independent upstream versions;
+# dependencies are resolved in a temporary staging tree, and nothing is uploaded.
+make -C deploy/pre-nereidforge helm-package
 ```
 
 The legacy `infra/charts/kubeflow` Helm umbrella is not an active installation
-path and is not packaged. Kubeflow integration still uses the repository's
-Kustomize stages and vendored manifests.
+path and is not packaged. Kubeflow remains an ordered Kustomize/platform
+installer in the pre module, not an umbrella Helm chart.
 
-Build the repository-shaped installer archive with an explicit bare release
-version when no exact Git tag is available:
+A formal NF Git tag `v<SemVer>` publishes the 23 NF-owned images and only the
+four charts under `charts/`. Its GitHub Release contains only
+`nereidforge-images-<version>.txt` and `nereidforge-charts-<version>.txt`. NF is
+installed through those OCI Helm charts against a compatible pre-NereidForge
+release; NF releases do not publish pre charts or a repository-shaped
+full-stack source installer.
 
-```bash
-RELEASE_TAG=0.1.0 make installer-package
-```
+A formal pre Git tag `pre-nereidforge/v<SemVer>` maps to the bare pre module
+version. Its independent workflow publishes CVAT, Label Studio, PostgreSQL,
+SeaweedFS, and Valkey under `oci://ghcr.io/nereidai/charts/`, preserving each
+chart's upstream chart/app versions. The matching GitHub Release carries the
+versioned pre installer, checksum, lock, and chart manifest. No formal pre
+`v0.0.1` tag or release has been created by this source change.
 
-The archive includes the deployment scripts, chart sources, configuration,
-licenses, image manifest, and Kubeflow manifests. Its generated `release.env`
-preserves the selected version after extraction without `.git`; an explicitly
-exported `RELEASE_TAG` still takes precedence. The packager verifies all 23
-suite-owned runtime/training image references and reparses the archive to prove
-that it does not fall back to `0.0.0-dev`.
+The pre development channel is triggered by scoped main-branch changes. It
+publishes an OCI installer artifact and all five charts with floating
+`0.0.0-dev` and immutable `0.0.0-dev-<short-sha>` identities. Floating tags are
+aliases of the immutable manifests; no moving GitHub Release is created. The NF
+rolling development workflow remains separate and publishes only backend and
+frontend images, not a complete Forge installation channel.
 
-For a GitHub Release, `nereidforge-installer-<version>.tar.gz` is the **only
-supported release installer**. GitHub's automatic **Source code** tar/zip
-archives contain raw development chart metadata and no `release.env`; the
-deployment scripts reject them rather than silently installing `0.0.0-dev`.
-Use a real Git checkout for development or the custom installer for a release.
+`make installer-package` and `scripts/04_package-installer.sh` remain as a
+**deprecated local-only compatibility interface** for existing full-stack
+source workflows. They are not called by NF publication and their archive is
+not an NF release asset.
 
-The rolling development workflow publishes only backend and frontend images.
-It is not a complete Forge installation channel; use a formal release when the
-ML backend and runtime/training images are required.
+Runtime pre-to-NF handoff automation is not yet implemented. These local/static
+checks do not establish GHCR publication success, anonymous registry
+availability, installation acceptance, or cluster health.
 
 ## License and security
 

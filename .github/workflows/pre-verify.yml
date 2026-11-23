@@ -10,13 +10,13 @@ on:
     paths:
       - 'deploy/pre-nereidforge/**'
       - 'scripts/lib/common.sh'
-      - '.github/workflows/pre-verify.yml'
+      - '.github/workflows/pre-*.yml'
   push:
     branches: [main]
     paths:
       - 'deploy/pre-nereidforge/**'
       - 'scripts/lib/common.sh'
-      - '.github/workflows/pre-verify.yml'
+      - '.github/workflows/pre-*.yml'
   workflow_dispatch:
 
 permissions:

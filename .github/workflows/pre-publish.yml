@@ -1,0 +1,251 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Formal pre-NereidForge publication. This explicit workflow is intentionally
+# not the NereidAI/.github publish-chart reusable workflow: that workflow accepts
+# only root v* tags and cannot validate the pre-nereidforge/v* namespace. This
+# job never builds or publishes NF images/charts. Fixed upstream chart tags are
+# reused only after a publisher pull and byte comparison; collisions fail closed.
+name: pre-nereidforge-publish
+
+on:
+  push:
+    tags:
+      - 'pre-nereidforge/v*'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  # Only runs for the same tag share a group. A newer pending rerun may replace
+  # an older pending rerun for that release without cancelling another tag.
+  group: pre-nereidforge-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish pre-NereidForge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: write
+      packages: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+        with:
+          version: 1.4.0
+
+      - name: Validate the pre tag and derive the module version
+        id: ver
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^pre-nereidforge/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag must be pre-nereidforge/v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          version="${tag#pre-nereidforge/v}"
+          if [[ "$version" == *-* ]]; then
+            IFS='.' read -ra identifiers <<< "${version#*-}"
+            for identifier in "${identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to modify an already published release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != true ]]; then
+              echo "::error::Release $GITHUB_REF_NAME is already published; refusing to replace or append assets"
+              exit 1
+            fi
+          fi
+
+      - name: Verify the self-contained pre module
+        run: make -C deploy/pre-nereidforge verify
+
+      - name: Package and reparse the pre installer
+        env:
+          PRE_RELEASE_TAG: ${{ steps.ver.outputs.version }}
+          PRE_OUTPUT_DIR: ${{ runner.temp }}/release
+        run: make -C deploy/pre-nereidforge package
+
+      - name: Package exactly five charts with independent upstream versions
+        env:
+          PRE_CHARTS_OUTPUT_DIR: ${{ runner.temp }}/charts
+          PRE_CHARTS_ARCHIVE: ${{ runner.temp }}/pre-nereidforge-charts.tar.gz
+        run: make -C deploy/pre-nereidforge helm-package
+
+      - name: Wait for older formal tag runs before publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          if ! [[ "$GITHUB_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::GITHUB_RUN_ID must be numeric; refusing to publish without an ordering check"
+            exit 1
+          fi
+          endpoint="repos/${GITHUB_REPOSITORY}/actions/workflows/pre-publish.yml/runs?event=push&per_page=100"
+          while :; do
+            if ! older_runs="$(
+              gh api --paginate "$endpoint" \
+                --jq '.workflow_runs[] | select(.event == "push" and .status != "completed" and (.id < (env.GITHUB_RUN_ID | tonumber))) | [.id, .head_branch, .status] | @tsv'
+            )"; then
+              echo "::error::Unable to enumerate older formal tag runs; refusing to publish"
+              exit 1
+            fi
+            if [[ -z "$older_runs" ]]; then
+              break
+            fi
+            printf 'Waiting for older non-completed formal tag runs (run ID, tag, status):\n%s\n' "$older_runs"
+            sleep 15
+          done
+
+      - name: Log in to GHCR with isolated publisher configuration
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$HELM_REGISTRY_CONFIG")" "$(dirname "$ORAS_REGISTRY_CONFIG")"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io \
+            --username "$GHCR_USERNAME" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
+            --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --username "$GHCR_USERNAME" --password-stdin
+
+      - name: Publish only the five pre charts
+        env:
+          CHART_DIR: ${{ runner.temp }}/charts
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          charts=(postgresql valkey seaweedfs labelstudio cvat)
+          test "${#charts[@]}" -eq 5
+          for name in "${charts[@]}"; do
+            source_metadata="$(helm show chart "deploy/pre-nereidforge/charts/$name")"
+            version="$(awk '/^version:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            package="${CHART_DIR}/${name}-${version}.tgz"
+            test -s "$package"
+            packaged_metadata="$(helm show chart "$package")"
+            test "$(awk '/^name:/ {print $2; exit}' <<< "$packaged_metadata")" = "$name"
+            test "$(awk '/^version:/ {print $2; exit}' <<< "$packaged_metadata" | tr -d '"')" = "$version"
+            test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$packaged_metadata" | tr -d '"')" = "$app_version"
+            pre_publish_chart "ghcr.io/nereidai/charts/$name" "$package" "$version"
+          done
+
+      - name: Anonymously pull and render charts and record identities
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+          CHART_DIR: ${{ runner.temp }}/charts
+          RELEASE_DIR: ${{ runner.temp }}/release
+          HELM_CONFIG_HOME: ${{ runner.temp }}/anonymous/helm/config
+          HELM_CACHE_HOME: ${{ runner.temp }}/anonymous/helm/cache
+          HELM_DATA_HOME: ${{ runner.temp }}/anonymous/helm/data
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/helm/registry-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME" \
+            "$(dirname "$ORAS_REGISTRY_CONFIG")" "${RUNNER_TEMP}/anonymous/pull" \
+            "${RUNNER_TEMP}/anonymous/rendered"
+          charts=(postgresql valkey seaweedfs labelstudio cvat)
+          manifest="${RELEASE_DIR}/pre-nereidforge-charts-${VERSION}.txt"
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# OCI reference | appVersion | chart archive SHA-256 | OCI manifest digest'
+          } > "$manifest"
+          for name in "${charts[@]}"; do
+            source_metadata="$(helm show chart "deploy/pre-nereidforge/charts/$name")"
+            chart_version="$(awk '/^version:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            reference="oci://ghcr.io/nereidai/charts/${name}:${chart_version}"
+            helm pull "oci://ghcr.io/nereidai/charts/$name" \
+              --version "$chart_version" --destination "${RUNNER_TEMP}/anonymous/pull"
+            pulled="${RUNNER_TEMP}/anonymous/pull/${name}-${chart_version}.tgz"
+            test -s "$pulled"
+            cmp "${CHART_DIR}/${name}-${chart_version}.tgz" "$pulled"
+            values_args=()
+            case "$name" in
+              postgresql)
+                values_args=(-f deploy/pre-nereidforge/charts/postgresql/values-prod.yaml \
+                  --set bootstrap.password=ci-render-only-placeholder)
+                ;;
+              cvat)
+                values_args=(-f deploy/pre-nereidforge/values/cvat.yaml \
+                  --set ingress.hostname=cvat.example.test)
+                ;;
+            esac
+            helm template "$name" "$pulled" "${values_args[@]}" \
+              > "${RUNNER_TEMP}/anonymous/rendered/${name}.yaml"
+            test -s "${RUNNER_TEMP}/anonymous/rendered/${name}.yaml"
+            package_digest="$(sha256sum "$pulled" | awk '{print $1}')"
+            manifest_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+              "ghcr.io/nereidai/charts/${name}:${chart_version}")"
+            printf '%s %s %s %s\n' "$reference" "$app_version" "$package_digest" "$manifest_digest" >> "$manifest"
+          done
+          test "$(grep -c '^oci://' "$manifest")" -eq 5
+
+      - name: Publish the pre release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+          RELEASE_DIR: ${{ runner.temp }}/release
+        run: |
+          set -euo pipefail
+          archive="${RELEASE_DIR}/pre-nereidforge-installer-${VERSION}.tar.gz"
+          assets=(
+            "$archive"
+            "${archive}.sha256"
+            "${RELEASE_DIR}/pre-nereidforge-installer-${VERSION}.lock.json"
+            "${RELEASE_DIR}/pre-nereidforge-charts-${VERSION}.txt"
+          )
+          test "${#assets[@]}" -eq 4
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          (cd "$RELEASE_DIR" && sha256sum -c "$(basename "$archive").sha256")
+          ! grep -E 'charts/(nereidforge-|ml-backend)|nereidforge-(backend|frontend)-[0-9]' \
+            "${RELEASE_DIR}/pre-nereidforge-charts-${VERSION}.txt"
+          notes="Pre-NereidForge ${VERSION} publishes five supporting-service OCI Helm charts with independent upstream versions and a versioned source installer, checksum, lock, and chart manifest. Kubeflow remains an ordered Kustomize/platform installation, not an umbrella Helm chart. NereidForge is installed separately through its four OCI Helm charts; automatic runtime handoff is not implemented."
+          prerelease_flags=(--prerelease=false)
+          if [[ "$VERSION" == *-* ]]; then prerelease_flags=(--prerelease); fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != true ]]; then
+              echo "::error::Release $GITHUB_REF_NAME became published; refusing all asset changes"
+              exit 1
+            fi
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "Pre-NereidForge ${VERSION}" --notes "$notes" "${prerelease_flags[@]}"
+          fi
+          # No --clobber: an existing draft asset conflict fails without replacing it.
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
+          gh release edit "$GITHUB_REF_NAME" --draft=false --notes "$notes" "${prerelease_flags[@]}"

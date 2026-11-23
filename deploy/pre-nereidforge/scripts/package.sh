@@ -52,7 +52,9 @@ for required in \
     Makefile \
     scripts/lib/common.sh \
     scripts/lib/config.sh \
+    scripts/lib/publication.sh \
     scripts/package.sh \
+    scripts/package-charts.sh \
     scripts/generate-lock.py \
     platform/kubeflow-manifests \
     platform/kubeflow-patches/apply.sh; do
