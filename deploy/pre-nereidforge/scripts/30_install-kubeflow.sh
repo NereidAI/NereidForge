@@ -575,3 +575,7 @@ rm -f /tmp/nereidforge-profile.yaml /tmp/kubeflow-rbac.yaml /tmp/kfp-runner-rbac
 log_ok "Kubeflow platform wiring done"
 log_info "Done. All Kubeflow components are deployed via kustomize,"
 log_info "tenant profile='nereidforge', dex static user='admin@nereidforge.local'."
+
+# The handoff is finalized only after every pre installation stage succeeds.
+# It retains existing service credentials and emits no secret values.
+"$SCRIPT_DIR/40_finalize-handoff.sh"

@@ -92,6 +92,9 @@ class PrePackageTests(unittest.TestCase):
                         "install-lock.json",
                         "scripts/lib/common.sh",
                         "scripts/lib/config.sh",
+                        "scripts/lib/generate_nf_handoff.py",
+                        "scripts/40_finalize-handoff.sh",
+                        "scripts/40_check-nf-handoff.sh",
                         "scripts/lib/provision_s3_buckets.py",
                         "scripts/lib/s3_credentials.py",
                         "scripts/lib/publication.sh",
@@ -139,6 +142,40 @@ class PrePackageTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, version)
+
+                # The extracted module must generate and validate the NF handoff
+                # without Git, repository-root charts, or NF environment values.
+                handoff = self.base / channel / "generated-handoff"
+                generated = handoff / "values.generated.yaml"
+                operator = handoff / "operator-values.yaml"
+                operator.parent.mkdir(parents=True, exist_ok=True)
+                operator.write_text("{}\n", encoding="utf-8")
+                generate = subprocess.run(
+                    [
+                        "python3", str(extracted / "scripts/lib/generate_nf_handoff.py"),
+                        "generate", "--output", str(generated), "--pre-version", version,
+                        "--source-commit", "archive-test", "--base-domain", "example.test",
+                        "--storage-class", "nfs-csi", "--pg-cluster", "nereidforge-postgresql",
+                        "--pg-database", "nereidforge", "--pg-user", "nereidforge",
+                        "--dex-email", "admin@example.test",
+                    ],
+                    cwd=self.base,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(generate.returncode, 0, generate.stderr)
+                validate = subprocess.run(
+                    [
+                        "python3", str(extracted / "scripts/lib/generate_nf_handoff.py"),
+                        "validate", "--values", str(generated), "--operator-values", str(operator),
+                    ],
+                    cwd=self.base,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(validate.returncode, 0, validate.stderr)
 
     def test_five_chart_lock_and_kubeflow_provenance(self):
         source_commit = subprocess.run(

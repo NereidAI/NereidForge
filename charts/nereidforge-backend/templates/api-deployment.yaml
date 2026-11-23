@@ -109,8 +109,12 @@ spec:
             {{- end }}
           envFrom:
             - secretRef:
-                name: {{ include "nereidforge-backend.fullname" . }}-secrets
+                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
           volumeMounts:
+            - name: config
+              mountPath: /etc/nereidforge/config.yaml
+              subPath: config.yaml
+              readOnly: true
             {{- if .Values.caBundleSecret }}
             - name: ca-bundle
               mountPath: /etc/ssl/certs/nereid-internal-ca.crt
@@ -118,6 +122,9 @@ spec:
               readOnly: true
             {{- end }}
       volumes:
+        - name: config
+          configMap:
+            name: {{ include "nereidforge-backend.fullname" . }}-config
         {{- if .Values.caBundleSecret }}
         - name: ca-bundle
           secret:

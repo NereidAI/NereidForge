@@ -147,10 +147,17 @@ class NereidForgeVerificationTest(unittest.TestCase):
                     set -u
                     case "${1:-}" in
                         get)
-                            if [[ "${NF_TEST_API_POD_EXIT:-0}" != 0 ]]; then
+                            if [[ "$*" == *"secret nereidforge-admin-credentials"* ]]; then
+                                if [[ "${NF_TEST_ADMIN_SECRET:-0}" == 1 ]]; then
+                                    printf '%s' 'dGVzdC1wYXNzd29yZA=='
+                                else
+                                    exit 1
+                                fi
+                            elif [[ "${NF_TEST_API_POD_EXIT:-0}" != 0 ]]; then
                                 exit "$NF_TEST_API_POD_EXIT"
+                            else
+                                printf '%s\\n' "${NF_TEST_API_POD_OUT-api-pod}"
                             fi
-                            printf '%s\\n' "${NF_TEST_API_POD_OUT-api-pod}"
                             ;;
                         exec)
                             if [[ "${NF_TEST_LOGIN_EXIT:-0}" != 0 ]]; then
@@ -275,6 +282,14 @@ class NereidForgeVerificationTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode, output)
         self.assertIn("credential", output.lower())
         self.assertNotIn("business layer verification done", output)
+
+    def test_admin_password_can_come_from_the_retained_helm_secret(self):
+        """Direct Helm acceptance needs no legacy local credential file."""
+        result = self.run_check({"NF_TEST_ADMIN_SECRET": 1}, admin_password="")
+        output = result.stdout + result.stderr
+        self.assertEqual(0, result.returncode, output)
+        self.assertIn("admin login OK", output)
+        self.assertNotIn("test-password", output)
 
     def test_login_failure_does_not_leak_sensitive_response(self):
         """Failed login output never exposes tokens or the full response body."""

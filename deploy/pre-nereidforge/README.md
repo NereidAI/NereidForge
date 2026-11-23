@@ -12,8 +12,8 @@ part of the pre interface.
   Studio, PostgreSQL, SeaweedFS, and Valkey.
 - `platform/` contains the vendored Kubeflow manifests and their canonical patch
   provenance.
-- `scripts/` contains infrastructure, Kubeflow, fetch/cache, verification, and
-  local packaging scripts.
+- `scripts/` contains infrastructure, Kubeflow, fetch/cache, verification, the
+  non-secret NF Helm handoff/preflight, and local packaging scripts.
 - `values/` contains pre-NereidForge chart value overlays.
 - `tests/` contains stdlib regression tests for the local source/package
   interface.
@@ -139,6 +139,8 @@ The existing entry points remain:
 ```bash
 scripts/10_infra.sh
 scripts/30_install-kubeflow.sh
+scripts/40_finalize-handoff.sh
+scripts/40_check-nf-handoff.sh
 scripts/60_verify/infra-check.sh
 scripts/60_verify/kubeflow-check.sh
 scripts/60_verify/mr-check.sh
@@ -171,6 +173,54 @@ a sibling `.deployment` tree. Full-stack callers can continue supplying
 same paths. Existing service token/admin credential handoff filenames and
 contents are unchanged.
 
+After the infrastructure and Kubeflow stages both succeed, the Kubeflow entry
+point finalizes `PRE_HANDOFF_DIR/values.generated.yaml`. This deterministic
+`pre-nereidforge-handoff/v1` file contains only non-secret endpoints, Secret
+names/keys, namespace ownership, ingress, and post-install settings. The same
+file is valid for the NF backend, frontend, and ML backend charts. The finalizer
+also retains exactly `NEREIDFORGE_LABELSTUDIO_TOKEN` and
+`NEREIDFORGE_CVAT_TOKEN` in `nereidforge/nereidforge-service-credentials` with
+server-side apply, preserving independently managed NF keys, and copies only
+`ca.crt` to `nereidforge/nereid-internal-ca`.
+
+The operator must retain `NEREIDFORGE_AUTH_JWT_SECRET` and the selected
+`NEREIDFORGE_SSO_NS_CLIENT_SECRET` or `NEREIDFORGE_SSO_OIDC_CLIENT_SECRET` in the
+runtime Secret, and `password` in `nereidforge-admin-credentials`. Pre never
+creates or rotates those NF-owned credentials. Keep them out of both values
+files and Helm `--set`. An empty non-secret overlay is written as `{}`.
+
+Run the read-only preflight and then three OCI Helm releases in order from the
+extracted pre installer:
+
+```bash
+export NF_OPERATOR_VALUES_FILE="$PRE_HANDOFF_DIR/operator-values.yaml"
+bash scripts/40_check-nf-handoff.sh
+export NEREIDFORGE_VERSION=<verified-formal-version>
+helm upgrade --install nereidforge-backend \
+  oci://ghcr.io/nereidai/charts/nereidforge-backend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+helm upgrade --install nereidforge-frontend \
+  oci://ghcr.io/nereidai/charts/nereidforge-frontend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+helm upgrade --install ml-backend \
+  oci://ghcr.io/nereidai/charts/nereidforge-ml-backend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+```
+
+The explicit production runbook uses three separate commands so a failure stops
+the sequence. Backend Helm hooks seed the administrator without implicit
+password rotation and synchronize KFP pipelines. They are enabled by the
+handoff, fail the Helm operation on error, and replace only their own previous
+hook resources. `nereidforge-tenant-check` remains the fourth, verification-only
+NF chart. The preflight performs no writes and supports only the initial
+namespace-fixed tenant `nereidforge`.
+
 An extracted installer is entered directly, for example:
 
 ```bash
@@ -190,9 +240,9 @@ regression coverage.
 
 ## Remaining limitations
 
-- Runtime handoff has not been redesigned. This change is limited to the shared
-  S3 `existingSecret` contract; publication workflows do not claim to implement
-  a general NF runtime handoff.
+- The handoff covers the namespace-fixed initial NF tenant only. Broader
+  multi-tenant wiring and application-internal credential redesign remain out of
+  scope; every credential continues to live in an existing Kubernetes Secret.
 - Independent formal/development publication workflows are implemented in
   source, but no formal `v0.0.1` tag, GitHub Release, or GHCR artifact has been
   published by this change.

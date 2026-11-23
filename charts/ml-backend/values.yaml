@@ -79,8 +79,11 @@ livenessProbe:
 
 secret:
   name: ml-backend-ls-token
-  # LABEL_STUDIO_API_KEY; if empty, value is sourced from global.essences
-  # via .Values.lsToken (set at deploy time).
+  # When set, reference this retained Secret and do not render a literal-token
+  # Secret. The handoff selects nereidforge-service-credentials and the key below.
+  existingSecret: ""
+  # LABEL_STUDIO_API_KEY; the legacy generated Secret uses "token", while the
+  # shared handoff uses NEREIDFORGE_LABELSTUDIO_TOKEN.
   lsTokenKey: token
 
 lsToken: ""

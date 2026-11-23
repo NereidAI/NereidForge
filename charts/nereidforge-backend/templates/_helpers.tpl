@@ -46,6 +46,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 {{- end }}
 
+{{- define "nereidforge-backend.runtimeSecretName" -}}
+{{- .Values.runtimeSecret.existingSecret | default (printf "%s-secrets" (include "nereidforge-backend.fullname" .)) -}}
+{{- end }}
+
 {{- define "nereidforge-backend.api.fullname" -}}
 {{- if .Values.api.nameOverride }}
 {{- .Values.api.nameOverride | trunc 63 | trimSuffix "-" }}

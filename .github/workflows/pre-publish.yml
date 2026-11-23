@@ -233,7 +233,7 @@ jobs:
           (cd "$RELEASE_DIR" && sha256sum -c "$(basename "$archive").sha256")
           ! grep -E 'charts/(nereidforge-|ml-backend)|nereidforge-(backend|frontend)-[0-9]' \
             "${RELEASE_DIR}/pre-nereidforge-charts-${VERSION}.txt"
-          notes="Pre-NereidForge ${VERSION} publishes five supporting-service OCI Helm charts with independent upstream versions and a versioned source installer, checksum, lock, and chart manifest. Kubeflow remains an ordered Kustomize/platform installation, not an umbrella Helm chart. NereidForge is installed separately through its four OCI Helm charts; automatic runtime handoff is not implemented."
+          notes="Pre-NereidForge ${VERSION} publishes five supporting-service OCI Helm charts with independent upstream versions and a versioned source installer, checksum, lock, and chart manifest. Kubeflow remains an ordered Kustomize/platform installation, not an umbrella Helm chart. The installer retains existing service credentials, generates a non-secret values handoff, and provides read-only preflight for the separate NereidForge OCI Helm installation."
           prerelease_flags=(--prerelease=false)
           if [[ "$VERSION" == *-* ]]; then prerelease_flags=(--prerelease); fi
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then

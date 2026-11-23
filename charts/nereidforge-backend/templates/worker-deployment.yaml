@@ -50,6 +50,10 @@ spec:
             {{- toYaml .Values.worker.resources | nindent 12 }}
           env:
             {{- toYaml .Values.worker.env | nindent 12 }}
+            {{- if .Values.caBundleSecret }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/certs/nereid-internal-ca.crt
+            {{- end }}
             {{- if .Values.postgresql.existingSecret }}
             - name: NEREIDFORGE_DATABASE_PASSWORD
               valueFrom:
@@ -84,9 +88,30 @@ spec:
                   optional: false
           envFrom:
             - secretRef:
-                name: {{ include "nereidforge-backend.fullname" . }}-secrets
-          volumeMounts: []
-      volumes: []
+                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nereidforge/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.caBundleSecret }}
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/nereid-internal-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nereidforge-backend.fullname" . }}-config
+        {{- if .Values.caBundleSecret }}
+        - name: ca-bundle
+          secret:
+            secretName: {{ .Values.caBundleSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
       {{- with .Values.worker.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

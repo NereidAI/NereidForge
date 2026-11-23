@@ -139,9 +139,52 @@ frontend images, not a complete Forge installation channel.
 source workflows. They are not called by NF publication and their archive is
 not an NF release asset.
 
-Runtime pre-to-NF handoff automation is not yet implemented. These local/static
-checks do not establish GHCR publication success, anonymous registry
-availability, installation acceptance, or cluster health.
+### Direct Helm installation handoff
+
+A successful pre installation retains the two pre-owned Label Studio/CVAT token
+keys in `nereidforge/nereidforge-service-credentials`, replicates only the public
+CA certificate, and writes `values.generated.yaml` below `PRE_HANDOFF_DIR`. That
+file contains endpoints, Secret names/keys, and image-independent chart values;
+it contains no credentials. The operator retains the NF JWT, selected SSO client
+secret, and administrator password in existing Kubernetes Secrets. Do not put
+those values in either values file or pass them with Helm `--set`.
+
+Create a non-secret `operator-values.yaml` (use `{}` when the generated defaults
+need no override), add the NF-owned Secret keys without replacing the pre-owned
+keys, and run the read-only preflight. Then select one anonymously verified
+formal NF version and install in this order:
+
+```bash
+export PRE_HANDOFF_DIR=/path/to/private/pre-handoff
+export NF_OPERATOR_VALUES_FILE="$PRE_HANDOFF_DIR/operator-values.yaml"
+bash scripts/40_check-nf-handoff.sh  # run from the extracted pre installer
+
+export NEREIDFORGE_VERSION=<verified-formal-version>
+helm upgrade --install nereidforge-backend \
+  oci://ghcr.io/nereidai/charts/nereidforge-backend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+helm upgrade --install nereidforge-frontend \
+  oci://ghcr.io/nereidai/charts/nereidforge-frontend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+helm upgrade --install ml-backend \
+  oci://ghcr.io/nereidai/charts/nereidforge-ml-backend \
+  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
+  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
+  --wait --timeout 10m
+```
+
+The backend chart's post-install/post-upgrade hooks seed the administrator
+without implicit password rotation and synchronize the existing KFP pipeline
+definitions. Hook failures fail the Helm operation; they are not warning-only
+steps. The fourth chart, `nereidforge-tenant-check`, remains a verification tool,
+not an application release. No NF source installer is required or published.
+
+These local/static checks do not establish GHCR publication success, anonymous
+registry availability, installation acceptance, or cluster health.
 
 ## License and security
 
