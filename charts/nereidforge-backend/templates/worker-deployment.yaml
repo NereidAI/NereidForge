@@ -24,6 +24,7 @@ spec:
         {{- end }}
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/pg-credentials: {{ include (print $.Template.BasePath "/pg-credentials.yaml") . | sha256sum }}
+        checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
       labels:
         {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
         component: worker
@@ -57,6 +58,30 @@ spec:
                   key: {{ .Values.postgresql.existingSecretKey | default "password" }}
                   optional: false
             {{- end }}
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+                  optional: false
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+                  optional: false
+            - name: NEREIDFORGE_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+                  optional: false
+            - name: NEREIDFORGE_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+                  optional: false
           envFrom:
             - secretRef:
                 name: {{ include "nereidforge-backend.fullname" . }}-secrets

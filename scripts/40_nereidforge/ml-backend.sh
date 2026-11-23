@@ -48,6 +48,7 @@ cd "$APP_CHARTS_DIR/ml-backend"
 helm upgrade --install ml-backend . \
     --namespace "$NAMESPACE" --create-namespace \
     --set "lsToken=$LS_TOKEN" \
+    --set "s3.existingSecret=seaweedfs-s3-credentials" \
     --set "image.tag=$VERSION" \
     --wait \
     --timeout 10m

@@ -52,6 +52,8 @@ for required in \
     Makefile \
     scripts/lib/common.sh \
     scripts/lib/config.sh \
+    scripts/lib/provision_s3_buckets.py \
+    scripts/lib/s3_credentials.py \
     scripts/lib/publication.sh \
     scripts/package.sh \
     scripts/package-charts.sh \

@@ -22,7 +22,6 @@ fi
 
 # Validate required config
 validate_required BASE_DOMAIN NFS_SERVER NFS_SHARE PG_ADMIN_PASSWORD JWT_SECRET \
-    SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY \
     DEX_STATIC_EMAIL DEX_STATIC_PASSWORD DEX_STATIC_PASSWORD_HASH || {
     log_err "Required configuration is missing; please check"
     exit 1

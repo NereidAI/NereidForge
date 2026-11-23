@@ -61,9 +61,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PRE_ROOT/scripts/lib/common.sh"
 source "$PRE_ROOT/scripts/lib/config.sh"
-validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH \
-    SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY || exit 1
+validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH || exit 1
 check_cmd envsubst python3 || exit 1
+# Reuse the identity retained by the SeaweedFS stage instead of accepting a
+# second credential source that could drift during an upgrade.
+load_seaweedfs_s3_credentials secret seaweedfs-s3-credentials secret || exit 1
 export_all
 
 init_deploy_log "30_install-kubeflow"
@@ -402,54 +404,10 @@ for ns in $TENANTS; do
 done
 [ "$RUNNER_OK" = 1 ] && log_ok "kfp-runner RBAC verified (all tenants)"
 
-# 6. Provision the KFP object-store bucket (mlpipeline).
-# KFP's argo wait / log persistence reads/writes s3://mlpipeline via the
-# mlpipeline-minio-artifact secret; a missing bucket makes every run fail at
-# the "wait" step. profile-controller's own bucket bootstrap targets AWS IAM
-# and always fails on SeaweedFS, so create the bucket here (idempotent).
-log_info "Provisioning KFP object-store bucket 'mlpipeline' on SeaweedFS S3..."
-# Prefer an optional module-local venv (bundles boto3); never reach outside the
-# pre module for runtime files. Fall back to the operator's system python3.
-PY=python3
-if [[ -x "$PRE_ROOT/.venv/bin/python" ]] && "$PRE_ROOT/.venv/bin/python" -c 'import boto3' >/dev/null 2>&1; then
-    PY="$PRE_ROOT/.venv/bin/python"
-fi
-S3_SVC_IP="$($KUBECTL get svc -n nereidforge seaweedfs-s3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
-if [[ -z "$S3_SVC_IP" ]]; then
-    log_err "could not resolve seaweedfs-s3 service; mlpipeline bucket not provisioned"
-else
-    S3_URL="http://$S3_SVC_IP:8333" \
-    S3_ACCESS_KEY="$SEAWEEDFS_S3_ACCESS_KEY" \
-    S3_SECRET_KEY="$SEAWEEDFS_S3_SECRET_KEY" \
-        "$PY" - <<'PYEOF'
-import os
-import sys
-import boto3
-from botocore.client import Config
-
-endpoint = os.environ["S3_URL"]
-s3 = boto3.client(
-    "s3",
-    endpoint_url=endpoint,
-    aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["S3_SECRET_KEY"],
-    region_name="us-east-1",
-    config=Config(signature_version="s3v4"),
-)
-try:
-    s3.head_bucket(Bucket="mlpipeline")
-    print("mlpipeline bucket already exists")
-except s3.exceptions.ClientError as e:
-    code = e.response["Error"]["Code"]
-    if code in ("404", "NoSuchBucket"):
-        s3.create_bucket(Bucket="mlpipeline")
-        print("created mlpipeline bucket")
-    elif code == "403":
-        print("mlpipeline bucket exists but not readable (403); assuming ok")
-    else:
-        raise
-PYEOF
-fi
+# 6. The mlpipeline bucket is provisioned and access-verified with the retained
+# operator identity by 10_infra/seaweedfs.sh. That stage completes before this
+# Kubeflow stage (and before every other S3 consumer), so no late or fail-open
+# bucket creation is needed here.
 
 # 7. KFP tenant runtime wiring (single tenant ns = nereidforge).
 #    The tenant namespace is pre-created by 10_infra BEFORE the KF Profile CR,

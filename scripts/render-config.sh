@@ -39,8 +39,8 @@ Options:
   --ls-token TOKEN    Label Studio token
   --cvat-token TOKEN  CVAT token
   --sso-ns-base-url URL  NereidSphere base URL (required for prod)
-  --s3-access-key KEY  Object-store access key (required for prod)
-  --s3-secret-key KEY  Object-store secret key (required for prod)
+  --s3-access-key KEY  Object-store access key (optional for local dev only)
+  --s3-secret-key KEY  Object-store secret key (optional for local dev only)
   -h, --help          Show this help
 
 Environment variables can also be used: ENV, DOMAIN, TENANT, DB_PASSWORD, JWT_SECRET, LABELSTUDIO_TOKEN, CVAT_TOKEN, SSO_NS_BASE_URL, S3_ACCESS_KEY, S3_SECRET_KEY
@@ -77,8 +77,8 @@ if [[ "${ENV}" == "prod" ]]; then
     if [[ -z "${DB_PASSWORD}" ]]; then echo "Error: --db-password required for prod" >&2; exit 1; fi
     if [[ -z "${JWT_SECRET}" ]]; then echo "Error: --jwt-secret required for prod" >&2; exit 1; fi
     if [[ -z "${SSO_NS_BASE_URL}" ]]; then echo "Error: --sso-ns-base-url required for prod" >&2; exit 1; fi
-    if [[ -z "${S3_ACCESS_KEY}" ]]; then echo "Error: --s3-access-key required for prod" >&2; exit 1; fi
-    if [[ -z "${S3_SECRET_KEY}" ]]; then echo "Error: --s3-secret-key required for prod" >&2; exit 1; fi
+    # Production S3 credentials stay in the pre-managed Kubernetes Secret and
+    # reach pods through secretKeyRef, never this non-secret ConfigMap render.
 fi
 
 if ! command -v jinja2 &>/dev/null; then

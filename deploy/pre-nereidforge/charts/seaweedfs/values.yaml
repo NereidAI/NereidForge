@@ -45,19 +45,12 @@ filer:
 s3:
   enabled: true
   replicaCount: 1
-  accessKey: nereidforge
-  secretKey: nereidforge
-  # Prefixes anonymously readable without credentials. KServe predictor
-  # containers download model artifacts over plain HTTP (no boto3/keys in the
-  # serving images), so served ONNX models must be world-readable; scope it to
-  # models/ + optimized/ only -- datasets (ds-*), base models and everything
-  # else stay private. optimized/ holds OpenVINO IR (.xml/.bin) / TensorRT
-  # artifacts produced by Model Optimization jobs that are themselves deployed
-  # as served versions, so they share the models/ trust level.
-  # A SeaweedFS "Read:<bucket>/<prefix>" identity action.
-  anonymousReadPrefixes:
-    - "Read:nereidforge/models/*"
-    - "Read:nereidforge/optimized/*"
+  # The pre installer retains this operator-managed Secret. It contains the
+  # accessKey/secretKey pair and s3-config.json; no credentials are chart values.
+  # Anonymous access in that config is limited to nereidforge/models/* and
+  # nereidforge/optimized/* for the serving images that cannot authenticate.
+  existingSecret: seaweedfs-s3-credentials
+  configKey: s3-config.json
   resources:
     limits:
       cpu: "1"

@@ -52,22 +52,10 @@ stringData:
   {{- if $secrets.auth.jwt_secret }}
   NEREIDFORGE_AUTH_JWT_SECRET: {{ $secrets.auth.jwt_secret | quote }}
   {{- end }}
-  {{- if $secrets.kfp.object_store_access_key }}
-  NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY: {{ $secrets.kfp.object_store_access_key | quote }}
-  {{- end }}
-  {{- if $secrets.kfp.object_store_secret_key }}
-  NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY: {{ $secrets.kfp.object_store_secret_key | quote }}
-  {{- end }}
   {{- if $secrets.labelstudio.token }}
   NEREIDFORGE_LABELSTUDIO_TOKEN: {{ $secrets.labelstudio.token | quote }}
   {{- end }}
   {{- if $secrets.cvat.token }}
   NEREIDFORGE_CVAT_TOKEN: {{ $secrets.cvat.token | quote }}
-  {{- end }}
-  {{- if $secrets.storage.s3_access_key }}
-  NEREIDFORGE_STORAGE_S3_ACCESS_KEY: {{ $secrets.storage.s3_access_key | quote }}
-  {{- end }}
-  {{- if $secrets.storage.s3_secret_key }}
-  NEREIDFORGE_STORAGE_S3_SECRET_KEY: {{ $secrets.storage.s3_secret_key | quote }}
   {{- end }}
 {{- end }}

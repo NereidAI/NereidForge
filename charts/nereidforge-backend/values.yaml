@@ -286,6 +286,13 @@ labelstudio:
   tracing:
     enabled: false
 
+# Shared SeaweedFS identity for both general storage and KFP object artifacts.
+# The Secret is retained by pre-NereidForge and referenced in each release namespace.
+s3:
+  existingSecret: "seaweedfs-s3-credentials"
+  accessKeyKey: "accessKey"
+  secretKeyKey: "secretKey"
+
 postgresql:
   existingSecret: "pg-nereidforge-credentials"
   existingSecretKey: "password"
@@ -302,16 +309,10 @@ secrets:
       client_secret: ""
   auth:
     jwt_secret: ""  # required at install time; injected via NEREIDFORGE_AUTH_JWT_SECRET
-  kfp:
-    object_store_access_key: ""  # required at install time
-    object_store_secret_key: ""  # required at install time
   labelstudio:
     token: ""
   cvat:
     token: ""
-  storage:
-    s3_access_key: ""  # required at install time
-    s3_secret_key: ""  # required at install time
   serving:
     # No secrets for serving by default
     pass: ""

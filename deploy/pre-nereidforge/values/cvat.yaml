@@ -36,9 +36,17 @@ cvat:
         initialDelaySeconds: 60
     additionalEnv:
       - name: AWS_ACCESS_KEY_ID
-        value: "nereidforge"
+        valueFrom:
+          secretKeyRef:
+            name: seaweedfs-s3-credentials
+            key: accessKey
+            optional: false
       - name: AWS_SECRET_ACCESS_KEY
-        value: "nereidforge"
+        valueFrom:
+          secretKeyRef:
+            name: seaweedfs-s3-credentials
+            key: secretKey
+            optional: false
       - name: AWS_S3_ENDPOINT
         value: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
       - name: AWS_S3_BUCKET_NAME

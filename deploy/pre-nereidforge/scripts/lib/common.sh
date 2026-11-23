@@ -186,6 +186,24 @@ docker_ref_parts() {
 
 # ========== Kubernetes helpers used by pre deployment and verification ==========
 
+# Load the canonical object-store identity directly from an existing Kubernetes
+# Secret, or from the legacy SeaweedFS config during the one-time migration.
+# The Python helper shell-quotes both values; no credential file or handoff is
+# created and command output contains only the exports consumed by this shell.
+load_seaweedfs_s3_credentials() {
+    local resource_kind="$1"
+    local resource_name="$2"
+    local source_kind="$3"
+    local kubectl_cmd="${KUBECTL:-kubectl}"
+    local exports
+    if ! exports="$($kubectl_cmd get "$resource_kind" "$resource_name" -n nereidforge -o json \
+        | python3 "$LIB_DIR/s3_credentials.py" exports "$source_kind")"; then
+        log_err "Could not load the existing SeaweedFS credentials from $resource_kind/$resource_name"
+        return 1
+    fi
+    eval "$exports"
+}
+
 ensure_ns() {
     local ns="$1"
     if ! kubectl get ns "$ns" &>/dev/null; then

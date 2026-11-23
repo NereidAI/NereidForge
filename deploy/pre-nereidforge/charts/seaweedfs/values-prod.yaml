@@ -45,8 +45,8 @@ filer:
 s3:
   enabled: true
   replicaCount: 2
-  accessKey: nereidforge
-  secretKey: nereidforge
+  existingSecret: seaweedfs-s3-credentials
+  configKey: s3-config.json
   resources:
     limits:
       cpu: "1"

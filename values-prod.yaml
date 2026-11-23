@@ -292,10 +292,10 @@ seaweedfs:
         cpu: 100m
         memory: 256Mi
   s3:
-    accessKey: nereidforge
     enabled: true
     replicaCount: 1
-    secretKey: nereidforge
+    existingSecret: seaweedfs-s3-credentials
+    configKey: s3-config.json
   volume:
     persistence:
       size: 200Gi
