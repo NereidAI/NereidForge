@@ -2,15 +2,140 @@
 
 # Pre-NereidForge deployment assets
 
-This tree groups the infrastructure and Kubeflow deployment stage:
+This module contains the supporting infrastructure and Kubeflow stage. Its
+runtime scripts source only `scripts/lib/common.sh` and `scripts/lib/config.sh`
+from this directory; the repository-root NereidForge libraries, product charts,
+application images, JWT generation, and root values/secrets templates are not
+part of the pre interface.
 
-- `charts/` contains the supporting-service Helm charts.
-- `platform/` contains the vendored Kubeflow manifests and NF patch set.
-- `scripts/` contains infrastructure, Kubeflow, fetch/cache, and related verification scripts.
+- `charts/` contains the five supporting-service Helm charts: CVAT, Label
+  Studio, PostgreSQL, SeaweedFS, and Valkey.
+- `platform/` contains the vendored Kubeflow manifests and their canonical patch
+  provenance.
+- `scripts/` contains infrastructure, Kubeflow, fetch/cache, verification, and
+  local packaging scripts.
 - `values/` contains pre-NereidForge chart value overlays.
+- `tests/` contains stdlib regression tests for the local source/package
+  interface.
 
-The full-stack compatibility entry points and combined offline tooling remain
-under the repository-root `scripts/`. Pre-NereidForge scripts temporarily use
-the root shared script libraries. Self-contained packaging and handoff are the
-next restructuring stage; this tree is not yet an independently releasable
-package.
+## Local verification and ONLINE source packaging
+
+Run from this directory (or use `make -C deploy/pre-nereidforge` from a full
+checkout):
+
+```bash
+make verify
+make package
+```
+
+`make verify` runs the stdlib tests, shell syntax checks, package/reparse tests,
+and local Helm lint/template checks. It does **not** contact a registry or a
+cluster, download chart dependencies, build images, or warm caches. CVAT is
+rendered with its six tracked dependency archives. The PostgreSQL wrapper is
+rendered with the external CNPG operator disabled and a metadata-only local
+dependency placeholder because that operator chart is not vendored. When run from an
+extracted installer, combined-checkout compatibility and package-rebuild tests
+skip; the remaining version, interface, syntax, and chart checks still run.
+
+`make package` stages only tracked files from this module, generates
+`release.env` and `install-lock.json`, and writes these artifacts to `dist/` by
+default:
+
+```text
+pre-nereidforge-installer-<version>.tar.gz
+pre-nereidforge-installer-<version>.tar.gz.sha256
+pre-nereidforge-installer-<version>.lock.json
+```
+
+The lock has `schemaVersion: 1` and records the pre version, source commit, all
+five chart names/versions/appVersions, the Kubeflow community-distribution
+baseline, and SHA-256 provenance for the tracked patch ledger. The same lock is
+stored inside the archive. Packaging verifies the checksum, extracts the actual
+archive outside the checkout, and sources its configuration with an empty
+environment. The extracted copy must resolve the same version and module-local
+chart/manifest paths without Git or repository-root files.
+
+Overrides are optional:
+
+```bash
+# Local packaging example only; this does not publish a release.
+PRE_RELEASE_TAG=0.0.1 PRE_OUTPUT_DIR=/tmp/pre-release make package
+```
+
+This is an **ONLINE source installer**, not an offline image bundle. Deployment
+retains the existing upstream image references and runtime fetch/cache behavior.
+
+## Version selection
+
+`pre_version()` and package resolution use only the pre release channel, in this
+order:
+
+1. An explicit, non-empty `PRE_RELEASE_TAG` (bare SemVer) wins.
+2. A generated module `release.env` can supply `PRE_RELEASE_TAG` and
+   `SOURCE_COMMIT`; an explicit environment tag still wins.
+3. An exact Git tag named `pre-nereidforge/v<SemVer>` supplies the bare version.
+4. Any other checkout uses `0.0.0-dev`.
+
+A root NereidForge `v*` tag and the root `RELEASE_TAG` variable never select a
+pre version. `PRE_ROOT` identifies this module; `REPO_ROOT` is used only for Git
+metadata. Consequently, a normal nested worktree needs `.git` only at the
+repository root. A copied source archive without generated `release.env` is
+rejected instead of silently becoming a development installation.
+
+No formal pre-NereidForge `v0.0.1` release has been published. The `0.0.1`
+commands and tests are local fixtures only.
+
+## Source execution and configuration
+
+The existing entry points remain:
+
+```bash
+scripts/10_infra.sh
+scripts/30_install-kubeflow.sh
+scripts/60_verify/infra-check.sh
+scripts/60_verify/kubeflow-check.sh
+scripts/60_verify/mr-check.sh
+```
+
+These commands perform real deployment or cluster verification; they are not
+run by `make verify`. Site inputs retain their existing names, including
+`BASE_DOMAIN`, `STORAGE_CLASS`, PostgreSQL and SeaweedFS settings/credentials,
+Label Studio storage, `POD_CIDR`, `SERVICE_CIDR`, and the Dex identity/hash used
+by Kubeflow installation and Model Registry verification. `KUBECTL`,
+`OFFLINE_DIR`, and the upstream image overrides used by pre scripts also remain
+available. Required values are still validated by the stage that consumes them;
+no application JWT or NF application secret is generated by pre configuration.
+
+For standalone use, `PRE_ENV_FILE` selects a site env file and
+`PRE_HANDOFF_DIR` selects the mode-0700 handoff directory. Defaults live under
+a sibling `.deployment` tree. Full-stack callers can continue supplying
+`NF_ENV_FILE` and `NF_HANDOFF_DIR`; pre maps these compatibility names to the
+same paths. Existing service token/admin credential handoff filenames and
+contents are unchanged.
+
+An extracted installer is entered directly, for example:
+
+```bash
+tar -xzf pre-nereidforge-installer-<version>.tar.gz
+cd pre-nereidforge-installer-<version>
+# Set the required site inputs first, then invoke the desired scripts/ entry point.
+```
+
+The repository-root `scripts/00_deploy-all.sh` and `scripts/60_verify.sh`
+compatibility paths still invoke these pre scripts and pass their established
+environment. Root NereidForge release workflows are unchanged. Existing root
+exact-tag lookups exclude only the `pre-nereidforge/v*` namespace so a pre tag
+cannot be misread as an NF release. NF `v*` and other legacy tag behavior is
+unchanged and has focused regression coverage.
+
+## Remaining limitations
+
+- Runtime handoff and `existingSecret` behavior have not been redesigned.
+- There is no independent pre CI publication workflow or published formal
+  `v0.0.1` artifact yet.
+- Local checks do not establish registry availability, runtime installation
+  success, or cluster health. The explicit deployment/verification entry points
+  still require a suitably configured cluster and operator inputs.
+- No independent offline bundle is implemented in this stage. Existing legacy
+  fetch/cache and full-stack offline compatibility scripts are preserved, but
+  they are not a new pre offline deliverable.

@@ -17,7 +17,7 @@ WORKDIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # No VERSION file (root treaty §19.5): the exact v* git tag supplies bare
 # SemVer (v0.0.1 -> 0.0.1); any other checkout builds the rolling 0.0.0-dev
 # channel. An exported VERSION still overrides the derivation.
-VERSION="${VERSION:-$(ref=$(git -C "$WORKDIR" describe --tags --exact-match 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)}"
+VERSION="${VERSION:-$(ref=$(git -C "$WORKDIR" describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)}"
 # Three-tag scheme (root treaty §19.2): every local build carries the moving
 # VERSION tag plus UTC-timestamp and git-short-SHA traceability tags. No
 # floating tag is ever created. Local builds stay native/single-arch.

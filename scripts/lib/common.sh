@@ -188,7 +188,8 @@ nf_version() {
         return
     fi
     local ref
-    if ref="$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null)"; then
+    # Exclude only pre's namespace; every existing NF tag fallback stays unchanged.
+    if ref="$(git -C "$ROOT_DIR" describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null)"; then
         printf '%s\n' "${ref#v}"
     else
         printf '%s\n' "0.0.0-dev"

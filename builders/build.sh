@@ -23,7 +23,7 @@ BUILDER="${1:?usage: build.sh <builder-dir> <tag>}"
 TAG="${2:?usage: build.sh <builder-dir> <tag>}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$HERE/.." && pwd)"
-EXPECTED_TAG="$(ref=$(git -C "$ROOT_DIR" describe --tags --exact-match 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)"
+EXPECTED_TAG="$(ref=$(git -C "$ROOT_DIR" describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)"
 MAKE="${MAKE:-make}"
 DIR="$HERE/$BUILDER"
 

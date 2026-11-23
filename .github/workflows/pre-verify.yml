@@ -1,0 +1,51 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Lightweight pre-NereidForge verification. This workflow never builds images,
+# contacts a cluster, publishes artifacts, or warms the Docker build cache.
+name: pre-nereidforge-verify
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/pre-nereidforge/**'
+      - 'scripts/lib/common.sh'
+      - '.github/workflows/pre-verify.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/pre-nereidforge/**'
+      - 'scripts/lib/common.sh'
+      - '.github/workflows/pre-verify.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pre-nereidforge-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Verify the self-contained module
+        run: make -C deploy/pre-nereidforge verify
+
+      - name: Package and reparse a formal-version fixture
+        env:
+          PRE_RELEASE_TAG: 0.0.1
+          PRE_OUTPUT_DIR: ${{ runner.temp }}/pre-nereidforge-release
+        run: make -C deploy/pre-nereidforge package

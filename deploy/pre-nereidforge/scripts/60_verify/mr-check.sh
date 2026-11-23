@@ -18,8 +18,8 @@
 set -uo pipefail
 
 PRE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "$PRE_ROOT/../../scripts/lib/common.sh"
-source "$PRE_ROOT/../../scripts/lib/config.sh"
+source "$PRE_ROOT/scripts/lib/common.sh"
+source "$PRE_ROOT/scripts/lib/config.sh"
 
 # lib/config.sh enables set -e; this script deliberately runs failing probes
 # and reports them itself, so disable errexit after sourcing.

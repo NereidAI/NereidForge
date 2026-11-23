@@ -8,9 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Temporary compatibility with the combined full-stack tooling. The next
-# restructuring stage will give pre-nereidforge its own shared libraries.
-LIB_DIR="$PRE_ROOT/../../scripts/lib"
+LIB_DIR="$PRE_ROOT/scripts/lib"
 
 source "$LIB_DIR/common.sh"
 source "$LIB_DIR/config.sh"

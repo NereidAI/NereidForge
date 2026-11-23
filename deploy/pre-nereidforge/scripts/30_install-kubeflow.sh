@@ -59,10 +59,8 @@ set -euo pipefail
 # ---- config ----
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-# Shared libraries remain at the repository root until pre-nereidforge becomes
-# self-contained in the next restructuring stage.
-source "$PRE_ROOT/../../scripts/lib/common.sh"
-source "$PRE_ROOT/../../scripts/lib/config.sh"
+source "$PRE_ROOT/scripts/lib/common.sh"
+source "$PRE_ROOT/scripts/lib/config.sh"
 validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH \
     SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY || exit 1
 check_cmd envsubst python3 || exit 1
@@ -410,10 +408,11 @@ done
 # the "wait" step. profile-controller's own bucket bootstrap targets AWS IAM
 # and always fails on SeaweedFS, so create the bucket here (idempotent).
 log_info "Provisioning KFP object-store bucket 'mlpipeline' on SeaweedFS S3..."
-# Prefer the repo venv (bundles boto3); fall back to system python3.
+# Prefer an optional module-local venv (bundles boto3); never reach outside the
+# pre module for runtime files. Fall back to the operator's system python3.
 PY=python3
-if [[ -x "$ROOT_DIR/.venv/bin/python" ]] && "$ROOT_DIR/.venv/bin/python" -c 'import boto3' >/dev/null 2>&1; then
-    PY="$ROOT_DIR/.venv/bin/python"
+if [[ -x "$PRE_ROOT/.venv/bin/python" ]] && "$PRE_ROOT/.venv/bin/python" -c 'import boto3' >/dev/null 2>&1; then
+    PY="$PRE_ROOT/.venv/bin/python"
 fi
 S3_SVC_IP="$($KUBECTL get svc -n nereidforge seaweedfs-s3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
 if [[ -z "$S3_SVC_IP" ]]; then
