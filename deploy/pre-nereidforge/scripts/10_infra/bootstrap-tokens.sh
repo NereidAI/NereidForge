@@ -10,7 +10,7 @@ set -euo pipefail
 umask 077
 
 PRE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-LIB_DIR="$PRE_ROOT/../../scripts/lib"
+LIB_DIR="$PRE_ROOT/scripts/lib"
 source "$LIB_DIR/common.sh"
 source "$LIB_DIR/config.sh"
 

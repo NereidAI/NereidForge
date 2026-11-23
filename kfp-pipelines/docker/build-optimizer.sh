@@ -10,7 +10,7 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Exact v* tag checkout -> bare SemVer; any other checkout -> 0.0.0-dev.
-TAG="${VERSION:-$(ref=$(git -C "$DIR/../.." describe --tags --exact-match 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)}"
+TAG="${VERSION:-$(ref=$(git -C "$DIR/../.." describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)}"
 IMAGE="$(bash "$DIR/../../scripts/image-ref.sh" train/optimizer "$TAG")"
 # Three-tag scheme (root treaty §19.2): VERSION plus UTC-timestamp and
 # git-short-SHA traceability tags; no floating tag is ever created.

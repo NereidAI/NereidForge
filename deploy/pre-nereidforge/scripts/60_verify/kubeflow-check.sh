@@ -7,8 +7,8 @@
 set -euo pipefail
 
 PRE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source "$PRE_ROOT/../../scripts/lib/common.sh"
-source "$PRE_ROOT/../../scripts/lib/config.sh"
+source "$PRE_ROOT/scripts/lib/common.sh"
+source "$PRE_ROOT/scripts/lib/config.sh"
 
 log_info "========== Verifying Kubeflow =========="
 

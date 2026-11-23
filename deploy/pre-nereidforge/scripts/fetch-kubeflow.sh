@@ -11,8 +11,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-source "$PRE_ROOT/../../scripts/lib/common.sh"
-source "$PRE_ROOT/../../scripts/lib/config.sh"
+source "$PRE_ROOT/scripts/lib/common.sh"
+source "$PRE_ROOT/scripts/lib/config.sh"
 
 MANIFESTS_DIR="$PRE_ROOT/platform/kubeflow-manifests"
 

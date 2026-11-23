@@ -71,7 +71,7 @@ ifeq ($(wildcard release.env),)
 $(error Unsupported unversioned source archive; use nereidforge-installer-<version>.tar.gz or a Git checkout)
 endif
 endif
-VERSION ?= $(shell if [ -n "$${RELEASE_TAG:-}" ]; then printf '%s\n' "$$RELEASE_TAG"; elif [ -f release.env ]; then . ./release.env; printf '%s\n' "$$RELEASE_TAG"; else ref=$$(git describe --tags --exact-match 2>/dev/null) && printf '%s\n' "$${ref#v}" || printf '%s\n' 0.0.0-dev; fi)
+VERSION ?= $(shell if [ -n "$${RELEASE_TAG:-}" ]; then printf '%s\n' "$$RELEASE_TAG"; elif [ -f release.env ]; then . ./release.env; printf '%s\n' "$$RELEASE_TAG"; else ref=$$(git describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && printf '%s\n' "$${ref#v}" || printf '%s\n' 0.0.0-dev; fi)
 # Three-tag scheme (treaty §19.2): every local image build tags the moving
 # VERSION coordinate plus UTC-timestamp and git-short-SHA traceability tags.
 # Local builds stay native/single-arch; multi-arch indexes are a publication-
