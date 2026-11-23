@@ -37,10 +37,10 @@ CHARTS=(
     "infra/charts/seaweedfs:seaweedfs:upstream"
     "infra/charts/labelstudio:labelstudio:upstream"
     "infra/charts/cvat:cvat:upstream"
-    "app/charts/ml-backend:nereidforge-ml-backend:version"
-    "app/charts/nereidforge-backend:nereidforge-backend:version"
-    "app/charts/nereidforge-frontend:nereidforge-frontend:version"
-    "app/charts/tenant-check:nereidforge-tenant-check:version"
+    "charts/ml-backend:nereidforge-ml-backend:version"
+    "charts/nereidforge-backend:nereidforge-backend:version"
+    "charts/nereidforge-frontend:nereidforge-frontend:version"
+    "charts/tenant-check:nereidforge-tenant-check:version"
 )
 
 STAGING="$(mktemp -d)"
@@ -119,7 +119,7 @@ case "$ARCHIVE_LAYOUT" in
         tar -czf "$ARCHIVE" -C "$OUTPUT_DIR" index.yaml "${package_files[@]}"
         ;;
     offline-tree)
-        tar -czf "$ARCHIVE" -C "$STAGING" infra app
+        tar -czf "$ARCHIVE" -C "$STAGING" infra charts
         ;;
     *)
         echo "Unsupported CHARTS_ARCHIVE_LAYOUT: $ARCHIVE_LAYOUT" >&2

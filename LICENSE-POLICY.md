@@ -74,7 +74,7 @@ A customer-specific trainer is an L2 component even when *we* write the code for
 it. The delivery model keeps the boundary intact:
 
 - the implementation lives in the **customer's** repository and image, built
-  against the Apache-2.0 Trainer SDK (`app/builders/sdk/`);
+  against the Apache-2.0 Trainer SDK (`builders/sdk/`);
 - the copyleft (or commercial) framework and its weights are installed by the
   customer, under the customer's licence — we neither mirror nor redistribute
   them;

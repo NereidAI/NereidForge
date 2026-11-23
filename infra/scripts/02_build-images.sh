@@ -95,13 +95,13 @@ build_image() {
 if [[ "${NF_BUILD_APP_IMAGES:-1}" == "1" ]]; then
     # Backend needs the repo-root context so its Dockerfile can COPY configs/.
     build_image "nereidforge-backend" \
-        "$WORKDIR/../app/python-backend/Dockerfile" \
+        "$WORKDIR/../python-backend/Dockerfile" \
         "$WORKDIR/.."
 
     # Frontend bakes release and upload settings into the static bundle.
     build_image "nereidforge-frontend" \
-        "$WORKDIR/../app/frontend/Dockerfile" \
-        "$WORKDIR/../app/frontend" \
+        "$WORKDIR/../frontend/Dockerfile" \
+        "$WORKDIR/../frontend" \
         "--build-arg VITE_APP_VERSION=$VERSION --build-arg VITE_IMAGE_TAG=$VERSION --build-arg VITE_DATASET_UPLOAD_MAX_FILES=${VITE_DATASET_UPLOAD_MAX_FILES:-200} --build-arg VITE_DATASET_UPLOAD_MAX_BYTES=${VITE_DATASET_UPLOAD_MAX_BYTES:-1073741824}"
 fi
 
@@ -109,7 +109,7 @@ fi
 #    Flat GHCR repo trainer-<name>, e.g. trainer/torch-cpu -> trainer-torch-cpu.
 #    torch  = torchvision + timm (all vision tasks), paddle = PaddleDetection,
 #    llm    = LLaMA-Factory LLM/VLM.
-TRAINER_CTX="$WORKDIR/../app/kfp-pipelines/docker"
+TRAINER_CTX="$WORKDIR/../kfp-pipelines/docker"
 trainer_ref() { nf_ref "trainer/$1" "$VERSION"; }
 
 # 3a. Vision trainers — no weights are baked into any image (ADR-014 D5);
@@ -119,25 +119,25 @@ trainer_ref() { nf_ref "trainer/$1" "$VERSION"; }
 #   trainer/torch-cpu: torchvision + timm + smp, every vision task in one
 #   image. GPU variants are per-vendor images built below — vendors are NEVER
 #   merged; each accelerator vendor has an independent runtime stack.
-#   The build context is app/builders: the trainer sources and the shared
+#   The build context is builders: the trainer sources and the shared
 #   Trainer SDK package ship together (ADR-016).
 docker build "${IMAGE_METADATA_ARGS[@]}" "${MIRROR_BUILD_ARGS[@]}" \
-    -f "$WORKDIR/../app/builders/trainer-torch/Dockerfile" \
+    -f "$WORKDIR/../builders/trainer-torch/Dockerfile" \
     -t "$(trainer_ref torch-cpu)" \
     -t "$(trainer_ref torch-cpu)-$BUILD_TS" \
     -t "$(trainer_ref torch-cpu)-$GIT_SHA" \
-    "$WORKDIR/../app/builders"
+    "$WORKDIR/../builders"
 echo "built locally (not pushed): $(trainer_ref torch-cpu) (+ timestamp and git-SHA tags)"
 
 #   trainer/paddle-cpu: PaddleX / PP-YOLOE (second supported framework).
-#   Context is app/builders like the torch trainer: the component sources and
+#   Context is builders like the torch trainer: the component sources and
 #   the shared Trainer SDK ship together (ADR-016).
 docker build "${IMAGE_METADATA_ARGS[@]}" "${MIRROR_BUILD_ARGS[@]}" --build-arg PYTHON_BASE_IMAGE="$IMG_PYTHON_BASE" \
-    -f "$WORKDIR/../app/builders/trainer-paddle/Dockerfile" \
+    -f "$WORKDIR/../builders/trainer-paddle/Dockerfile" \
     -t "$(trainer_ref paddle-cpu)" \
     -t "$(trainer_ref paddle-cpu)-$BUILD_TS" \
     -t "$(trainer_ref paddle-cpu)-$GIT_SHA" \
-    "$WORKDIR/../app/builders"
+    "$WORKDIR/../builders"
 echo "built locally (not pushed): $(trainer_ref paddle-cpu) (+ timestamp and git-SHA tags)"
 
 # 3a-ter. Torch/custom conversion uses the Python 3.14 default. The removed

@@ -12,15 +12,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 CONTEXTS=(
-  app/frontend
-  app/kfp-pipelines/docker
-  app/builders
-  app/builders/inference-model-server-openvino-xpu
-  app/builders/ml-backend
-  app/builders/ml-backend-custom
-  app/builders/notebook-base
-  app/builders/trainer-xpu
-  app/optimizer-plugins/tensorrt
+  frontend
+  kfp-pipelines/docker
+  builders
+  builders/inference-model-server-openvino-xpu
+  builders/ml-backend
+  builders/ml-backend-custom
+  builders/notebook-base
+  builders/trainer-xpu
+  optimizer-plugins/tensorrt
 )
 
 status=0

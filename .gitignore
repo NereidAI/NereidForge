@@ -68,19 +68,19 @@ infra/charts/postgresql/charts/*.tgz
 # Backup / scratch and generated notebook compiler output
 *.bak
 /.scratch/
-/app/python-backend/out/
+/python-backend/out/
 
 k3s.yaml
 
 # Pre-baked pretrained weights baked into trainer images (large binaries, fetch
-# on demand with scripts in app/builders/trainer-torch/cache/)
-app/builders/trainer-torch/cache/
+# on demand with scripts in builders/trainer-torch/cache/)
+builders/trainer-torch/cache/
 
 # Local build/runtime artifacts (never ship)
-app/builders/sdk/build/
-app/builders/ml-backend/cache.db
-app/builders/ml-backend/vendor/**/build/
-app/builders/ml-backend/vendor/**/*.egg-info/
+builders/sdk/build/
+builders/ml-backend/cache.db
+builders/ml-backend/vendor/**/build/
+builders/ml-backend/vendor/**/*.egg-info/
 
 # Optional local build acceleration fragment (treaty §19.3); see
 # local.mk.example for the supported empty-valued variables.

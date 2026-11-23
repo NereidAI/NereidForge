@@ -74,7 +74,7 @@ compatibility and do not require or distribute Grafana.
 
 ## Assets
 
-No fonts, icons or media assets are bundled. `app/kfp-pipelines/docker/assets/`
+No fonts, icons or media assets are bundled. `kfp-pipelines/docker/assets/`
 no longer contains the proprietary Arial font that older builds copied in;
 text rendering uses the fonts already present in the base image.
 

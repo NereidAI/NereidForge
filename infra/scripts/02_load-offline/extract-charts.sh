@@ -21,14 +21,14 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE"
 tar -xzf "$OFFLINE_CHARTS" -C "$STAGE"
 
-# Match the directory layout: stage/infra -> infra/charts, stage/app -> app/charts.
+# Match the directory layout: stage/infra -> infra/charts, stage/charts -> charts.
 log_info "Extracting infra charts -> $TARGET_INFRA"
 mkdir -p "$TARGET_INFRA"
 cp -a "$STAGE/infra"/. "$TARGET_INFRA/"
 
 log_info "Extracting app charts -> $TARGET_APP"
 mkdir -p "$TARGET_APP"
-cp -a "$STAGE/app"/. "$TARGET_APP/"
+cp -a "$STAGE/charts"/. "$TARGET_APP/"
 
 rm -rf "$STAGE"
 log_ok "Charts extracted"

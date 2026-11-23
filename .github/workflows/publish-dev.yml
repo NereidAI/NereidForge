@@ -12,7 +12,7 @@
 #
 # Path scoping: a plain-git path-scope job gates each publication on the real
 # inputs of its image. Unlike the optional manual cache-warm filter,
-# app/frontend/public/help/ is NOT excluded here: the help corpus ships inside
+# frontend/public/help/ is NOT excluded here: the help corpus ships inside
 # the frontend image, so a docs-only merge must still publish a fresh frontend dev image while the
 # unchanged backend image is skipped. Pure documentation paths outside image
 # contexts (docs/, root markdown) publish nothing.
@@ -34,7 +34,7 @@ concurrency:
 
 jobs:
   # path-scope mirrors the manual cache-warm classifier with publication
-  # semantics: the frontend image bundles the help corpus, so app/frontend
+  # semantics: the frontend image bundles the help corpus, so frontend
   # changes always publish the frontend, while backend scoping follows its COPY inputs.
   path-scope:
     name: Determine changed-path publication scope
@@ -62,9 +62,9 @@ jobs:
               .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              app/python-backend/*|app/kfp-pipelines/*|app/builders/*|infra/configs/*)
+              python-backend/*|kfp-pipelines/*|builders/*|infra/configs/*)
                 backend=true ;;
-              app/frontend/*)
+              frontend/*)
                 frontend=true ;;
               docs/*|*.md)
                 docs=$((docs + 1)) ;;
@@ -106,7 +106,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: app/python-backend/Dockerfile
+          file: python-backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -147,8 +147,8 @@ jobs:
       - name: Build and publish multi-architecture frontend index
         uses: docker/build-push-action@v6
         with:
-          context: app/frontend
-          file: app/frontend/Dockerfile
+          context: frontend
+          file: frontend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev

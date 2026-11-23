@@ -76,12 +76,12 @@ jobs:
         include:
           - component: backend
             context: .
-            file: app/python-backend/Dockerfile
+            file: python-backend/Dockerfile
             build-args: |
               VERSION
           - component: frontend
-            context: app/frontend
-            file: app/frontend/Dockerfile
+            context: frontend
+            file: frontend/Dockerfile
             build-args: |
               VERSION
               VITE_APP_VERSION
@@ -267,8 +267,8 @@ jobs:
       - name: Build and publish runtime base
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.runtime
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.runtime
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -290,8 +290,8 @@ jobs:
       - name: Build and publish CPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile
+          context: builders
+          file: builders/trainer-torch/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -314,8 +314,8 @@ jobs:
       - name: Build and publish CPU paddle trainer (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile
+          context: builders
+          file: builders/trainer-paddle/Dockerfile
           # paddlepaddle 3.0.0 publishes no arm64 PyPI wheel; keep this image amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -339,8 +339,8 @@ jobs:
       - name: Build and publish torch converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -364,8 +364,8 @@ jobs:
       - name: Build and publish TensorFlow converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-tf
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-tf
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -388,8 +388,8 @@ jobs:
       - name: Build and publish Paddle converter (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-pp
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-pp
           # Pins paddlepaddle==3.0.0, which has no arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -413,8 +413,8 @@ jobs:
       - name: Build and publish optimizer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/optimizer/Dockerfile
+          context: builders
+          file: builders/optimizer/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -437,8 +437,8 @@ jobs:
       - name: Build and publish evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator/Dockerfile
+          context: builders
+          file: builders/evaluator/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -461,8 +461,8 @@ jobs:
       - name: Build and publish Intel GPU OVMS (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/inference-model-server-openvino-xpu
-          file: app/builders/inference-model-server-openvino-xpu/Dockerfile
+          context: builders/inference-model-server-openvino-xpu
+          file: builders/inference-model-server-openvino-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -485,8 +485,8 @@ jobs:
       - name: Build and publish ml-backend (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend
-          file: app/builders/ml-backend/Dockerfile
+          context: builders/ml-backend
+          file: builders/ml-backend/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -510,8 +510,8 @@ jobs:
       - name: Build and publish ml-backend-custom (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend-custom
-          file: app/builders/ml-backend-custom/Dockerfile
+          context: builders/ml-backend-custom
+          file: builders/ml-backend-custom/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -535,8 +535,8 @@ jobs:
       - name: Build and publish notebook workbench (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/notebook-base
-          file: app/builders/notebook-base/Dockerfile
+          context: builders/notebook-base
+          file: builders/notebook-base/Dockerfile
           # Installs paddlepaddle, unavailable as an arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -611,8 +611,8 @@ jobs:
       - name: Build and publish XPU vendor base
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/trainer-xpu
-          file: app/builders/trainer-xpu/Dockerfile
+          context: builders/trainer-xpu
+          file: builders/trainer-xpu/Dockerfile
           platforms: linux/amd64
           # PYPI_INDEX and the generic mirror args keep their empty Dockerfile
           # defaults on hosted runners (treaty §17); only the specialized XPU
@@ -638,8 +638,8 @@ jobs:
       - name: Build and publish XPU packaging evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator-xpu/Dockerfile
+          context: builders
+          file: builders/evaluator-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -662,8 +662,8 @@ jobs:
       - name: Build and publish XPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.xpu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.xpu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -687,8 +687,8 @@ jobs:
       - name: Build and publish XPU LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-xpu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -762,8 +762,8 @@ jobs:
       - name: Build and publish CUDA torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.cu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -786,8 +786,8 @@ jobs:
       - name: Build and publish CUDA paddle trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile.cu
+          context: builders
+          file: builders/trainer-paddle/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -811,8 +811,8 @@ jobs:
       - name: Build and publish CUDA LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-cu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-cu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -889,8 +889,8 @@ jobs:
       - name: Build and publish ROCm torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.rocm
+          context: builders
+          file: builders/trainer-torch/Dockerfile.rocm
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -914,8 +914,8 @@ jobs:
       - name: Build and publish ROCm LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-rocm/Dockerfile
+          context: builders
+          file: builders/trainer-llm-rocm/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -969,22 +969,22 @@ jobs:
             values_files: infra/configs/cvat-values.yaml
             set_values: ingress.hostname=cvat.example.test
           - name: nereidforge-ml-backend
-            path: app/charts/ml-backend
+            path: charts/ml-backend
             version_mode: product
             values_files: ''
             set_values: ''
           - name: nereidforge-backend
-            path: app/charts/nereidforge-backend
+            path: charts/nereidforge-backend
             version_mode: product
             values_files: ''
             set_values: ''
           - name: nereidforge-frontend
-            path: app/charts/nereidforge-frontend
+            path: charts/nereidforge-frontend
             version_mode: product
             values_files: ''
             set_values: ingress.host=forge.example.test
           - name: nereidforge-tenant-check
-            path: app/charts/tenant-check
+            path: charts/tenant-check
             version_mode: product
             values_files: ''
             set_values: ''
@@ -1063,10 +1063,10 @@ jobs:
             "infra/charts/seaweedfs:seaweedfs:upstream"
             "infra/charts/labelstudio:labelstudio:upstream"
             "infra/charts/cvat:cvat:upstream"
-            "app/charts/ml-backend:nereidforge-ml-backend:product"
-            "app/charts/nereidforge-backend:nereidforge-backend:product"
-            "app/charts/nereidforge-frontend:nereidforge-frontend:product"
-            "app/charts/tenant-check:nereidforge-tenant-check:product"
+            "charts/ml-backend:nereidforge-ml-backend:product"
+            "charts/nereidforge-backend:nereidforge-backend:product"
+            "charts/nereidforge-frontend:nereidforge-frontend:product"
+            "charts/tenant-check:nereidforge-tenant-check:product"
           )
           {
             echo '# Copyright (C) 2026 YIQISOFT'

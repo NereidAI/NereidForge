@@ -184,7 +184,7 @@ fi
 # operator-supplied sensitive values live under the centralized deployment root.
 MANIFESTS_DIR="$ROOT_DIR/infra/third_party/kubeflow-manifests"
 CHARTS_DIR="$ROOT_DIR/infra/charts"
-APP_CHARTS_DIR="$ROOT_DIR/app/charts"
+APP_CHARTS_DIR="$ROOT_DIR/charts"
 VALUES_FILE="$ROOT_DIR/values-prod.yaml"
 SECRETS_FILE="${SECRETS_FILE:-$DEPLOY_VALUES_DIR/secrets.yaml}"
 SECRETS_TEMPLATE="$ROOT_DIR/secrets.yaml.template"

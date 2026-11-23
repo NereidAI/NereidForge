@@ -8,7 +8,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 LIB_DIR="$REPO_ROOT/infra/scripts/lib"
-APP_CHARTS_DIR="$REPO_ROOT/app/charts"
+APP_CHARTS_DIR="$REPO_ROOT/charts"
 HELM="helm"
 
 source "$LIB_DIR/common.sh"

@@ -5,7 +5,7 @@
 # Delegate offline chart preparation to the canonical nine-chart packager. Its
 # staging area owns dependency downloads, product renames, and release-version
 # updates (tag-sourced CHART_VERSION, root treaty §19.5); the offline-tree
-# archive layout preserves the loader's infra/app contract.
+# archive layout preserves the loader's infra/charts contract.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

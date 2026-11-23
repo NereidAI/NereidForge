@@ -40,6 +40,6 @@ jobs:
         run: |
           python -m venv .venv-license
           .venv-license/bin/pip install --upgrade pip
-          .venv-license/bin/pip install -e ./app/python-backend
+          .venv-license/bin/pip install -e ./python-backend
       - name: Report installed dependency licenses
         run: bash infra/scripts/check-license-compliance.sh --env .venv-license/bin/python

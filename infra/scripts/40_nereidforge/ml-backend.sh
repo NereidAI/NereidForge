@@ -11,7 +11,7 @@ source "$LIB_DIR/common.sh"
 source "$LIB_DIR/config.sh"
 
 ROOT_DIR="$(cd "$LIB_DIR/../../.." && pwd)"
-APP_CHARTS_DIR="$ROOT_DIR/app/charts"
+APP_CHARTS_DIR="$ROOT_DIR/charts"
 NAMESPACE="nereidforge"
 # RELEASE_TAG (bare SemVer, exported by lib/config.sh) is the tag-sourced
 # release version; the chart's image tag is overridden with it below.

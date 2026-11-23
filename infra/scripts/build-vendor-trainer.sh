@@ -10,12 +10,12 @@
 #
 # Usage: build-vendor-trainer.sh <kind:torch|paddle|llm> <vendor:cu|rocm|xpu>
 #
-#   torch   app/builders/trainer-torch/Dockerfile.<vendor> — torchvision + timm
+#   torch   builders/trainer-torch/Dockerfile.<vendor> — torchvision + timm
 #           (+ smp), every vision task in one image per vendor (ADR-014 D1).
-#   paddle  app/builders/trainer-paddle/Dockerfile.<vendor> — PaddleX /
+#   paddle  builders/trainer-paddle/Dockerfile.<vendor> — PaddleX /
 #           PP-YOLOE (the second supported framework); cu only: there is no
 #           official ROCm wheel and zero xpu paddlepaddle builds on PyPI.
-#   llm     app/builders/trainer-llm-<vendor>/ (context builders/)
+#   llm     builders/trainer-llm-<vendor>/ (context builders/)
 #   cv      legacy alias for `torch`
 #
 # Every vendor FROM base is an ARG (BASE_IMAGE) resolved here to the public
@@ -44,11 +44,11 @@ case "$KIND-$VENDOR" in
 esac
 
 # SCRIPT_DIR is infra/scripts; the repo root is two levels up (Dockerfiles
-# live under <root>/app, not infra/app — a wrong level here makes the script
-# print "skip (missing …)" and exit 0, silently building nothing).
+# live at the repository root, not under infra/ — a wrong level here makes the
+# script print "skip (missing …)" and exit 0, silently building nothing).
 ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
-TRAINER_CTX="$ROOT_DIR/app/kfp-pipelines/docker"
-BUILDERS_DIR="$ROOT_DIR/app/builders"
+TRAINER_CTX="$ROOT_DIR/kfp-pipelines/docker"
+BUILDERS_DIR="$ROOT_DIR/builders"
 # Three-tag scheme (root treaty §19.2): VERSION plus UTC-timestamp and
 # git-short-SHA traceability tags; no floating tag is ever created.
 BUILD_TS="$(date -u +%Y%m%d-%H%M)"

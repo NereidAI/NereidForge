@@ -50,10 +50,10 @@ mkdir -p "$TREE" "$OUTPUT_DIR"
 # helm package, so inject product versions into the staged chart sources too.
 # Third-party wrappers retain their independent Chart.yaml metadata.
 PRODUCT_CHARTS=(
-    app/charts/ml-backend
-    app/charts/nereidforge-backend
-    app/charts/nereidforge-frontend
-    app/charts/tenant-check
+    charts/ml-backend
+    charts/nereidforge-backend
+    charts/nereidforge-frontend
+    charts/tenant-check
 )
 for chart in "${PRODUCT_CHARTS[@]}"; do
     sed -i -E "0,/^version:[[:space:]]*\\S/s/^version:[[:space:]]*\\S.*$/version: $VERSION/" "$TREE/$chart/Chart.yaml"
@@ -151,7 +151,7 @@ for required in \
     infra/scripts/03_package-charts.sh \
     infra/third_party/kubeflow-manifests \
     infra/charts/cvat/Chart.lock \
-    app/charts/nereidforge-backend/Chart.yaml \
+    charts/nereidforge-backend/Chart.yaml \
     secrets.yaml.template \
     LICENSE \
     NOTICE; do
@@ -183,7 +183,7 @@ test "$resolved" = "$VERSION" || {
 }
 verify_product_versions "$STAGING/verify/$PREFIX"
 helm template nereidforge-backend \
-    "$STAGING/verify/$PREFIX/app/charts/nereidforge-backend" \
+    "$STAGING/verify/$PREFIX/charts/nereidforge-backend" \
     > "$STAGING/verified-backend.yaml"
 python3 - "$STAGING/verified-backend.yaml" "$VERSION" <<'PY'
 import pathlib

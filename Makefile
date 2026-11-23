@@ -144,11 +144,11 @@ VITE_DATASET_UPLOAD_MAX_FILES ?= 200
 VITE_DATASET_UPLOAD_MAX_BYTES ?= 1073741824
 FE_UPLOAD_ARGS := --build-arg VITE_DATASET_UPLOAD_MAX_FILES=$(VITE_DATASET_UPLOAD_MAX_FILES) --build-arg VITE_DATASET_UPLOAD_MAX_BYTES=$(VITE_DATASET_UPLOAD_MAX_BYTES)
 
-PYTHON_BACKEND_DIR := app/python-backend
-FRONTEND_DIR := app/frontend
-ML_BACKEND_DIR := app/builders/ml-backend
-TRAINER_DIR := app/builders/trainer-torch
-PLUGINS_DIR := app/optimizer-plugins
+PYTHON_BACKEND_DIR := python-backend
+FRONTEND_DIR := frontend
+ML_BACKEND_DIR := builders/ml-backend
+TRAINER_DIR := builders/trainer-torch
+PLUGINS_DIR := optimizer-plugins
 
 # === Development environment ===
 VENV_DIR := .venv
@@ -161,7 +161,7 @@ DEV_FRONTEND_PORT := 5173
 # dev-build prepares the shared repository venv and frontend dependencies.
 dev-build:
 	@test -d $(VENV_DIR) || python3 -m venv $(VENV_DIR)
-	$(VENV_PIP) install -e ./app/python-backend
+	$(VENV_PIP) install -e ./python-backend
 	$(VENV_PIP) install kfp==2.17.0 kale nbformat
 	$(VENV_PIP) install ruff pytest
 	@cd $(FRONTEND_DIR) && $(NPM) ci --ignore-scripts
@@ -185,17 +185,17 @@ dev-clean:
 
 # === Local image builds ===
 # docker-build builds the backend and frontend without publishing either image.
-# Backend Dockerfile uses repo-root-relative COPY paths (app/python-backend,
+# Backend Dockerfile uses repo-root-relative COPY paths (python-backend,
 # infra/configs), so the build context must be the repo root, not the backend dir.
 docker-build:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) -f app/python-backend/Dockerfile $(call three_tags,$(BACKEND_IMG)) .
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) -f python-backend/Dockerfile $(call three_tags,$(BACKEND_IMG)) .
 	docker build $(IMAGE_METADATA_ARGS) --build-arg VITE_APP_VERSION=$(VERSION) --build-arg VITE_IMAGE_TAG=$(VERSION) $(FE_UPLOAD_ARGS) $(call three_tags,$(FRONTEND_IMG)) $(FRONTEND_DIR)
 	@echo "docker-build complete: backend and frontend images are local only (three tags, nothing pushed)"
 
 # === Python backend environment ===
 build-api:
 	@test -d $(VENV_DIR) || python3 -m venv $(VENV_DIR)
-	$(VENV_PIP) install -e ./app/python-backend
+	$(VENV_PIP) install -e ./python-backend
 	$(VENV_PIP) install kfp==2.17.0 kale nbformat
 
 # === Frontend production bundle ===
@@ -212,12 +212,12 @@ build-ml-backend:
 # trainer/torch-cpu — torchvision + timm + smp, every vision task in one image
 # (per-vendor GPU variants: make build-trainer-vendor kind=torch vendor=cu|rocm|xpu)
 build-trainer:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_IMG)) -f app/builders/trainer-torch/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_IMG)) -f builders/trainer-torch/Dockerfile builders
 
 # trainer/paddle-cpu — PaddleX / PP-YOLOE (second supported framework);
-# context app/builders so the component and the Trainer SDK ship together.
+# context builders so the component and the Trainer SDK ship together.
 build-trainer-paddle:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_PADDLE_IMG)) -f app/builders/trainer-paddle/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_PADDLE_IMG)) -f builders/trainer-paddle/Dockerfile builders
 
 # Legacy alias: classification moved into the torch image (ADR-014 D1).
 build-trainer-timm: build-trainer
@@ -225,40 +225,40 @@ build-trainer-timm: build-trainer
 # Approved legacy trainer-llm definition: local verification only, never a
 # production publication source. Vendor-specific LLM images use the target below.
 build-trainer-llm:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_LLM_IMG)) -f app/kfp-pipelines/docker/Dockerfile.trainer-llm app/kfp-pipelines/docker
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_LLM_IMG)) -f kfp-pipelines/docker/Dockerfile.trainer-llm kfp-pipelines/docker
 
 # optimizer (FROM self-built runtime base -> pass its profile-resolved ref)
 build-optimizer:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OPTIMIZER_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f app/builders/optimizer/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OPTIMIZER_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f builders/optimizer/Dockerfile builders
 
 # evaluator
 build-evaluator:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f app/builders/evaluator/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f builders/evaluator/Dockerfile builders
 
 # Intel GPU packaging/verification sidecar (Ubuntu XPU base + OpenVINO). It
 # depends on trainer/xpu-base, the public flat GHCR image trainer-xpu-base.
 build-evaluator-xpu:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_XPU_IMG)) --build-arg XPU_BASE_IMAGE=$(XPU_BASE_IMG) -f app/builders/evaluator-xpu/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_XPU_IMG)) --build-arg XPU_BASE_IMAGE=$(XPU_BASE_IMG) -f builders/evaluator-xpu/Dockerfile builders
 
 # OVMS with Intel NEO userspace (Arc/Battlemage GPU serving). Base image is an
 # overridable build ARG (public upstream default); offline builds pass a
 # site-mirrored OVMS base via OVMS_BASE_IMG=<registry>/inference/model-server-openvino:0.0.1
 # (the node containerd mirror normally makes this unnecessary).
 build-ovms-xpu:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OVMS_XPU_IMG)) $(if $(OVMS_BASE_IMG),--build-arg BASE_IMAGE=$(OVMS_BASE_IMG)) -f app/builders/inference-model-server-openvino-xpu/Dockerfile app/builders/inference-model-server-openvino-xpu
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OVMS_XPU_IMG)) $(if $(OVMS_BASE_IMG),--build-arg BASE_IMAGE=$(OVMS_BASE_IMG)) -f builders/inference-model-server-openvino-xpu/Dockerfile builders/inference-model-server-openvino-xpu
 
 # KFP step runtime base (generated Dockerfile.runtime is tracked; builds the
 # python:3.14-slim + kfp closure image that optimizer/evaluator/timm FROM).
 # Local build only: GHCR publication is owned independently by the
 # tag-triggered publish-images workflow, which never calls make.
 build-runtime:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(RUNTIME_IMG)) -f app/kfp-pipelines/docker/Dockerfile.runtime app/kfp-pipelines/docker
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(RUNTIME_IMG)) -f kfp-pipelines/docker/Dockerfile.runtime kfp-pipelines/docker
 
 # Intel XPU vendor base (Ubuntu + XPU userspace + torch+xpu); prerequisite of
 # the torch-xpu / llm-xpu images. Its specialized wheel index is mandatory.
 build-xpu-base:
 	@test -n "$(TORCH_XPU_INDEX)" || (echo "ERROR: set TORCH_XPU_INDEX for +xpu wheels"; exit 1)
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg BASE_IMAGE=$(UBUNTU_BASE_IMAGE) $(call three_tags,$(XPU_BASE_IMG)) app/builders/trainer-xpu
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg BASE_IMAGE=$(UBUNTU_BASE_IMAGE) $(call three_tags,$(XPU_BASE_IMG)) builders/trainer-xpu
 
 # One per-vendor trainer image: make build-trainer-vendor kind=torch vendor=cu
 build-trainer-vendor:
@@ -267,13 +267,13 @@ build-trainer-vendor:
 
 # ml-backend-custom (custom vLLM/OCR families; FROM python:3.11-slim)
 build-ml-backend-custom:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg PYTHON_BASE_IMAGE=$(ML_PYTHON_BASE) $(call three_tags,$(MLBACKEND_CUSTOM_IMG)) app/builders/ml-backend-custom
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg PYTHON_BASE_IMAGE=$(ML_PYTHON_BASE) $(call three_tags,$(MLBACKEND_CUSTOM_IMG)) builders/ml-backend-custom
 
 # Jupyter workbench (keeps its own py3.12 version component; FROM the
 # quay.io/jupyter upstream base referenced by JUPYTER_BASE_UPSTREAM). The
 # three-tag helper yields py3.12, py3.12-<ts> and py3.12-<sha>.
 build-jupyter-base:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg JUPYTER_BASE_IMAGE=$(JUPYTER_BASE_UPSTREAM) $(call three_tags,$(JUPYTER_BASE_IMG)) app/builders/notebook-base
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg JUPYTER_BASE_IMAGE=$(JUPYTER_BASE_UPSTREAM) $(call three_tags,$(JUPYTER_BASE_IMG)) builders/notebook-base
 
 # === Plugin build/validation (local images only; no push target) ===
 # PLUGIN_IMG resolves the optional developer artifact through the same public
@@ -311,11 +311,11 @@ installer-package:
 test:
 	@echo "=== Python tests ==="
 	@# Component roots isolate identical top-level module names during collection.
-	cd $(PLUGINS_DIR)/tensorrt && ../../../$(VENV_PY) -m pytest tests -v
-	cd $(ML_BACKEND_DIR) && ../../../$(VENV_PY) -m pytest tests -v
-	cd $(TRAINER_DIR) && ../../../$(VENV_PY) -m pytest tests -v
-	cd app/builders && ../../$(VENV_PY) -m pytest tests -v
-	cd $(PYTHON_BACKEND_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd $(PLUGINS_DIR)/tensorrt && ../../$(VENV_PY) -m pytest tests -v
+	cd $(ML_BACKEND_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd $(TRAINER_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd builders && ../$(VENV_PY) -m pytest tests -v
+	cd $(PYTHON_BACKEND_DIR) && ../$(VENV_PY) -m pytest tests -v
 	@echo "=== Frontend tests ==="
 	cd $(FRONTEND_DIR) && npm test
 

@@ -46,7 +46,7 @@ bash "$(dirname "$0")/dev-port-forward.sh" || echo "[run-dev] port-forward boots
 LOG_LEVEL="${LOG_LEVEL:-info}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-info}"
 
-exec ./.venv/bin/uvicorn app.main:app --app-dir app/python-backend \
+exec ./.venv/bin/uvicorn app.main:app --app-dir python-backend \
   --host 0.0.0.0 --port 8080 --reload --timeout-keep-alive 65 \
   --loop asyncio \
   --log-level "$UVICORN_LOG_LEVEL"
