@@ -130,8 +130,9 @@ code.
 
 ## 6. Vendored third-party components
 
-Unmodified upstream trees (for example `infra/third_party/**` and NF-owned
-subcharts under `infra/charts/kubeflow/charts/*`) keep their upstream license and
+Unmodified upstream trees (for example `deploy/pre-nereidforge/platform/**`,
+legacy assets under `infra/third_party/**`, and subcharts under
+`infra/charts/kubeflow/charts/*`) keep their upstream license and
 are never re-licensed. Helm dependency archives fetched at package time are still
 part of the packaged deliverable: every dependency and every image it deploys
 must satisfy this policy, even when a Helm condition disables it by default.
@@ -152,7 +153,7 @@ needs maintainer sign-off, not as a routine dependency bump.
 
 | Layer | What | Where |
 |-------|------|-------|
-| Pre-commit | denylisted packages, imports, weights, proprietary fonts, license text in staged files | `infra/scripts/check-license-compliance.sh --staged` |
+| Pre-commit | denylisted packages, imports, weights, proprietary fonts, license text in staged files | `scripts/check-license-compliance.sh --staged` |
 | CI (push / PR) | same rules across the repository | `.github/workflows/license-compliance.yml` |
 | CI (weekly) | installed-dependency license report for the backend | same workflow, `--env` mode |
 | Manual / release | image-level SBOM + license scan | `syft` / `trivy` on built images (TODO: wire into `publish-images.yml`) |
@@ -167,7 +168,7 @@ Run locally:
 ```bash
 make license-check          # static scan, whole repo
 make license-report         # installed-env report for the unified venv
-bash infra/scripts/check-license-compliance.sh --third-party-audit
+bash scripts/check-license-compliance.sh --third-party-audit
 ```
 
 ## 8. Adding a dependency or base image

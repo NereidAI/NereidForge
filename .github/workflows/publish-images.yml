@@ -944,29 +944,29 @@ jobs:
       matrix:
         include:
           - name: postgresql
-            path: infra/charts/postgresql
+            path: deploy/pre-nereidforge/charts/postgresql
             version_mode: upstream
-            values_files: infra/charts/postgresql/values-prod.yaml
+            values_files: deploy/pre-nereidforge/charts/postgresql/values-prod.yaml
             set_values: bootstrap.password=ci-render-only-placeholder
           - name: valkey
-            path: infra/charts/valkey
+            path: deploy/pre-nereidforge/charts/valkey
             version_mode: upstream
             values_files: ''
             set_values: ''
           - name: seaweedfs
-            path: infra/charts/seaweedfs
+            path: deploy/pre-nereidforge/charts/seaweedfs
             version_mode: upstream
             values_files: ''
             set_values: ''
           - name: labelstudio
-            path: infra/charts/labelstudio
+            path: deploy/pre-nereidforge/charts/labelstudio
             version_mode: upstream
             values_files: ''
             set_values: ''
           - name: cvat
-            path: infra/charts/cvat
+            path: deploy/pre-nereidforge/charts/cvat
             version_mode: upstream
-            values_files: infra/configs/cvat-values.yaml
+            values_files: deploy/pre-nereidforge/values/cvat.yaml
             set_values: ingress.hostname=cvat.example.test
           - name: nereidforge-ml-backend
             path: charts/ml-backend
@@ -1040,7 +1040,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.ver.outputs.version }}
           INSTALLER_OUTPUT_DIR: ${{ runner.temp }}/release
-        run: bash infra/scripts/04_package-installer.sh
+        run: bash scripts/04_package-installer.sh
 
       - name: Log in to GHCR with Helm for chart manifest verification
         env:
@@ -1058,11 +1058,11 @@ jobs:
           manifest="${release_dir}/nereidforge-charts-${VERSION}.txt"
           mkdir -p "$pull_dir"
           charts=(
-            "infra/charts/postgresql:postgresql:upstream"
-            "infra/charts/valkey:valkey:upstream"
-            "infra/charts/seaweedfs:seaweedfs:upstream"
-            "infra/charts/labelstudio:labelstudio:upstream"
-            "infra/charts/cvat:cvat:upstream"
+            "deploy/pre-nereidforge/charts/postgresql:postgresql:upstream"
+            "deploy/pre-nereidforge/charts/valkey:valkey:upstream"
+            "deploy/pre-nereidforge/charts/seaweedfs:seaweedfs:upstream"
+            "deploy/pre-nereidforge/charts/labelstudio:labelstudio:upstream"
+            "deploy/pre-nereidforge/charts/cvat:cvat:upstream"
             "charts/ml-backend:nereidforge-ml-backend:product"
             "charts/nereidforge-backend:nereidforge-backend:product"
             "charts/nereidforge-frontend:nereidforge-frontend:product"

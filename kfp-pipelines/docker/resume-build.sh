@@ -37,7 +37,7 @@ fi
 cd "$DIR"
 failed=0
 for name in runtime checkpoint-step eval opt-tensorrt; do
-  tag="$(bash "$DIR/../../infra/scripts/image-ref.sh" "$name" "$TAG")"
+  tag="$(bash "$DIR/../../scripts/image-ref.sh" "$name" "$TAG")"
   # The release tag presence means this legacy image was already built; the
   # traceability tags are recreated together with the release tag below.
   if sudo docker image inspect "$tag" >/dev/null 2>&1; then

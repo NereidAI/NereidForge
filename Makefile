@@ -114,25 +114,25 @@ MIRROR_ARGS := \
 	--build-arg PADDLE_GPU_INDEX=$(PADDLE_GPU_INDEX)
 # Explicit VERSION keeps every image reference aligned with its OCI version
 # when a caller overrides the default; the notebook retains its py3.12 tag.
-BACKEND_IMG := $(shell bash infra/scripts/image-ref.sh nereidforge-backend $(VERSION))
-FRONTEND_IMG := $(shell bash infra/scripts/image-ref.sh nereidforge-frontend $(VERSION))
-MLBACKEND_IMG := $(shell bash infra/scripts/image-ref.sh ml-backend/ml-backend $(VERSION))
-TRAINER_IMG := $(shell bash infra/scripts/image-ref.sh trainer/torch-cpu $(VERSION))
-TRAINER_PADDLE_IMG := $(shell bash infra/scripts/image-ref.sh trainer/paddle-cpu $(VERSION))
+BACKEND_IMG := $(shell bash scripts/image-ref.sh nereidforge-backend $(VERSION))
+FRONTEND_IMG := $(shell bash scripts/image-ref.sh nereidforge-frontend $(VERSION))
+MLBACKEND_IMG := $(shell bash scripts/image-ref.sh ml-backend/ml-backend $(VERSION))
+TRAINER_IMG := $(shell bash scripts/image-ref.sh trainer/torch-cpu $(VERSION))
+TRAINER_PADDLE_IMG := $(shell bash scripts/image-ref.sh trainer/paddle-cpu $(VERSION))
 TRAINER_TIMM_IMG := $(TRAINER_IMG)
-TRAINER_LLM_IMG := $(shell bash infra/scripts/image-ref.sh trainer-llm $(VERSION))
-OPTIMIZER_IMG := $(shell bash infra/scripts/image-ref.sh train/optimizer $(VERSION))
-EVALUATOR_IMG := $(shell bash infra/scripts/image-ref.sh train/evaluator $(VERSION))
-EVALUATOR_XPU_IMG := $(shell bash infra/scripts/image-ref.sh train/evaluator-xpu $(VERSION))
-RUNTIME_IMG := $(shell bash infra/scripts/image-ref.sh runtime $(VERSION))
-XPU_BASE_IMG := $(shell bash infra/scripts/image-ref.sh trainer/xpu-base $(VERSION))
-MLBACKEND_CUSTOM_IMG := $(shell bash infra/scripts/image-ref.sh ml-backend/ml-backend-custom $(VERSION))
-JUPYTER_BASE_IMG := $(shell bash infra/scripts/image-ref.sh prediction/jupyter-base py3.12)
-JUPYTER_BASE_UPSTREAM := $(shell bash infra/scripts/image-ref.sh --env IMG_JUPYTER_BASE)
+TRAINER_LLM_IMG := $(shell bash scripts/image-ref.sh trainer-llm $(VERSION))
+OPTIMIZER_IMG := $(shell bash scripts/image-ref.sh train/optimizer $(VERSION))
+EVALUATOR_IMG := $(shell bash scripts/image-ref.sh train/evaluator $(VERSION))
+EVALUATOR_XPU_IMG := $(shell bash scripts/image-ref.sh train/evaluator-xpu $(VERSION))
+RUNTIME_IMG := $(shell bash scripts/image-ref.sh runtime $(VERSION))
+XPU_BASE_IMG := $(shell bash scripts/image-ref.sh trainer/xpu-base $(VERSION))
+MLBACKEND_CUSTOM_IMG := $(shell bash scripts/image-ref.sh ml-backend/ml-backend-custom $(VERSION))
+JUPYTER_BASE_IMG := $(shell bash scripts/image-ref.sh prediction/jupyter-base py3.12)
+JUPYTER_BASE_UPSTREAM := $(shell bash scripts/image-ref.sh --env IMG_JUPYTER_BASE)
 # OVMS + Intel NEO userspace for Arc GPU serving (class-A self-built image;
 # base is the mirrored/pinned upstream OVMS). CI uses the Dockerfile default;
 # local/offline builds pass OVMS_BASE_IMG=<mirror>/inference/model-server-openvino:0.0.1
-OVMS_XPU_IMG := $(shell bash infra/scripts/image-ref.sh inference/model-server-openvino-xpu $(VERSION))
+OVMS_XPU_IMG := $(shell bash scripts/image-ref.sh inference/model-server-openvino-xpu $(VERSION))
 OVMS_BASE_IMG ?=
 # Optional public-base overrides for local mirrors. Empty-independent defaults
 # match the Dockerfiles; specialized vendor wheel guards remain mandatory.
@@ -169,7 +169,7 @@ dev-build:
 
 # dev-all starts host-side hot reload against the existing development data services.
 dev-all: dev-build
-	@setsid nohup ./infra/scripts/run-dev.sh > /tmp/nereidforge-api.log 2>&1 < /dev/null &
+	@setsid nohup ./scripts/run-dev.sh > /tmp/nereidforge-api.log 2>&1 < /dev/null &
 	@cd $(FRONTEND_DIR) && setsid nohup $(NPM) run dev > /tmp/nereidforge-frontend.log 2>&1 < /dev/null &
 	@sleep 3
 	@echo "dev-all started in the background:"
@@ -186,7 +186,7 @@ dev-clean:
 # === Local image builds ===
 # docker-build builds the backend and frontend without publishing either image.
 # Backend Dockerfile uses repo-root-relative COPY paths (python-backend,
-# infra/configs), so the build context must be the repo root, not the backend dir.
+# configs), so the build context must be the repo root, not the backend dir.
 docker-build:
 	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) -f python-backend/Dockerfile $(call three_tags,$(BACKEND_IMG)) .
 	docker build $(IMAGE_METADATA_ARGS) --build-arg VITE_APP_VERSION=$(VERSION) --build-arg VITE_IMAGE_TAG=$(VERSION) $(FE_UPLOAD_ARGS) $(call three_tags,$(FRONTEND_IMG)) $(FRONTEND_DIR)
@@ -263,7 +263,7 @@ build-xpu-base:
 # One per-vendor trainer image: make build-trainer-vendor kind=torch vendor=cu
 build-trainer-vendor:
 	@test -n "$(kind)" -a -n "$(vendor)" || (echo "Usage: make build-trainer-vendor kind=torch|paddle|llm vendor=cu|rocm|xpu"; exit 1)
-	RELEASE_TAG=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash infra/scripts/build-vendor-trainer.sh $(kind) $(vendor)
+	RELEASE_TAG=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash scripts/build-vendor-trainer.sh $(kind) $(vendor)
 
 # ml-backend-custom (custom vLLM/OCR families; FROM python:3.11-slim)
 build-ml-backend-custom:
@@ -279,7 +279,7 @@ build-jupyter-base:
 # PLUGIN_IMG resolves the optional developer artifact through the same public
 # flat-name/VERSION scheme as every other local suite image. Plugin tags are not
 # independent release versions and no registry override is accepted.
-PLUGIN_IMG = $(shell bash infra/scripts/image-ref.sh opt-$(name) $(VERSION))
+PLUGIN_IMG = $(shell bash scripts/image-ref.sh opt-$(name) $(VERSION))
 plugin-build:
 	@test -n "$(name)" || (echo "Usage: make plugin-build name=<plugin>"; exit 1)
 	docker build $(IMAGE_METADATA_ARGS) $(call three_tags,$(PLUGIN_IMG)) $(PLUGINS_DIR)/$(name)
@@ -294,7 +294,7 @@ plugin-validate:
 # converters, and the selected vendor matrix remain in the local Docker daemon,
 # each carrying the three §19.2 tags. The script never pushes.
 images-build:
-	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash infra/scripts/02_build-images.sh
+	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash scripts/02_build-images.sh
 
 # === Local chart and installer packaging (no push target) ===
 # helm-package archives the nine active infrastructure and product charts under
@@ -302,10 +302,10 @@ images-build:
 # installer-package preserves the repository-shaped online installation path,
 # including Kubeflow manifests and generated release metadata, under dist/.
 helm-package:
-	bash infra/scripts/03_package-charts.sh
+	bash scripts/03_package-charts.sh
 
 installer-package:
-	bash infra/scripts/04_package-installer.sh
+	bash scripts/04_package-installer.sh
 
 # === Code quality ===
 test:
@@ -333,11 +333,11 @@ fmt:
 
 # === License compliance (LICENSE-POLICY.md) ===
 license-check:
-	bash infra/scripts/check-license-compliance.sh
-	bash infra/scripts/check-legal-copies.sh
+	bash scripts/check-license-compliance.sh
+	bash scripts/check-legal-copies.sh
 
 license-report:
-	bash infra/scripts/check-license-compliance.sh --env $(VENV_PY)
+	bash scripts/check-license-compliance.sh --env $(VENV_PY)
 
 # === Local plugin scaffold generation ===
 scaffold-plugin:

@@ -42,7 +42,7 @@ jobs:
   # path-scope classifies the changed files with plain git and emits one
   # boolean output per cache-warm job. Patterns mirror the Dockerfile COPY
   # inputs, not directory conventions: the backend image copies python-backend,
-  # kfp-pipelines, two trainer profiles, infra/configs and root license files,
+  # kfp-pipelines, two trainer profiles, configs and root license files,
   # while the frontend image takes everything under frontend except the
   # help corpus, which is documentation shipped as static assets but excluded
   # from cache-warm triggers to keep documentation-only manual runs cheap.
@@ -71,10 +71,11 @@ jobs:
             case "$f" in
               # Build system, image references and root legal files can affect
               # every image: run the full matrix.
-              .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
+              .github/workflows/*|scripts/*|deploy/pre-nereidforge/scripts/*|\
+              configs/monitoring/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              python-backend/*|infra/configs/*)
+              python-backend/*|configs/*|deploy/pre-nereidforge/values/*)
                 apps=true ;;
               kfp-pipelines/*)
                 apps=true; core=true ;;

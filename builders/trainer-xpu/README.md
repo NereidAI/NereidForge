@@ -36,7 +36,7 @@ Publication uses the release workflow or the documented registry-profile
 build path; a local build must never be pushed directly to GHCR.
 
 Smoke test on a node advertising `gpu.intel.com/xe` (deployed by
-`infra/scripts/manifests/intel-gpu-plugin.yaml`):
+`scripts/manifests/intel-gpu-plugin.yaml`):
 
 ```bash
 sudo docker run --rm --device /dev/dri:/dev/dri \

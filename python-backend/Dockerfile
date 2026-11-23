@@ -82,7 +82,7 @@ COPY python-backend/app/ ./app/
 COPY kfp-pipelines/ /app/kfp-pipelines/
 COPY builders/trainer-torch/trainer-profile.json /app/builders/trainer-torch/trainer-profile.json
 COPY builders/trainer-paddle/trainer-profile.json /app/builders/trainer-paddle/trainer-profile.json
-COPY infra/configs/unified/config.rendered.yaml /etc/nereidforge/config.yaml
+COPY configs/unified/config.rendered.yaml /etc/nereidforge/config.yaml
 
 # Create non-root user; HOME must be writable so the KFP SDK cache (kfp
 # cache .cache dir under $HOME) and temp pipeline packages do not fail.

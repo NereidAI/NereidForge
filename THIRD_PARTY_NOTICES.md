@@ -14,7 +14,7 @@ Rules that keep this list meaningful:
   documented as default support uses Apache-2.0 / MIT / MIT-0 / BSD / ISC / PSF / Zlib.
 - **Copyleft software is never distributed.** AGPL / GPL / SSPL / BUSL /
   Commons-Clause code, weights and build-time downloads are rejected by
-  `infra/scripts/check-license-compliance.sh`.
+  `scripts/check-license-compliance.sh`.
 - **No third-party weights are bundled.** Model weights live in the object
   store or model registry and carry their own license metadata
   (`base_weights.license` in the artifact manifest).
@@ -63,7 +63,7 @@ Rules that keep this list meaningful:
 | Grafana / Loki / Tempo (operator-supplied only; not shipped or deployed by NF) | AGPL-3.0-only |
 | Bitnami PostgreSQL/Redis/ClickHouse charts (resolved at deploy time) | Apache-2.0 |
 
-Helm charts under `infra/charts/` declare their dependencies in `Chart.yaml`;
+Helm charts under `deploy/pre-nereidforge/charts/` declare their dependencies in `Chart.yaml`;
 `helm dependency build` resolves permissible dependencies at package time.
 Resolved archives are delivery artifacts too, so a disabled condition does not
 exempt a copyleft dependency. The NF CVAT chart therefore contains no Grafana

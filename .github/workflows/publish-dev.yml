@@ -59,10 +59,11 @@ jobs:
           backend=false; frontend=false; broad=false; docs=0
           for f in "${changed[@]}"; do
             case "$f" in
-              .github/workflows/*|infra/scripts/*|images-manifest.txt|Makefile|\
+              .github/workflows/*|scripts/*|deploy/pre-nereidforge/scripts/*|\
+              configs/monitoring/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              python-backend/*|kfp-pipelines/*|builders/*|infra/configs/*)
+              python-backend/*|kfp-pipelines/*|builders/*|configs/*|deploy/pre-nereidforge/values/*)
                 backend=true ;;
               frontend/*)
                 frontend=true ;;

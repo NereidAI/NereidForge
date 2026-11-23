@@ -65,10 +65,10 @@ def _load_yaml(env: str) -> dict[str, Any]:
             p = Path(d) / name
             if p.exists():
                 return p
-        # repo-local fallback: walk up from this file to the nearest infra/configs/
+        # repo-local fallback: walk up from this file to the nearest configs/
         here = Path(os.path.abspath(__file__))
         for anc in here.parents:
-            p = anc / "infra" / "configs" / name
+            p = anc / "configs" / name
             if p.exists():
                 return p
         return None

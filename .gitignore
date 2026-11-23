@@ -55,8 +55,8 @@ secrets.yaml
 
 # Helm dependency archives (third-party charts, re-fetched by
 # `helm dependency build`; never ship them inside the source tree)
-infra/charts/cvat/charts/
-infra/charts/postgresql/charts/*.tgz
+deploy/pre-nereidforge/charts/cvat/charts/
+deploy/pre-nereidforge/charts/postgresql/charts/*.tgz
 
 # Model / weight blobs (ADR-014 D5: weights live in S3 or the model registry)
 *.onnx

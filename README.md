@@ -28,9 +28,10 @@
 
 NereidForge provides dataset and annotation workflows, training, optimization,
 evaluation, model registration, and inference integrations. First-party
-application code lives at the repository root; deployment and integration
-artifacts live under `infra/`. Vendored third-party stacks are isolated under
-`infra/third_party/`.
+application code and shared tooling live at the repository root. Deployment
+assets for the pre-NereidForge infrastructure and Kubeflow stages live under
+`deploy/pre-nereidforge/`; inactive legacy assets and externally owned CRDs
+remain under `infra/`.
 
 ## Directory map
 
@@ -42,10 +43,13 @@ artifacts live under `infra/`. Vendored third-party stacks are isolated under
 | | `optimizer-plugins/` | Manifest-driven optimization plugins |
 | | `builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
 | **Application charts** | `charts/` | Backend, frontend, ML-backend, and tenant-check Helm charts |
-| **Infrastructure** | `infra/charts/` | Supporting-service Helm charts |
-| | `infra/scripts/` | Deployment, rendering, local verification, and image-build entry points |
-| | `infra/configs/` | Host-neutral runtime configuration and templates |
-| | `infra/third_party/` | Vendored upstream manifests and public-safe integration patches |
+| **Shared tooling** | `configs/` | Host-neutral runtime configuration, templates, and development monitoring |
+| | `scripts/` | Full-stack compatibility, application, build, verification, and packaging entry points |
+| **Pre-NereidForge deployment** | `deploy/pre-nereidforge/charts/` | Supporting-service Helm charts |
+| | `deploy/pre-nereidforge/platform/` | Vendored Kubeflow manifests and public-safe integration patches |
+| | `deploy/pre-nereidforge/scripts/` | Infrastructure, Kubeflow, and corresponding verification entry points |
+| | `deploy/pre-nereidforge/values/` | Pre-NereidForge chart value overlays |
+| **Legacy/external assets** | `infra/` | Inactive Kubeflow umbrella chart and externally owned cert-manager CRDs |
 | **Public documentation** | `docs/product/` | Product overview and whitepaper |
 | | `docs/api/openapi.yaml` | Hand-maintained HTTP API contract |
 | | `builders/` | Trainer SDK, runtime, artifact, and dataset contracts |
@@ -73,10 +77,11 @@ configuration; no shared development secret is supplied.
 
 ## Deployment
 
-The deployment entry point is `infra/scripts/00_deploy-all.sh`, with separate
-stages for infrastructure, Kubeflow integration, and NereidForge applications.
-Configuration is rendered from `infra/configs/unified/config.yaml.j2` and the
-host-neutral files under `infra/configs/`. Supply site-specific domains,
+The full-stack deployment entry point is `scripts/00_deploy-all.sh`, which calls
+the infrastructure and Kubeflow stages under `deploy/pre-nereidforge/scripts/`
+before deploying NereidForge applications. Configuration is rendered from
+`configs/unified/config.yaml.j2` and the host-neutral files under `configs/`.
+Supply site-specific domains,
 object-store settings, NFS settings, identity-provider URLs, and secrets
 through the documented environment inputs or untracked operator overrides.
 Production overlays must not contain real credentials. Deployment requires

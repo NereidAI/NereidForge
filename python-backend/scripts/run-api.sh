@@ -7,7 +7,7 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT/python-backend"
-source "$REPO_ROOT/infra/scripts/lib/common.sh"
+source "$REPO_ROOT/scripts/lib/common.sh"
 
 if [[ -f "$NF_DEV_ENV_FILE" ]]; then
   set -a

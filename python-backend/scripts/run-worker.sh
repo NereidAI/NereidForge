@@ -8,7 +8,7 @@
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$REPO_ROOT"
-source "$REPO_ROOT/infra/scripts/lib/common.sh"
+source "$REPO_ROOT/scripts/lib/common.sh"
 
 if [[ -f "$NF_DEV_ENV_FILE" ]]; then
   set -a
@@ -26,6 +26,6 @@ if [[ -z "${NEREIDFORGE_DATABASE_PASSWORD:-}" && -n "${POSTGRES_PASSWORD:-}" ]];
 fi
 
 # Same host->cluster port-forwards the API needs (S3 :8833, KFP :18888, Hub :8889).
-bash infra/scripts/dev-port-forward.sh || echo "[run-worker] port-forward bootstrap skipped"
+bash scripts/dev-port-forward.sh || echo "[run-worker] port-forward bootstrap skipped"
 
 exec env PYTHONPATH=python-backend ./.venv/bin/python -m app.worker

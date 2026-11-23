@@ -44,7 +44,7 @@ cd "$DIR"
 build_image() {
   local name="$1"
   local tag
-  tag="$(bash "$DIR/../../infra/scripts/image-ref.sh" "$name" "$TAG")"
+  tag="$(bash "$DIR/../../scripts/image-ref.sh" "$name" "$TAG")"
   echo "===== building $name ====="
   if sudo docker build "${BUILD_ARGS[@]}" -t "$tag" -t "$tag-$BUILD_TS" -t "$tag-$GIT_SHA" \
       -f "$DIR/Dockerfile.$name" . > "$LOG_DIR/$name.log" 2>&1; then

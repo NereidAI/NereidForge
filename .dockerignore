@@ -13,7 +13,7 @@
 *.onnx
 *.tar
 *.tar.gz
-infra/third_party/kubeflow-nf-patches/vendor
+deploy/pre-nereidforge/platform/kubeflow-patches/vendor
 builders/ml-backend/models
 docs
 *.log

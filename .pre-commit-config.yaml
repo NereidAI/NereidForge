@@ -8,7 +8,7 @@ repos:
     hooks:
       - id: license-compliance
         name: license compliance (LICENSE-POLICY.md)
-        entry: bash infra/scripts/check-license-compliance.sh --staged
+        entry: bash scripts/check-license-compliance.sh --staged
         language: system
         pass_filenames: false
         stages: [pre-commit]
