@@ -42,6 +42,13 @@ imagePullSecrets: []
 # the mount + SSL_CERT_FILE in the api pod.
 caBundleSecret: "nereid-internal-ca"
 
+# Optional retained application Secret. When set, the chart does not render its
+# literal-value Secret and both API/worker consume this object through envFrom.
+# The pre handoff uses nereidforge-service-credentials; pre owns only LS/CVAT
+# token keys while the operator retains the NF JWT and SSO client keys there.
+runtimeSecret:
+  existingSecret: ""
+
 nameOverride: ""
 fullnameOverride: ""
 
@@ -294,8 +301,28 @@ s3:
   secretKeyKey: "secretKey"
 
 postgresql:
+  # Legacy source installs replicate the CNPG Secret through a lookup. The
+  # direct-Helm handoff sets createSecret=false and references the original
+  # pg-<cluster>-credentials Secret in the same namespace instead.
+  createSecret: true
   existingSecret: "pg-nereidforge-credentials"
   existingSecretKey: "password"
+
+# Helm-native initialization. Both jobs run after install/upgrade and are
+# idempotent. Admin passwords are never generated or rotated implicitly.
+postInstall:
+  admin:
+    enabled: false
+    existingSecret: "nereidforge-admin-credentials"
+    passwordKey: "password"
+    username: "admin"
+    email: "admin@nereidforge.local"
+    rotatePassword: false
+  pipelines:
+    enabled: false
+    host: "http://ml-pipeline.kubeflow:8888"
+    namespace: "nereidforge"
+    userID: "admin@nereidforge.local"
 
 # Secret values (sensitive - will be created as Kubernetes Secret)
 # These should be overridden at install time via --set or values file

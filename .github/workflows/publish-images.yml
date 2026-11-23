@@ -5,8 +5,8 @@
 # Helm charts. The GitHub Release contains only the NF image/chart manifests;
 # installation is Helm-only against a compatible pre-NereidForge release. The
 # five pre charts, Kubeflow platform installer, and pre installer are published
-# independently by pre-nereidforge-publish.yml. Runtime handoff automation is
-# not implemented by this workflow.
+# independently by pre-nereidforge-publish.yml. The non-secret runtime handoff
+# and read-only NF preflight are owned by that pre installer.
 #
 # Publication model (root treaty §19):
 # - Triggered ONLY by pushing a new git tag matching v*; there is no manual
@@ -1123,7 +1123,7 @@ jobs:
             "${release_dir}/nereidforge-charts-${VERSION}.txt"
           )
           test "${#assets[@]}" -eq 2
-          notes="NereidForge ${VERSION} publishes 23 NF-owned images and four OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. Runtime pre-to-NereidForge handoff automation is not implemented by this workflow."
+          notes="NereidForge ${VERSION} publishes 23 NF-owned images and four OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. The pre installer generates the non-secret runtime handoff and read-only preflight consumed by these charts."
           prerelease_flags=(--prerelease=false)
           if [[ "$VERSION" == *-* ]]; then
             prerelease_flags=(--prerelease)

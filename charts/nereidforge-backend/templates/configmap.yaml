@@ -22,13 +22,14 @@ metadata:
   labels:
     {{- include "nereidforge-backend.labels" . | nindent 4 }}
 data:
+  {{- $baseConfig := fromYaml (.Files.Get "config.rendered.yaml") }}
+  {{- $mergedConfig := mergeOverwrite (deepCopy $baseConfig) (.Values.config | default dict) }}
+  {{- $renderedConfig := toYaml $mergedConfig }}
+  {{- $renderedConfig = regexReplaceAll $suiteImagePattern $renderedConfig $suiteImageReplacement }}
+  {{- $renderedConfig = regexReplaceAll $suiteImageFieldPattern $renderedConfig $suiteImageFieldReplacement }}
   config.yaml: |
-    {{- $baseConfig := .Files.Get "config.rendered.yaml" }}
-    {{- $baseConfig = regexReplaceAll $suiteImagePattern $baseConfig $suiteImageReplacement }}
-    {{- regexReplaceAll $suiteImageFieldPattern $baseConfig $suiteImageFieldReplacement | nindent 4 }}
-    {{- $overrideConfig := .Values.config | default dict | toYaml }}
-    {{- $overrideConfig = regexReplaceAll $suiteImagePattern $overrideConfig $suiteImageReplacement }}
-    {{- regexReplaceAll $suiteImageFieldPattern $overrideConfig $suiteImageFieldReplacement | nindent 4 }}
+    {{- $renderedConfig | nindent 4 }}
+{{- if not .Values.runtimeSecret.existingSecret }}
 ---
 apiVersion: v1
 kind: Secret
@@ -58,4 +59,5 @@ stringData:
   {{- if $secrets.cvat.token }}
   NEREIDFORGE_CVAT_TOKEN: {{ $secrets.cvat.token | quote }}
   {{- end }}
+{{- end }}
 {{- end }}

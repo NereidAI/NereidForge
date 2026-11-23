@@ -47,8 +47,9 @@ spec:
             - name: LABEL_STUDIO_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secret.name }}
+                  name: {{ .Values.secret.existingSecret | default .Values.secret.name }}
                   key: {{ .Values.secret.lsTokenKey }}
+                  optional: false
             - name: MODEL_ROOT
               value: {{ .Values.backend.modelRoot | quote }}
             - name: MODEL_PATH
