@@ -286,5 +286,63 @@ class NereidForgeVerificationTest(unittest.TestCase):
         self.assertNotIn("access_token", output)
 
 
+class LoginScriptContractTest(unittest.TestCase):
+    """Execute the real in-pod login probe with a local curl fake."""
+
+    def run_login(self, status, body, curl_exit=0):
+        source = (ROOT / "scripts/60_verify/nf-check.sh").read_text(encoding="utf-8")
+        login_script = source.split("LOGIN_SCRIPT='", 1)[1].split("\n'\nif [[", 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            curl = fake_bin / "curl"
+            curl.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/bash
+                    if [[ "$*" == *"/api/v1/auth/captcha"* ]]; then
+                        printf '%s\n' '{"captcha_id":"captcha-id","expression":"1 + 2"}'
+                        exit 0
+                    fi
+                    printf '%s\n' "$NF_TEST_LOGIN_BODY"
+                    printf '%s\n' "$NF_TEST_LOGIN_STATUS"
+                    exit "$NF_TEST_CURL_EXIT"
+                    """
+                ),
+                encoding="utf-8",
+            )
+            curl.chmod(0o755)
+            env = os.environ.copy()
+            env.update(
+                PATH=f"{fake_bin}:{env['PATH']}",
+                NF_ADMIN_PASSWORD="test-password",
+                NF_TEST_LOGIN_STATUS=str(status),
+                NF_TEST_LOGIN_BODY=body,
+                NF_TEST_CURL_EXIT=str(curl_exit),
+            )
+            return subprocess.run(
+                ["sh", "-c", login_script],
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+    def test_login_requires_http_200_and_nonempty_token_without_leaking_body(self):
+        token = "token-shaped-error-body-must-not-pass"
+        scenarios = (
+            (200, '{"access_token":"valid-token"}', 0, "LOGIN_OK"),
+            (401, f'{{"access_token":"{token}"}}', 0, "LOGIN_FAIL"),
+            (500, f'{{"access_token":"{token}"}}', 0, "LOGIN_FAIL"),
+            (200, '{"error":"missing token"}', 0, "LOGIN_FAIL"),
+            (0, f'{{"access_token":"{token}"}}', 7, "LOGIN_FAIL"),
+        )
+        for status, body, curl_exit, expected in scenarios:
+            with self.subTest(status=status, curl_exit=curl_exit, body=body):
+                result = self.run_login(status, body, curl_exit)
+                self.assertEqual(expected, result.stdout.strip(), result.stdout + result.stderr)
+                self.assertNotIn(token, result.stdout + result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

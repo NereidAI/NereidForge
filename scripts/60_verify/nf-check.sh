@@ -91,12 +91,14 @@ if [ $# -ge 3 ]; then
     [ "$op" = "x" ] && op="*"
     ans=$(( $1 $op $3 ))
 fi
-RESP=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+RESP=$(curl -s -w '\n%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"captcha_id\":\"${CID}\",\"captcha_answer\":${ans},\"username\":\"admin\",\"password\":\"${NF_ADMIN_PASSWORD}\"}")
-# Only return a marker to the host. The response contains bearer credentials
-# and must never be printed by either this script or kubectl exec.
-if printf "%s\n" "$RESP" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
+HTTP_CODE=$(printf "%s\n" "$RESP" | tail -n 1)
+RESP_BODY=$(printf "%s\n" "$RESP" | sed "\$d")
+# Require both a successful HTTP response and a non-empty token. Only return a
+# marker to the host; neither the response body nor bearer credentials are logged.
+if [ "$HTTP_CODE" = 200 ] && printf "%s\n" "$RESP_BODY" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
     echo LOGIN_OK
 else
     echo LOGIN_FAIL
