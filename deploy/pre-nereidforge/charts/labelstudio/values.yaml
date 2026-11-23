@@ -22,8 +22,9 @@ valkey:
   port: 6379
 
 s3:
-    accessKey: nereidforge
-    secretKey: nereidforge
+    existingSecret: seaweedfs-s3-credentials
+    accessKeyKey: accessKey
+    secretKeyKey: secretKey
     bucket: labelstudio
     endpoint: http://seaweedfs-s3.nereidforge.svc.cluster.local:8333
     useSSL: false

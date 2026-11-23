@@ -10,22 +10,53 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/config.sh"
 
 TENANT="${1:-nereidforge}"
+FAIL=0
+
+fail_check() {
+    log_err "$1"
+    FAIL=$((FAIL+1))
+}
+
+# kubectl run may repeat curl's formatted status in this probe path. Accept one
+# exact status or its known doubled form, never an arbitrary substring or 000.
+http_code_is() {
+    local actual="$1" expected="$2" normalized
+    normalized="$(printf '%s' "$actual" | tr -d '[:space:]')"
+    [[ "$normalized" == "$expected" || "$normalized" == "$expected$expected" ]]
+}
 
 log_info "========== Verify NereidForge business layer ($TENANT) =========="
 
 log_info "Check API..."
-wait_deployment_ready "nereidforge-api" "$TENANT"
+if ! wait_deployment_ready "nereidforge-api" "$TENANT"; then
+    log_err "API deployment is not ready"
+    exit 1
+fi
 
 API_URL="http://nereidforge-api.$TENANT:8080"
 FE_URL="http://nereidforge-frontend.$TENANT:80"
 
 # 1. healthz / ready (L1)
-HEALTH=$(kubectl run -n "$TENANT" api-verify-$$ --rm -i --restart=Never --image=$IMG_BUSYBOX -- \
-    wget -q -O - $API_URL/healthz 2>/dev/null || true)
-echo "$HEALTH" | grep -q '"status":"ok"' && log_ok "API healthz OK" || log_warn "API healthz: $HEALTH"
-READY=$(kubectl run -n "$TENANT" ready-verify-$$ --rm -i --restart=Never --image=$IMG_BUSYBOX -- \
-    wget -q -O - $API_URL/ready 2>/dev/null || true)
-echo "$READY" | grep -q '"status":"ready"' && log_ok "API ready OK" || log_warn "API ready: $READY"
+if HEALTH=$(kubectl run -n "$TENANT" "api-verify-$$" --rm -i --restart=Never --image="$IMG_BUSYBOX" -- \
+    wget -q -O - "$API_URL/healthz" 2>/dev/null); then
+    if printf '%s\n' "$HEALTH" | grep -q '"status":"ok"'; then
+        log_ok "API healthz OK"
+    else
+        fail_check "API healthz returned an unexpected response"
+    fi
+else
+    fail_check "API healthz probe command failed"
+fi
+if READY=$(kubectl run -n "$TENANT" "ready-verify-$$" --rm -i --restart=Never --image="$IMG_BUSYBOX" -- \
+    wget -q -O - "$API_URL/ready" 2>/dev/null); then
+    if printf '%s\n' "$READY" | grep -q '"status":"ready"'; then
+        log_ok "API ready OK"
+    else
+        fail_check "API ready returned an unexpected response"
+    fi
+else
+    fail_check "API ready probe command failed"
+fi
 
 # 2. Real admin login to get a token (L2)
 # NOTE: the captcha store is per-pod in-memory, so GET + POST must hit the SAME
@@ -42,8 +73,13 @@ if [[ -z "$NF_ADMIN_PW" && -f "$CRED_FILE" ]]; then
     source "$CRED_FILE"
     NF_ADMIN_PW="${NF_ADMIN_PASSWORD:-}"
 fi
-API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge-backend,component=api \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+API_POD=""
+if [[ -n "$NF_ADMIN_PW" ]]; then
+    if ! API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge-backend,component=api \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); then
+        API_POD=""
+    fi
+fi
 LOGIN_SCRIPT='
 CAP=$(curl -s http://127.0.0.1:8080/api/v1/auth/captcha)
 CID=$(echo "$CAP" | sed -n "s/.*\"captcha_id\":\"\([^\"]*\)\".*/\1/p")
@@ -55,65 +91,98 @@ if [ $# -ge 3 ]; then
     [ "$op" = "x" ] && op="*"
     ans=$(( $1 $op $3 ))
 fi
-RESP=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+RESP=$(curl -s -w '\n%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"captcha_id\":\"${CID}\",\"captcha_answer\":${ans},\"username\":\"admin\",\"password\":\"${NF_ADMIN_PASSWORD}\"}")
-echo "$RESP"
-echo "$RESP" | grep -q "access_token" && echo LOGIN_OK || echo LOGIN_FAIL
+HTTP_CODE=$(printf "%s\n" "$RESP" | tail -n 1)
+RESP_BODY=$(printf "%s\n" "$RESP" | sed "\$d")
+# Require both a successful HTTP response and a non-empty token. Only return a
+# marker to the host; neither the response body nor bearer credentials are logged.
+if [ "$HTTP_CODE" = 200 ] && printf "%s\n" "$RESP_BODY" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
+    echo LOGIN_OK
+else
+    echo LOGIN_FAIL
+fi
 '
 if [[ -z "$NF_ADMIN_PW" ]]; then
-    log_warn "admin login skipped: set NF_ADMIN_PASSWORD or provide $CRED_FILE"
-elif [[ -n "$API_POD" ]]; then
-    LOGIN_OUT=$(kubectl exec -n "$TENANT" "$API_POD" -c api -- \
-        env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" 2>/dev/null || true)
+    fail_check "admin login credential unavailable: set NF_ADMIN_PASSWORD or provide $CRED_FILE"
+elif [[ -z "$API_POD" ]]; then
+    fail_check "admin login failed: no API pod is available for the login probe"
+elif LOGIN_OUT=$(kubectl exec -n "$TENANT" "$API_POD" -c api -- \
+    env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" 2>/dev/null); then
+    if printf '%s\n' "$LOGIN_OUT" | grep -qx 'LOGIN_OK'; then
+        log_ok "admin login OK (got access_token)"
+    else
+        fail_check "admin login did not return a non-empty access token"
+    fi
 else
-    LOGIN_OUT=""
-fi
-if [[ -n "$NF_ADMIN_PW" ]]; then
-    echo "$LOGIN_OUT" | grep -q "LOGIN_OK" && log_ok "admin login OK (got access_token)" || log_warn "login resp: $(echo "$LOGIN_OUT" | head -c 300)"
+    fail_check "admin login probe command failed"
 fi
 
 # 2b. SSO status endpoint (verifies SSO config + suite reachability)
-SSO_STATUS=$(kubectl run -n "$TENANT" sso-verify-$$ --rm -i --restart=Never --image=$IMG_BUSYBOX -- \
-    wget -q -O - $API_URL/api/v1/auth/sso/status 2>/dev/null || true)
-# Accept either suite mode; NS is the standard default, oidc remains opt-in.
-if echo "$SSO_STATUS" | grep -q '"enabled":true' \
-    && echo "$SSO_STATUS" | grep -qE '"mode":"(ns|oidc)"' \
-    && echo "$SSO_STATUS" | grep -q '"logout_url":"http'; then
-    SSO_MODE=$(echo "$SSO_STATUS" | sed -n 's/.*"mode":"\([a-z]*\)".*/\1/p')
-    log_ok "SSO status OK (mode=$SSO_MODE, enabled=true, logout_url present)"
+if SSO_STATUS=$(kubectl run -n "$TENANT" "sso-verify-$$" --rm -i --restart=Never --image="$IMG_BUSYBOX" -- \
+    wget -q -O - "$API_URL/api/v1/auth/sso/status" 2>/dev/null); then
+    # Accept either suite mode; NS is the standard default, oidc remains opt-in.
+    if printf '%s\n' "$SSO_STATUS" | grep -q '"enabled":true' \
+        && printf '%s\n' "$SSO_STATUS" | grep -qE '"mode":"(ns|oidc)"' \
+        && printf '%s\n' "$SSO_STATUS" | grep -q '"logout_url":"http'; then
+        SSO_MODE=$(printf '%s\n' "$SSO_STATUS" | sed -n 's/.*"mode":"\([a-z]*\)".*/\1/p')
+        log_ok "SSO status OK (mode=$SSO_MODE, enabled=true, logout_url present)"
+    else
+        fail_check "SSO status contract failed (want enabled=true, mode=ns|oidc, logout_url)"
+    fi
 else
-    log_warn "SSO status: $SSO_STATUS"
+    fail_check "SSO status probe command failed"
 fi
 
-# 3. Training jobs endpoint reachability
+# 3. Training jobs endpoint reachability. The production route requires a
+# bearer token, so an unauthenticated 401 proves reachability just as a 200 does
+# in an explicitly auth-disabled development deployment. Other statuses fail.
 log_info "Check training jobs endpoint..."
-JOBS_CODE=$(kubectl run -n "$TENANT" train-verify-$$ --rm -i --restart=Never --image=$IMG_CURL -- \
-    curl -s -o /dev/null -w "%{http_code}" $API_URL/api/v1/training/jobs 2>/dev/null || true)
-log_info "Training jobs HTTP: $JOBS_CODE"
+if JOBS_CODE=$(kubectl run -n "$TENANT" "train-verify-$$" --rm -i --restart=Never --image="$IMG_CURL" -- \
+    curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/v1/training/jobs" 2>/dev/null); then
+    if http_code_is "$JOBS_CODE" 200 || http_code_is "$JOBS_CODE" 401; then
+        log_ok "Training jobs endpoint reachable (HTTP 200 or authenticated 401)"
+    else
+        fail_check "Training jobs endpoint HTTP contract failed (want 200 or 401)"
+    fi
+else
+    fail_check "Training jobs endpoint probe command failed"
+fi
 
 # 2c. NS integration tenant-list endpoint lives OUTSIDE /api and must be
 # secret-gated: with no X-NS-Integration-Secret it must answer 401 even though
 # the route is mounted without the normal bearer-token protection.
-INT_CODE=$(kubectl run -n "$TENANT" int-verify-$$ --rm -i --restart=Never --image=$IMG_CURL -- \
-    curl -s -o /dev/null -w "%{http_code}" $API_URL/v1/integration/ns/tenants 2>/dev/null || true)
-# NOTE: this curl image echoes the code twice in this run path ("401401"), so
-# match on the substring rather than an exact equality.
-case "$INT_CODE" in
-    *401*) log_ok "NS integration tenant-list secret-gated (401 without secret)" ;;
-    *) log_warn "integration endpoint HTTP: $INT_CODE (want 401)" ;;
-esac
-
+if INT_CODE=$(kubectl run -n "$TENANT" "int-verify-$$" --rm -i --restart=Never --image="$IMG_CURL" -- \
+    curl -s -o /dev/null -w "%{http_code}" "$API_URL/v1/integration/ns/tenants" 2>/dev/null); then
+    if http_code_is "$INT_CODE" 401; then
+        log_ok "NS integration tenant-list secret-gated (401 without secret)"
+    else
+        fail_check "NS integration tenant-list secret gate failed (want HTTP 401 without secret)"
+    fi
+else
+    fail_check "NS integration tenant-list probe command failed"
+fi
 
 # 4. Frontend
 log_info "Check Frontend..."
-wait_deployment_ready "nereidforge-frontend" "$TENANT"
-FE_RESP=$(kubectl run -n "$TENANT" fe-verify-$$ --rm -i --restart=Never --image=$IMG_BUSYBOX -- \
-    wget -q -O - $FE_URL/ 2>/dev/null || true)
-if echo "$FE_RESP" | grep -qiE "nereidforge|<!DOCTYPE html>"; then
-    log_ok "Frontend responding"
+if ! wait_deployment_ready "nereidforge-frontend" "$TENANT"; then
+    log_err "Frontend deployment is not ready"
+    exit 1
+fi
+if FE_RESP=$(kubectl run -n "$TENANT" "fe-verify-$$" --rm -i --restart=Never --image="$IMG_BUSYBOX" -- \
+    wget -q -O - "$FE_URL/" 2>/dev/null); then
+    if printf '%s\n' "$FE_RESP" | grep -qiE "nereidforge|<!DOCTYPE html>"; then
+        log_ok "Frontend responding"
+    else
+        fail_check "Frontend returned an unexpected response"
+    fi
 else
-    log_warn "Frontend resp: $(echo "$FE_RESP" | head -c 200)"
+    fail_check "Frontend probe command failed"
 fi
 
+if (( FAIL > 0 )); then
+    log_err "NereidForge business layer verification failed: $FAIL core check(s) failed"
+    exit 1
+fi
 log_ok "NereidForge business layer verification done"

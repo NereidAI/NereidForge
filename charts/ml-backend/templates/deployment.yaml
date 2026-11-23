@@ -18,6 +18,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -59,9 +60,17 @@ spec:
             - name: S3_ENDPOINT
               value: {{ .Values.s3.endpoint | quote }}
             - name: S3_ACCESS_KEY
-              value: {{ .Values.s3.accessKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+                  optional: false
             - name: S3_SECRET_KEY
-              value: {{ .Values.s3.secretKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+                  optional: false
             - name: MODEL_SCORE_THRESHOLD
               value: {{ .Values.backend.modelScoreThreshold | quote }}
             - name: ALLOW_CUSTOM_MODEL_PATH

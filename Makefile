@@ -21,7 +21,7 @@
         plugin-build plugin-validate images-build helm-package installer-package \
         build-runtime build-xpu-base build-trainer-vendor \
         build-ml-backend-custom build-jupyter-base \
-        test lint fmt license-check license-report scaffold-plugin
+        test test-scripts lint fmt license-check license-report scaffold-plugin
 
 # help prints the local-only development, build, and verification interface.
 help:
@@ -58,6 +58,7 @@ help:
 	@echo "  make installer-package  Deprecated local-only legacy full-stack archive"
 	@echo "  make -C deploy/pre-nereidforge helm-package  Archive five pre charts"
 	@echo "  make test / lint / fmt / license-check"
+	@echo "  make test-scripts    Run stdlib script integration tests without dev dependencies"
 	@echo ""
 	@echo "Every image build carries three tags (VERSION, VERSION-<utc-ts>, VERSION-<git-sha>);"
 	@echo "no target publishes an artifact or deploys to a cluster."
@@ -310,7 +311,12 @@ installer-package:
 	bash scripts/04_package-installer.sh
 
 # === Code quality ===
-test:
+# Standalone stdlib integration tests need neither the repository venv nor npm.
+test-scripts:
+	@echo "=== Script integration tests ==="
+	python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+
+test: test-scripts
 	@echo "=== Python tests ==="
 	@# Component roots isolate identical top-level module names during collection.
 	cd $(PLUGINS_DIR)/tensorrt && ../../$(VENV_PY) -m pytest tests -v

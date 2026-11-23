@@ -31,7 +31,6 @@ if [[ -z "${FRONTEND_HOST}" ]]; then
 fi
 validate_required BASE_DOMAIN FRONTEND_HOST DEX_STATIC_EMAIL \
     PG_ADMIN_PASSWORD JWT_SECRET \
-    SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY \
     NEREIDFORGE_LABELSTUDIO_TOKEN NEREIDFORGE_CVAT_TOKEN || exit 1
 export FRONTEND_HOST
 
@@ -113,10 +112,7 @@ $HELM upgrade --install nereidforge-backend . -n "$TENANT" --create-namespace \
     --set postgresql.existingSecretKey="password" \
     --set secrets.database.password="$PG_ADMIN_PASSWORD" \
     --set secrets.auth.jwt_secret="$JWT_SECRET" \
-    --set secrets.storage.s3_access_key="$SEAWEEDFS_S3_ACCESS_KEY" \
-    --set secrets.storage.s3_secret_key="$SEAWEEDFS_S3_SECRET_KEY" \
-    --set secrets.kfp.object_store_access_key="$SEAWEEDFS_S3_ACCESS_KEY" \
-    --set secrets.kfp.object_store_secret_key="$SEAWEEDFS_S3_SECRET_KEY" \
+    --set s3.existingSecret="seaweedfs-s3-credentials" \
     --set config.sso.mode="$SSO_MODE" \
     --set config.sso.oidc.issuer="$SSO_OIDC_ISSUER" \
     --set config.sso.oidc.client_id="${SSO_OIDC_CLIENT_ID:-nereidforge}" \

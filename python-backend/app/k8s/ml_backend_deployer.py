@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 NAMESPACE = "nereidforge"
 IMAGE_BASE = nf_image("ml-backend/ml-backend-custom")
 S3_ENDPOINT = "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
+S3_CREDENTIALS_SECRET = "seaweedfs-s3-credentials"
 LABEL_STUDIO_HOST = "http://labelstudio.nereidforge.svc.cluster.local:8080"
 
 
@@ -79,6 +80,26 @@ def _deployment_manifest(
                                 {"name": "BACKEND_TYPE", "value": backend_type},
                                 {"name": "FRAMEWORK", "value": framework},
                                 {"name": "S3_ENDPOINT", "value": S3_ENDPOINT},
+                                {
+                                    "name": "S3_ACCESS_KEY",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "name": S3_CREDENTIALS_SECRET,
+                                            "key": "accessKey",
+                                            "optional": False,
+                                        }
+                                    },
+                                },
+                                {
+                                    "name": "S3_SECRET_KEY",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "name": S3_CREDENTIALS_SECRET,
+                                            "key": "secretKey",
+                                            "optional": False,
+                                        }
+                                    },
+                                },
                                 {"name": "LABEL_STUDIO_HOST", "value": LABEL_STUDIO_HOST},
                                 {
                                     "name": "LABEL_STUDIO_API_KEY",

@@ -104,8 +104,9 @@ backend:
 s3:
   # The Service is `seaweedfs-s3`; a bare `seaweedfs` name does not resolve.
   endpoint: http://seaweedfs-s3.nereidforge.svc.cluster.local:8333
-  accessKey: nereidforge
-  secretKey: nereidforge
+  existingSecret: seaweedfs-s3-credentials
+  accessKeyKey: accessKey
+  secretKeyKey: secretKey
 
 external:
   tritonUrl: http://triton.nereidforge.svc:8000

@@ -61,9 +61,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PRE_ROOT/scripts/lib/common.sh"
 source "$PRE_ROOT/scripts/lib/config.sh"
-validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH \
-    SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY || exit 1
+validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH || exit 1
 check_cmd envsubst python3 || exit 1
+# Reuse the identity retained by the SeaweedFS stage instead of accepting a
+# second credential source that could drift during an upgrade.
+load_seaweedfs_s3_credentials secret seaweedfs-s3-credentials secret || exit 1
 export_all
 
 init_deploy_log "30_install-kubeflow"
@@ -166,27 +168,30 @@ EOF
     # does not abort the whole apply. Client-side apply stores the config in a
     # last-applied annotation capped at 262144 bytes; on that limit we retry the
     # whole target with server-side apply instead of silently dropping the CRD.
-    local rendered err
+    local rendered err status=0
     rendered="$(mktemp)"
     if ! timeout 180 $KUBECTL kustomize "$W" > "$rendered" 2>/dev/null; then
-        log_ok "WARN: kustomize render failed: $name"
+        log_err "kustomize render failed: $name"
         rm -f "$rendered"
-        return 0
+        return 1
     fi
     err="$(mktemp)"
     if $KUBECTL apply -f "$rendered" > /dev/null 2>"$err"; then
         log_ok "Applied: $name"
     elif grep -qE "262144|Too long" "$err"; then
-        log_ok "WARN: annotation limit for $name, retrying server-side apply"
+        log_warn "Annotation limit for $name, retrying server-side apply"
         if $KUBECTL apply --server-side=true --field-manager=wfp --force-conflicts -f "$rendered" > /dev/null 2>"$err"; then
             log_ok "Applied (server-side): $name"
         else
-            log_ok "WARN: server-side apply failed: $name ($(tail -n1 "$err"))"
+            log_err "server-side apply failed: $name ($(tail -n1 "$err"))"
+            status=1
         fi
     else
-        log_ok "WARN: apply failed: $name ($(tail -n1 "$err"))"
+        log_err "apply failed: $name ($(tail -n1 "$err"))"
+        status=1
     fi
     rm -f "$rendered" "$err"
+    return "$status"
 }
 
 # ordered list: name '|' targets (comma-separated, no spaces around pipe)
@@ -225,9 +230,16 @@ fi
 
 PASS=0; FAIL=0
 while IFS='|' read -r name targets; do
-    tapply "$name" "$targets"
-    PASS=$((PASS+1))
+    if tapply "$name" "$targets"; then
+        PASS=$((PASS+1))
+    else
+        FAIL=$((FAIL+1))
+    fi
 done <<< "$ORDER"
+if (( FAIL > 0 )); then
+    log_err "Kubeflow kustomize deployment failed: $PASS targets applied, $FAIL failed"
+    exit 1
+fi
 log_info "Kubeflow kustomize deployment complete: $PASS targets applied"
 
 # ---- post-apply customizations ----
@@ -402,54 +414,10 @@ for ns in $TENANTS; do
 done
 [ "$RUNNER_OK" = 1 ] && log_ok "kfp-runner RBAC verified (all tenants)"
 
-# 6. Provision the KFP object-store bucket (mlpipeline).
-# KFP's argo wait / log persistence reads/writes s3://mlpipeline via the
-# mlpipeline-minio-artifact secret; a missing bucket makes every run fail at
-# the "wait" step. profile-controller's own bucket bootstrap targets AWS IAM
-# and always fails on SeaweedFS, so create the bucket here (idempotent).
-log_info "Provisioning KFP object-store bucket 'mlpipeline' on SeaweedFS S3..."
-# Prefer an optional module-local venv (bundles boto3); never reach outside the
-# pre module for runtime files. Fall back to the operator's system python3.
-PY=python3
-if [[ -x "$PRE_ROOT/.venv/bin/python" ]] && "$PRE_ROOT/.venv/bin/python" -c 'import boto3' >/dev/null 2>&1; then
-    PY="$PRE_ROOT/.venv/bin/python"
-fi
-S3_SVC_IP="$($KUBECTL get svc -n nereidforge seaweedfs-s3 -o jsonpath='{.spec.clusterIP}' 2>/dev/null || true)"
-if [[ -z "$S3_SVC_IP" ]]; then
-    log_err "could not resolve seaweedfs-s3 service; mlpipeline bucket not provisioned"
-else
-    S3_URL="http://$S3_SVC_IP:8333" \
-    S3_ACCESS_KEY="$SEAWEEDFS_S3_ACCESS_KEY" \
-    S3_SECRET_KEY="$SEAWEEDFS_S3_SECRET_KEY" \
-        "$PY" - <<'PYEOF'
-import os
-import sys
-import boto3
-from botocore.client import Config
-
-endpoint = os.environ["S3_URL"]
-s3 = boto3.client(
-    "s3",
-    endpoint_url=endpoint,
-    aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["S3_SECRET_KEY"],
-    region_name="us-east-1",
-    config=Config(signature_version="s3v4"),
-)
-try:
-    s3.head_bucket(Bucket="mlpipeline")
-    print("mlpipeline bucket already exists")
-except s3.exceptions.ClientError as e:
-    code = e.response["Error"]["Code"]
-    if code in ("404", "NoSuchBucket"):
-        s3.create_bucket(Bucket="mlpipeline")
-        print("created mlpipeline bucket")
-    elif code == "403":
-        print("mlpipeline bucket exists but not readable (403); assuming ok")
-    else:
-        raise
-PYEOF
-fi
+# 6. The mlpipeline bucket is provisioned and access-verified with the retained
+# operator identity by 10_infra/seaweedfs.sh. That stage completes before this
+# Kubeflow stage (and before every other S3 consumer), so no late or fail-open
+# bucket creation is needed here.
 
 # 7. KFP tenant runtime wiring (single tenant ns = nereidforge).
 #    The tenant namespace is pre-created by 10_infra BEFORE the KF Profile CR,
@@ -534,10 +502,14 @@ sed -i "s/TENANT_NS/$TENANT_NS/g" /tmp/kfp-tenant-rbac.yaml
 $KUBECTL apply -f /tmp/kfp-tenant-rbac.yaml >/dev/null 2>&1 && log_ok "tenant owner/editor/viewer RoleBindings"
 
 # Shared S3 credential secret (same static key the control plane uses).
-$KUBECTL get secret mlpipeline-minio-artifact -n kubeflow -o json 2>/dev/null \
+if ! $KUBECTL get secret mlpipeline-minio-artifact -n kubeflow -o json 2>/dev/null \
   | sed -e 's/"namespace": "kubeflow"/"namespace": "'"$TENANT_NS"'"/' \
         -e '/"resourceVersion"/d; /"uid"/d; /"creationTimestamp"/d; /"ownerReferences"/d' \
-  | $KUBECTL apply -f - >/dev/null 2>&1 && log_ok "mlpipeline-minio-artifact secret => $TENANT_NS"
+  | $KUBECTL apply -f - >/dev/null 2>&1; then
+    log_err "Could not copy mlpipeline-minio-artifact secret => $TENANT_NS"
+    exit 1
+fi
+log_ok "mlpipeline-minio-artifact secret => $TENANT_NS"
 
 cat > /tmp/kfp-tenant-cm.yaml <<YAMLEOF
 apiVersion: v1

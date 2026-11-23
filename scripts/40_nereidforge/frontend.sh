@@ -61,6 +61,9 @@ $HELM upgrade --install nereidforge-frontend . -n "$TENANT" --create-namespace \
     --set "ingress.paths[3].path=/v1/integration/ns" \
     --set "ingress.paths[3].serviceName=nereidforge-api" \
     --set "ingress.paths[3].servicePort=8080" \
+    --set "ingress.paths[4].path=/notebook-servers" \
+    --set "ingress.paths[4].serviceName=nereidforge-api" \
+    --set "ingress.paths[4].servicePort=8080" \
     --set 'ingress.tls[0].secretName=nereidforge-frontend-tls' \
     --set "ingress.tls[0].hosts[0]=$FRONTEND_HOST" \
     --set "env[1].value=https://$FRONTEND_HOST/api" \

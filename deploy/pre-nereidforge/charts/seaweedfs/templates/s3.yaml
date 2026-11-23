@@ -3,42 +3,6 @@ Copyright (C) 2026 YIQISOFT
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "seaweedfs.fullname" . }}-s3-config
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "seaweedfs.labels" . | nindent 4 }}
-    component: s3
-data:
-  s3-config.json: |
-    {
-      "identities": [
-        {
-          "name": "admin",
-          "credentials": [
-            {
-              "accessKey": "{{ .Values.s3.accessKey }}",
-              "secretKey": "{{ .Values.s3.secretKey }}"
-            }
-          ],
-          "actions": [
-            "Admin",
-            "Read",
-            "List",
-            "Tagging",
-            "Write"
-          ]
-        },
-        {
-          "name": "anonymous",
-          "credentials": [],
-          "actions": {{ .Values.s3.anonymousReadPrefixes | default list | toJson }}
-        }
-      ]
-    }
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,6 +19,8 @@ spec:
       component: s3
   template:
     metadata:
+      annotations:
+        checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
       labels:
         {{- include "seaweedfs.selectorLabels" . | nindent 8 }}
         component: s3
@@ -78,8 +44,11 @@ spec:
               mountPath: /etc/seaweedfs
       volumes:
         - name: s3-config
-          configMap:
-            name: {{ include "seaweedfs.fullname" . }}-s3-config
+          secret:
+            secretName: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+            items:
+              - key: {{ .Values.s3.configKey | default "s3-config.json" }}
+                path: s3-config.json
 ---
 apiVersion: v1
 kind: Service

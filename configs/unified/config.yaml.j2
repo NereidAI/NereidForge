@@ -105,8 +105,14 @@ kfp:
   service_account: "pipeline-runner"
   timeout: 300
   poll_interval: 10
+{% if env == "dev" %}
   object_store_access_key: "{{ s3_access_key }}"
   object_store_secret_key: "{{ s3_secret_key }}"
+{% else %}
+  # Production API/worker pods override these placeholders from the shared Secret.
+  object_store_access_key: ""
+  object_store_secret_key: ""
+{% endif %}
   object_store_bucket: "mlpipeline"
   object_store_namespace: "nereidforge"
 
@@ -185,8 +191,14 @@ storage:
   endpoint: "http://seaweedfs-filer.nereidforge.svc.cluster.local:8888"
   s3_endpoint: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
 {% endif %}
+{% if env == "dev" %}
   s3_access_key: "{{ s3_access_key }}"
   s3_secret_key: "{{ s3_secret_key }}"
+{% else %}
+  # Production API/worker pods override these placeholders from the shared Secret.
+  s3_access_key: ""
+  s3_secret_key: ""
+{% endif %}
   s3_cluster_endpoint: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
   filer_cluster_endpoint: "http://seaweedfs-filer.nereidforge.svc.cluster.local:8888"
 
@@ -367,8 +379,9 @@ ml_backend_helm:
     defaultConfidence: "0.6"
   s3:
     endpoint: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
-    accessKey: "nereidforge"
-    secretKey: "nereidforge"
+    existingSecret: "seaweedfs-s3-credentials"
+    accessKeyKey: "accessKey"
+    secretKeyKey: "secretKey"
   external:
     tritonUrl: "http://triton.nereidforge.svc:8000"
     vllmUrl: "http://vllm.nereidforge.svc:8000"
@@ -516,16 +529,10 @@ secrets:
       client_secret: ""
   auth:
     jwt_secret: "{{ jwt_secret }}"
-  kfp:
-    object_store_access_key: "{{ s3_access_key }}"
-    object_store_secret_key: "{{ s3_secret_key }}"
   labelstudio:
     token: ""  # injected
   cvat:
     token: ""  # injected
-  storage:
-    s3_access_key: "{{ s3_access_key }}"
-    s3_secret_key: "{{ s3_secret_key }}"
   serving:
     pass: ""
 

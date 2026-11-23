@@ -326,8 +326,9 @@ ml_backend_helm:
     defaultConfidence: "0.6"
   s3:
     endpoint: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
-    accessKey: "nereidforge"
-    secretKey: "nereidforge"
+    existingSecret: "seaweedfs-s3-credentials"
+    accessKeyKey: "accessKey"
+    secretKeyKey: "secretKey"
   external:
     tritonUrl: "http://triton.nereidforge.svc:8000"
     vllmUrl: "http://vllm.nereidforge.svc:8000"
@@ -475,16 +476,10 @@ secrets:
       client_secret: ""
   auth:
     jwt_secret: ""
-  kfp:
-    object_store_access_key: ""
-    object_store_secret_key: ""
   labelstudio:
     token: ""  # injected
   cvat:
     token: ""  # injected
-  storage:
-    s3_access_key: ""
-    s3_secret_key: ""
   serving:
     pass: ""
 

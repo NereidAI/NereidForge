@@ -39,8 +39,19 @@ rm -rf "$CHART/charts"
 mkdir -p "$CHART/charts"
 cp -f "$CHART"/*.tgz "$CHART/charts/"
 
+# CVAT's shared backend annotations propagate to every S3-consuming pod. A
+# content checksum rolls those pods when the retained credentials change; only
+# the digest, never either credential, is passed to Helm.
+check_cmd python3 || exit 1
+if ! S3_CREDENTIALS_CHECKSUM="$($KUBECTL get secret seaweedfs-s3-credentials \
+    -n nereidforge -o json | python3 "$LIB_DIR/s3_credentials.py" checksum)"; then
+    log_err "Could not verify the SeaweedFS credentials Secret for CVAT"
+    exit 1
+fi
+
 helm upgrade --install cvat "$CHART" -n nereidforge --create-namespace -f "$VALUES" \
     --set ingress.hostname="cvat.$BASE_DOMAIN" \
+    --set-string "cvat.backend.annotations.checksum/s3-credentials=$S3_CREDENTIALS_CHECKSUM" \
     --wait --timeout 15m
 
 wait_deployment_ready "cvat-backend-server" "nereidforge"
