@@ -26,6 +26,7 @@ checkout):
 ```bash
 make verify
 make package
+make helm-package
 ```
 
 `make verify` runs the stdlib tests, shell syntax checks, package/reparse tests,
@@ -64,6 +65,52 @@ PRE_RELEASE_TAG=0.0.1 PRE_OUTPUT_DIR=/tmp/pre-release make package
 
 This is an **ONLINE source installer**, not an offline image bundle. Deployment
 retains the existing upstream image references and runtime fetch/cache behavior.
+
+`make helm-package` independently packages exactly `cvat`, `labelstudio`,
+`postgresql`, `seaweedfs`, and `valkey`. It preserves their source chart and app
+versions, stages CVAT's six tracked dependency archives, resolves other locked
+dependencies in temporary storage, and writes chart packages plus an archive
+under `dist/` by default. Package tar/gzip metadata is normalized so repeated
+packaging of one checkout produces byte-identical charts for safe reruns. It
+never uploads. This command can contact public
+chart dependency repositories; unlike `make verify`, it is not a disconnected
+check. The root `make helm-package` separately owns exactly four NF charts.
+
+## Publication contract
+
+A formal Git tag `pre-nereidforge/v<SemVer>` triggers only
+`.github/workflows/pre-publish.yml`; the suffix becomes the bare module version
+(for example, `pre-nereidforge/v0.0.1` maps to `0.0.1`). The workflow verifies
+and packages the module, publishes exactly the five charts to the existing
+`oci://ghcr.io/nereidai/charts/<name>` coordinates with independent upstream
+versions, and anonymously pulls/renders each chart using isolated registry
+configuration. The chart manifest records package SHA-256 and OCI manifest
+digests. Each fixed upstream chart tag is first resolved and pulled with the
+publisher credentials: a byte-identical archive is reused, a different archive
+fails closed, and only an explicit not-found response permits a new push.
+Formal pre tags use per-tag concurrency, so a pending rerun can replace only a
+pending run for the same release. Before GHCR login, each run also performs an
+oldest-run-first wait through the GitHub Actions API: it pages this workflow's
+push runs and waits until every non-completed run with a lower run ID has
+finished. Because an older run remains non-completed through chart publication
+and release upload, distinct tags cannot race their shared fixed chart versions.
+Only after those checks does it attach the installer, checksum, lock, and chart
+manifest to the matching release. Existing published releases and existing
+assets are never overwritten. It cannot publish NF images or charts.
+
+Scoped pushes to `main` trigger `.github/workflows/pre-publish-dev.yml`. The
+development channel publishes only pre artifacts: the five charts and an ORAS
+installer artifact at `ghcr.io/nereidai/pre-nereidforge-installer`. Each has a
+floating `0.0.0-dev` alias and an immutable `0.0.0-dev-<short-sha>` identity.
+Development chart archives use the commit-qualified chart version while
+retaining independent upstream appVersions; formal and ordinary local chart
+packages retain upstream chart versions too. Immutable charts and installers
+are pulled and compared byte-for-byte before reuse; mismatches and registry
+errors fail without an overwrite. The installer is pushed only under its
+immutable tag, then its floating alias is pointed at that verified digest.
+ORAS chart aliases follow the same verified-digest rule, both identities are
+anonymously pull-verified, and no moving GitHub Release is created. These pre
+workflows do not trigger NF image publication or cache warming.
 
 ## Version selection
 
@@ -123,19 +170,24 @@ cd pre-nereidforge-installer-<version>
 
 The repository-root `scripts/00_deploy-all.sh` and `scripts/60_verify.sh`
 compatibility paths still invoke these pre scripts and pass their established
-environment. Root NereidForge release workflows are unchanged. Existing root
-exact-tag lookups exclude only the `pre-nereidforge/v*` namespace so a pre tag
-cannot be misread as an NF release. NF `v*` and other legacy tag behavior is
-unchanged and has focused regression coverage.
+environment for source-based development. Formal NF releases are now Helm-only
+and require a compatible pre release; they no longer attach a full-stack source
+installer or publish these five charts. Root exact-tag lookups exclude the
+`pre-nereidforge/v*` namespace so a pre tag cannot be misread as an NF release.
+NF `v*` and other legacy local tag behavior is unchanged and has focused
+regression coverage.
 
 ## Remaining limitations
 
-- Runtime handoff and `existingSecret` behavior have not been redesigned.
-- There is no independent pre CI publication workflow or published formal
-  `v0.0.1` artifact yet.
-- Local checks do not establish registry availability, runtime installation
-  success, or cluster health. The explicit deployment/verification entry points
-  still require a suitably configured cluster and operator inputs.
+- Runtime handoff and `existingSecret` behavior have not been redesigned; the
+  publication workflows do not claim to implement an NF runtime handoff.
+- Independent formal/development publication workflows are implemented in
+  source, but no formal `v0.0.1` tag, GitHub Release, or GHCR artifact has been
+  published by this change.
+- Local checks do not execute publication or establish registry availability,
+  anonymous registry acceptance, runtime installation success, or cluster
+  health. The explicit deployment/verification entry points still require a
+  suitably configured cluster and operator inputs.
 - No independent offline bundle is implemented in this stage. Existing legacy
   fetch/cache and full-stack offline compatibility scripts are preserved, but
   they are not a new pre offline deliverable.

@@ -54,8 +54,9 @@ help:
 	@echo "Plugins, packaging, and verification:"
 	@echo "  make plugin-build name=tensorrt  Build the local opt-tensorrt plugin image"
 	@echo "  make plugin-validate name=tensorrt out=/tmp/out"
-	@echo "  make helm-package       Archive the nine active charts (no upload)"
-	@echo "  make installer-package  Build the versioned source/installer archive"
+	@echo "  make helm-package       Archive exactly four NF charts (no upload)"
+	@echo "  make installer-package  Deprecated local-only legacy full-stack archive"
+	@echo "  make -C deploy/pre-nereidforge helm-package  Archive five pre charts"
 	@echo "  make test / lint / fmt / license-check"
 	@echo ""
 	@echo "Every image build carries three tags (VERSION, VERSION-<utc-ts>, VERSION-<git-sha>);"
@@ -296,15 +297,16 @@ plugin-validate:
 images-build:
 	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash scripts/02_build-images.sh
 
-# === Local chart and installer packaging (no push target) ===
-# helm-package archives the nine active infrastructure and product charts under
-# charts-packaged/ for offline use. The legacy Kubeflow umbrella is excluded.
-# installer-package preserves the repository-shaped online installation path,
-# including Kubeflow manifests and generated release metadata, under dist/.
+# === Local chart and legacy installer packaging (no push target) ===
+# helm-package archives exactly the four NF product charts under charts-packaged/.
+# Supporting charts are packaged independently by deploy/pre-nereidforge.
+# installer-package remains only for legacy local full-stack source compatibility;
+# NF GitHub Releases no longer build or attach this repository-shaped archive.
 helm-package:
 	bash scripts/03_package-charts.sh
 
 installer-package:
+	@echo "WARNING: deprecated local-only compatibility archive; not an NF release asset" >&2
 	bash scripts/04_package-installer.sh
 
 # === Code quality ===

@@ -1,10 +1,12 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and publish NereidForge production images, nine active Helm charts, and
-# the repository-shaped source/installer archive. Images and charts use GHCR;
-# the installer and chart/image manifests are attached to the GitHub Release.
-# The legacy Kubeflow Helm umbrella is not an active installer and is excluded.
+# Build and publish NereidForge production images and exactly four NF-owned
+# Helm charts. The GitHub Release contains only the NF image/chart manifests;
+# installation is Helm-only against a compatible pre-NereidForge release. The
+# five pre charts, Kubeflow platform installer, and pre installer are published
+# independently by pre-nereidforge-publish.yml. Runtime handoff automation is
+# not implemented by this workflow.
 #
 # Publication model (root treaty §19):
 # - Triggered ONLY by pushing a new git tag matching v*; there is no manual
@@ -21,15 +23,11 @@
 #   hardware-bound CUDA/ROCm/Intel-XPU images are the sole single-arch
 #   (linux/amd64) exceptions alongside the dependency-bound images below.
 # - Chart jobs start only after every image job succeeds. Product charts inject
-#   the bare release version into version/appVersion; third-party wrappers keep
-#   their pinned Chart.yaml metadata. Packaged charts are rendered and checked
-#   for development-image leaks before their authenticated pull verification.
-# - The installer job runs only after all nine chart publications succeed. Its
-#   archive carries generated release.env metadata, so installation without a
-#   .git directory cannot silently select 0.0.0-dev. The custom installer is the
-#   sole supported Release installation archive; raw Source code archives fail
-#   closed. Existing published Releases are never modified and assets are never
-#   clobbered; a draft is published only after all four assets upload.
+#   the bare release version into version/appVersion. Packaged charts are
+#   rendered and checked for development-image leaks before pull verification.
+# - The release job verifies all 23 NF-owned image references and exactly four
+#   NF charts, then attaches only their two manifests. Existing published
+#   Releases are never modified and assets are never clobbered.
 # - The local Makefile stays an independent build-only interface and is never
 #   called by this workflow. Local/air-gapped hub copies are the operator's
 #   own decision, performed with NereidOverview harbor-sync.sh.
@@ -942,32 +940,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # NF owns exactly these four charts. pre-NereidForge charts are never
+        # part of this matrix or its release assets.
         include:
-          - name: postgresql
-            path: deploy/pre-nereidforge/charts/postgresql
-            version_mode: upstream
-            values_files: deploy/pre-nereidforge/charts/postgresql/values-prod.yaml
-            set_values: bootstrap.password=ci-render-only-placeholder
-          - name: valkey
-            path: deploy/pre-nereidforge/charts/valkey
-            version_mode: upstream
-            values_files: ''
-            set_values: ''
-          - name: seaweedfs
-            path: deploy/pre-nereidforge/charts/seaweedfs
-            version_mode: upstream
-            values_files: ''
-            set_values: ''
-          - name: labelstudio
-            path: deploy/pre-nereidforge/charts/labelstudio
-            version_mode: upstream
-            values_files: ''
-            set_values: ''
-          - name: cvat
-            path: deploy/pre-nereidforge/charts/cvat
-            version_mode: upstream
-            values_files: deploy/pre-nereidforge/values/cvat.yaml
-            set_values: ingress.hostname=cvat.example.test
           - name: nereidforge-ml-backend
             path: charts/ml-backend
             version_mode: product
@@ -997,8 +972,8 @@ jobs:
       values-files: ${{ matrix.values_files }}
       set-values: ${{ matrix.set_values }}
 
-  release-installer:
-    name: Attach source installer and artifact manifests
+  release-assets:
+    name: Attach NF image and chart manifests
     needs: publish-charts
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -1036,11 +1011,8 @@ jobs:
           fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and reparse the source installer
-        env:
-          RELEASE_TAG: ${{ steps.ver.outputs.version }}
-          INSTALLER_OUTPUT_DIR: ${{ runner.temp }}/release
-        run: bash scripts/04_package-installer.sh
+      - name: Create release asset directory
+        run: mkdir -p "${RUNNER_TEMP}/release"
 
       - name: Log in to GHCR with Helm for chart manifest verification
         env:
@@ -1058,16 +1030,17 @@ jobs:
           manifest="${release_dir}/nereidforge-charts-${VERSION}.txt"
           mkdir -p "$pull_dir"
           charts=(
-            "deploy/pre-nereidforge/charts/postgresql:postgresql:upstream"
-            "deploy/pre-nereidforge/charts/valkey:valkey:upstream"
-            "deploy/pre-nereidforge/charts/seaweedfs:seaweedfs:upstream"
-            "deploy/pre-nereidforge/charts/labelstudio:labelstudio:upstream"
-            "deploy/pre-nereidforge/charts/cvat:cvat:upstream"
             "charts/ml-backend:nereidforge-ml-backend:product"
             "charts/nereidforge-backend:nereidforge-backend:product"
             "charts/nereidforge-frontend:nereidforge-frontend:product"
             "charts/tenant-check:nereidforge-tenant-check:product"
           )
+          test "${#charts[@]}" -eq 4
+          for entry in "${charts[@]}"; do
+            IFS=':' read -r path name mode <<< "$entry"
+            [[ "$path" == charts/* && "$path" != deploy/* ]]
+            [[ "$name" == nereidforge-* && "$mode" == product ]]
+          done
           {
             echo '# Copyright (C) 2026 YIQISOFT'
             echo '# SPDX-License-Identifier: Apache-2.0'
@@ -1075,11 +1048,7 @@ jobs:
           } > "$manifest"
           for entry in "${charts[@]}"; do
             IFS=':' read -r path name mode <<< "$entry"
-            source_metadata="$(helm show chart "$path")"
             chart_version="$VERSION"
-            if [[ "$mode" == upstream ]]; then
-              chart_version="$(awk '/^version:/ {print $2; exit}' <<< "$source_metadata")"
-            fi
             reference="oci://ghcr.io/nereidai/charts/${name}:${chart_version}"
             helm pull "oci://ghcr.io/nereidai/charts/${name}" \
               --version "$chart_version" --destination "$pull_dir"
@@ -1089,32 +1058,58 @@ jobs:
             actual_version="$(awk '/^version:/ {print $2; exit}' <<< "$actual_metadata")"
             app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$actual_metadata" | tr -d '"')"
             test "$actual_version" = "$chart_version"
-            if [[ "$mode" == product ]]; then
-              test "$actual_version" = "$VERSION"
-              test "$app_version" = "$VERSION"
-            else
-              source_app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
-              test "$app_version" = "$source_app_version"
-            fi
+            test "$actual_version" = "$VERSION"
+            test "$app_version" = "$VERSION"
             digest="$(sha256sum "$package" | awk '{print $1}')"
             printf '%s %s %s\n' "$reference" "$digest" "$app_version" >> "$manifest"
           done
-          test "$(grep -c '^oci://' "$manifest")" -eq 9
+          test "$(grep -c '^oci://' "$manifest")" -eq 4
 
-      - name: Export release image manifest and verify assets
+      - name: Export NF image manifest and verify both release assets
         env:
           VERSION: ${{ steps.ver.outputs.version }}
         run: |
           set -euo pipefail
           release_dir="${RUNNER_TEMP}/release"
-          archive="${release_dir}/nereidforge-installer-${VERSION}.tar.gz"
+          full_manifest="${RUNNER_TEMP}/all-source-images.txt"
           images="${release_dir}/nereidforge-images-${VERSION}.txt"
-          tar -xzf "$archive" -C "$release_dir" --strip-components=1 \
-            "NereidForge-${VERSION}/images-manifest.txt"
-          mv "${release_dir}/images-manifest.txt" "$images"
-          (cd "$release_dir" && sha256sum -c "$(basename "$archive").sha256")
-          test "$(grep -c '^ghcr.io/nereidai/' "$images")" -eq 23
-          test -s "${release_dir}/nereidforge-charts-${VERSION}.txt"
+          charts="${release_dir}/nereidforge-charts-${VERSION}.txt"
+          RELEASE_TAG="$VERSION" JWT_SECRET=manifest-generation-unused \
+            bash scripts/05_export-images.sh --manifest "$full_manifest"
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# Exactly 23 NF-owned image references; pre/upstream images are excluded.'
+            grep '^ghcr.io/nereidai/' "$full_manifest"
+          } > "$images"
+          python3 - "$images" "$VERSION" <<'PY'
+          import pathlib
+          import sys
+
+          references = {}
+          for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+              if line.startswith("ghcr.io/nereidai/"):
+                  repository, tag = line.rsplit(":", 1)
+                  references[repository.removeprefix("ghcr.io/nereidai/")] = tag
+          expected = {
+              "inference-model-server-openvino-xpu", "ml-backend", "ml-backend-custom",
+              "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
+              "prediction-jupyter-base", "train-evaluator", "train-evaluator-xpu",
+              "train-optimizer", "trainer-convert", "trainer-convert-pp",
+              "trainer-convert-tf", "trainer-llm-cu", "trainer-llm-rocm",
+              "trainer-llm-xpu", "trainer-paddle-cpu", "trainer-paddle-cu",
+              "trainer-torch-cpu", "trainer-torch-cu", "trainer-torch-rocm",
+              "trainer-torch-xpu", "trainer-xpu-base",
+          }
+          assert len(expected) == 23
+          assert references.keys() == expected, (references.keys() - expected, expected - references.keys())
+          for repository, tag in references.items():
+              expected_tag = "py3.12" if repository == "prediction-jupyter-base" else sys.argv[2]
+              assert tag == expected_tag, (repository, tag, expected_tag)
+          print("Verified exactly 23 NF-owned release image references")
+          PY
+          test "$(grep -c '^oci://ghcr.io/nereidai/charts/nereidforge-' "$charts")" -eq 4
+          ! grep -E 'charts/(postgresql|valkey|seaweedfs|labelstudio|cvat):' "$charts"
 
       - name: Publish the GitHub Release without replacing existing assets
         env:
@@ -1124,12 +1119,11 @@ jobs:
           set -euo pipefail
           release_dir="${RUNNER_TEMP}/release"
           assets=(
-            "${release_dir}/nereidforge-installer-${VERSION}.tar.gz"
-            "${release_dir}/nereidforge-installer-${VERSION}.tar.gz.sha256"
             "${release_dir}/nereidforge-images-${VERSION}.txt"
             "${release_dir}/nereidforge-charts-${VERSION}.txt"
           )
-          notes="Supported installer: nereidforge-installer-${VERSION}.tar.gz. GitHub Source code archives do not contain release metadata and are not supported for installation."
+          test "${#assets[@]}" -eq 2
+          notes="NereidForge ${VERSION} publishes 23 NF-owned images and four OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. Runtime pre-to-NereidForge handoff automation is not implemented by this workflow."
           prerelease_flags=(--prerelease=false)
           if [[ "$VERSION" == *-* ]]; then
             prerelease_flags=(--prerelease)

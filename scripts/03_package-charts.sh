@@ -2,18 +2,17 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Package the nine active NF-owned and infrastructure Helm charts for local or
-# offline use. Staging applies the tag-sourced product release version without
-# modifying source Chart.yaml files. The legacy Kubeflow Helm umbrella is not an
-# active installation path and is deliberately excluded. Dependencies are
-# resolved fail-fast and no upload path exists.
+# Package exactly the four NF-owned Helm charts for local or offline use.
+# Staging applies the tag-sourced product release version without modifying
+# source Chart.yaml files. Supporting-service charts belong to the independent
+# pre-NereidForge packager. The legacy Kubeflow Helm umbrella is not an active
+# installation path and is deliberately excluded. No upload path exists.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "$SCRIPT_DIR/lib/common.sh"
-WORKDIR="$ROOT_DIR/deploy/pre-nereidforge"
 OUTPUT_DIR="${CHARTS_OUTPUT_DIR:-$ROOT_DIR/charts-packaged}"
 ARCHIVE="${CHARTS_ARCHIVE:-$ROOT_DIR/charts-offline.tar.gz}"
 # packages archives tarballs/index for normal local use; offline-tree archives
@@ -29,14 +28,8 @@ CHART_VERSION="${CHART_VERSION:-$(nf_version)}"
     exit 2
 }
 
-# source-dir : package-name : version-mode (CHART_VERSION or upstream Chart.yaml).
-# NF product charts gain their DNS-1123 prefix; upstream products retain names.
+# source-dir : package-name : version-mode (always the NF CHART_VERSION).
 CHARTS=(
-    "deploy/pre-nereidforge/charts/postgresql:postgresql:upstream"
-    "deploy/pre-nereidforge/charts/valkey:valkey:upstream"
-    "deploy/pre-nereidforge/charts/seaweedfs:seaweedfs:upstream"
-    "deploy/pre-nereidforge/charts/labelstudio:labelstudio:upstream"
-    "deploy/pre-nereidforge/charts/cvat:cvat:upstream"
     "charts/ml-backend:nereidforge-ml-backend:version"
     "charts/nereidforge-backend:nereidforge-backend:version"
     "charts/nereidforge-frontend:nereidforge-frontend:version"
@@ -105,7 +98,8 @@ for entry in "${CHARTS[@]}"; do
     package_version="$(awk '/^version:/ {print $2; exit}' "$workdir/Chart.yaml" | tr -d '"')"
     package_files+=("${pubname}-${package_version}.tgz")
 done
-[[ "${#package_files[@]}" -eq 9 ]]
+[[ "${#CHARTS[@]}" -eq 4 ]]
+[[ "${#package_files[@]}" -eq 4 ]]
 
 # A relative index works for offline use; an operator may provide a site URL.
 if [[ -n "${CHARTS_REPO_URL:-}" ]]; then
@@ -119,7 +113,7 @@ case "$ARCHIVE_LAYOUT" in
         tar -czf "$ARCHIVE" -C "$OUTPUT_DIR" index.yaml "${package_files[@]}"
         ;;
     offline-tree)
-        tar -czf "$ARCHIVE" -C "$STAGING" deploy charts
+        tar -czf "$ARCHIVE" -C "$STAGING" charts
         ;;
     *)
         echo "Unsupported CHARTS_ARCHIVE_LAYOUT: $ARCHIVE_LAYOUT" >&2

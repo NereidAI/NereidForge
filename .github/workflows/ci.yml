@@ -17,7 +17,8 @@
 #
 # A manual run classifies HEAD against its parent and builds only scopes whose
 # real image inputs changed. Documentation-only changes complete without an
-# image build. Any unrecognized path fails safe and selects every scope. Vendor
+# image build. The self-contained pre module and pre-only workflows select no NF
+# image scope. Any unrecognized path fails safe and selects every scope. Vendor
 # jobs skip when their specialized wheel-index variables are not configured.
 name: cache-warm
 
@@ -66,16 +67,20 @@ jobs:
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed ${#changed[@]} path(s) against $base:"
           printf '  %s\n' "${changed[@]}"
-          apps=false; core=false; vendor=false; broad=false; docs=0
+          apps=false; core=false; vendor=false; broad=false; docs=0; pre=0
           for f in "${changed[@]}"; do
             case "$f" in
+              # The self-contained pre module and its workflows are not COPY
+              # inputs for any NF application image.
+              deploy/pre-nereidforge/*|.github/workflows/pre-*.yml)
+                pre=$((pre + 1)) ;;
               # Build system, image references and root legal files can affect
               # every image: run the full matrix.
-              .github/workflows/*|scripts/*|deploy/pre-nereidforge/scripts/*|\
+              .github/workflows/*|scripts/*|\
               configs/monitoring/*|images-manifest.txt|Makefile|\
               LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
                 broad=true ;;
-              python-backend/*|configs/*|deploy/pre-nereidforge/values/*)
+              python-backend/*|configs/*)
                 apps=true ;;
               kfp-pipelines/*)
                 apps=true; core=true ;;
@@ -101,7 +106,7 @@ jobs:
             echo "core=$core"
             echo "vendor=$vendor"
           } >> "$GITHUB_OUTPUT"
-          echo "Scope decision -> applications=$apps core=$core vendor=$vendor (documentation-only files: $docs)"
+          echo "Scope decision -> applications=$apps core=$core vendor=$vendor (documentation-only files: $docs; pre-only files: $pre)"
 
   applications:
     name: backend/frontend multi-arch cache warm
