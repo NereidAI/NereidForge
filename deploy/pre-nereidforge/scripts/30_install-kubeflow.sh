@@ -502,10 +502,14 @@ sed -i "s/TENANT_NS/$TENANT_NS/g" /tmp/kfp-tenant-rbac.yaml
 $KUBECTL apply -f /tmp/kfp-tenant-rbac.yaml >/dev/null 2>&1 && log_ok "tenant owner/editor/viewer RoleBindings"
 
 # Shared S3 credential secret (same static key the control plane uses).
-$KUBECTL get secret mlpipeline-minio-artifact -n kubeflow -o json 2>/dev/null \
+if ! $KUBECTL get secret mlpipeline-minio-artifact -n kubeflow -o json 2>/dev/null \
   | sed -e 's/"namespace": "kubeflow"/"namespace": "'"$TENANT_NS"'"/' \
         -e '/"resourceVersion"/d; /"uid"/d; /"creationTimestamp"/d; /"ownerReferences"/d' \
-  | $KUBECTL apply -f - >/dev/null 2>&1 && log_ok "mlpipeline-minio-artifact secret => $TENANT_NS"
+  | $KUBECTL apply -f - >/dev/null 2>&1; then
+    log_err "Could not copy mlpipeline-minio-artifact secret => $TENANT_NS"
+    exit 1
+fi
+log_ok "mlpipeline-minio-artifact secret => $TENANT_NS"
 
 cat > /tmp/kfp-tenant-cm.yaml <<YAMLEOF
 apiVersion: v1

@@ -25,7 +25,9 @@ ensure_ns "nereidforge"
 # even if site input has changed, so a normal provisioning/upgrade pass cannot
 # rotate the identity out from under existing consumers. Migrate the identity
 # from either legacy config form before the chart stops rendering that config.
+S3_CREDENTIALS_CREATE_ONLY=true
 if $KUBECTL get secret "$S3_CREDENTIALS_SECRET" -n nereidforge >/dev/null 2>&1; then
+    S3_CREDENTIALS_CREATE_ONLY=false
     load_seaweedfs_s3_credentials secret "$S3_CREDENTIALS_SECRET" secret || exit 1
     log_info "Reusing the existing SeaweedFS credentials Secret (credentials not logged)"
 elif $KUBECTL get secret seaweedfs-s3-config -n nereidforge >/dev/null 2>&1; then
@@ -60,14 +62,38 @@ fi
 # directly to kubectl: no Helm values, command-line literal, handoff, or disk file
 # contains the identity. resource-policy=keep also protects legacy Helm-owned
 # credentials when this chart switches to an external-Secret reference.
-if ! python3 "$LIB_DIR/s3_credentials.py" manifest \
-    --namespace nereidforge --name "$S3_CREDENTIALS_SECRET" \
-    | $KUBECTL apply -f - >/dev/null; then
-    log_err "Could not create or update the SeaweedFS credentials Secret"
-    exit 1
+if [[ "$S3_CREDENTIALS_CREATE_ONLY" == true ]]; then
+    # When the canonical Secret was absent at the initial check, this installer
+    # may only create it, including during legacy migration. Capture diagnostics
+    # for AlreadyExists classification without printing a rejected manifest or
+    # any candidate credentials. A concurrent winner is never overwritten with
+    # this process's candidate.
+    if create_error="$(
+        {
+            python3 "$LIB_DIR/s3_credentials.py" manifest \
+                --namespace nereidforge --name "$S3_CREDENTIALS_SECRET" \
+                | $KUBECTL create -f - >/dev/null
+        } 2>&1
+    )"; then
+        log_info "Created the SeaweedFS credentials Secret (credentials not logged)"
+    elif [[ "$create_error" == *"AlreadyExists"* ]]; then
+        log_info "Reusing the concurrently created SeaweedFS credentials Secret"
+    else
+        log_err "Could not create the SeaweedFS credentials Secret"
+        exit 1
+    fi
+else
+    # An existing canonical identity retains its stored credentials while its
+    # generated config and protection metadata are reconciled.
+    if ! python3 "$LIB_DIR/s3_credentials.py" manifest \
+        --namespace nereidforge --name "$S3_CREDENTIALS_SECRET" \
+        | $KUBECTL apply -f - >/dev/null; then
+        log_err "Could not create or update the SeaweedFS credentials Secret"
+        exit 1
+    fi
 fi
-# A concurrent first-time installer may have completed the same initialization.
-# Reload the canonical object so bucket provisioning always uses what is stored.
+# Reload the canonical object after creation, reconciliation, or an AlreadyExists
+# race so bucket provisioning always uses the identity that is actually stored.
 load_seaweedfs_s3_credentials secret "$S3_CREDENTIALS_SECRET" secret || exit 1
 
 cd "$CHARTS_DIR/seaweedfs"
