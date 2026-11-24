@@ -75,6 +75,26 @@ untracked `.env` before starting Compose, and provide the same value through
 database. Object-store and JWT credentials likewise come from untracked local
 configuration; no shared development secret is supplied.
 
+### Development OCI publication
+
+The complete NF development snapshot contains 23 images and exactly four OCI
+Helm charts. It is published only by explicitly dispatching `publish-dev` on
+`main`; pushes, merges, and pull requests never start this workflow. The full
+publication matrix is never a pull-request check. Dispatch a run only when a
+complete snapshot is intended:
+
+```bash
+gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main
+```
+
+Each run uses immutable `0.0.0-dev-<short-sha>` identities and floating
+`0.0.0-dev` aliases. Same-commit immutable artifacts are anonymously verified
+and reused without overwrite. New immutable images must all pass anonymous
+revision verification before any floating alias moves or chart publication
+starts. Registry failures and source-revision collisions fail closed. Repeating
+a manual dispatch for the same commit resumes missing artifacts without
+rewriting existing ones; no formal release is created.
+
 ## Deployment
 
 The full-stack deployment entry point is `scripts/00_deploy-all.sh`, which calls

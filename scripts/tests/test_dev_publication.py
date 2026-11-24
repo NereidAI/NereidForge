@@ -15,6 +15,7 @@ import unittest
 ROOT = Path(__file__).parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "publish-dev.yml"
 STAMP_SCRIPT_PATH = ROOT / "scripts" / "stamp-dev-image.sh"
+ROCM_STORAGE_SCRIPT_PATH = ROOT / "scripts" / "prepare-rocm-buildkit-storage.sh"
 EXPECTED_IMAGES = {
     "inference-model-server-openvino-xpu",
     "ml-backend",
@@ -70,6 +71,19 @@ class DevelopmentPublicationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    def test_complete_publication_requires_manual_dispatch_on_main(self):
+        trigger = re.search(r"(?ms)^on:\n(.*?)(?=^permissions:\n)", self.text)
+        self.assertIsNotNone(trigger)
+        self.assertEqual(trigger.group(1), "  workflow_dispatch:\n\n")
+        self.assertNotIn("  path-scope:\n", self.text)
+        self.assertNotIn("github.event.before", self.text)
+
+        preflight = job_block(self.text, "preflight")
+        self.assertIn('test "$GITHUB_EVENT_NAME" = workflow_dispatch', preflight)
+        self.assertIn('test "$GITHUB_REF_NAME" = main', preflight)
+        for name in ("publish-base", "publish-dependent"):
+            self.assertNotIn("path-scope", job_block(self.text, name))
 
     def test_complete_image_snapshot_is_published_before_the_four_charts(self):
         self.assertEqual(len(EXPECTED_IMAGES), 23)
@@ -175,20 +189,104 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn('"paddlepaddle-gpu==3.3.1"', text)
         self.assertNotIn("PADDLE_GPU_WHEEL", text)
 
-    def test_large_rocm_build_uses_the_independent_temporary_disk(self):
+    def prepare_rocm_storage(self, root_source, temporary_source, available_kb):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary_dir = root / "bin"
+            binary_dir.mkdir()
+            commands = {
+                "findmnt": """#!/usr/bin/env bash
+for target do :; done
+case "$target" in
+  /) printf '%s\\n' "$FAKE_ROOT_SOURCE" ;;
+  /mnt) printf '%s\\n' "$FAKE_TEMPORARY_SOURCE" ;;
+  *) exit 1 ;;
+esac
+""",
+                "df": """#!/usr/bin/env bash
+if [[ "${1:-}" == -Pk ]]; then
+  echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'
+  printf 'filesystem 209715200 1024 %s 1%% %s\\n' "$FAKE_AVAILABLE_KB" "$2"
+else
+  echo 'Filesystem Size Used Avail Use% Mounted on'
+  echo 'filesystem 145G 32G 113G 22% /'
+fi
+""",
+                "sudo": """#!/usr/bin/env bash
+printf '%s\\n' "$*" >> "$FAKE_SUDO_LOG"
+""",
+            }
+            for name, content in commands.items():
+                path = binary_dir / name
+                path.write_text(content, encoding="utf-8")
+                path.chmod(0o755)
+            sudo_log = root / "sudo.log"
+            environment = os.environ.copy()
+            environment.update(
+                PATH=f"{binary_dir}:{environment['PATH']}",
+                FAKE_ROOT_SOURCE=root_source,
+                FAKE_TEMPORARY_SOURCE=temporary_source,
+                FAKE_AVAILABLE_KB=str(available_kb),
+                FAKE_SUDO_LOG=str(sudo_log),
+            )
+            result = subprocess.run(
+                ["bash", str(ROCM_STORAGE_SCRIPT_PATH)],
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            operations = sudo_log.read_text(encoding="utf-8").splitlines()
+            return result, operations
+
+    def test_rocm_storage_accepts_a_large_shared_root_filesystem(self):
+        result, operations = self.prepare_rocm_storage(
+            "/dev/mapper/cow-root",
+            "/dev/mapper/cow-root",
+            113 * 1024 * 1024,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("/mnt shares the root filesystem", result.stdout)
+        self.assertEqual(operations, ["docker image prune --all --force"])
+
+    def test_rocm_storage_moves_to_an_independent_temporary_disk(self):
+        result, operations = self.prepare_rocm_storage(
+            "/dev/mapper/cow-root",
+            "/dev/sdb1",
+            48 * 1024 * 1024,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Using the independent /mnt filesystem", result.stdout)
+        self.assertIn("systemctl stop docker.socket docker.service containerd.service", operations)
+        self.assertIn("mount --bind /mnt/nf-docker /var/lib/docker", operations)
+        self.assertIn("mount --bind /mnt/nf-containerd /var/lib/containerd", operations)
+        self.assertIn("systemctl start containerd.service docker.service", operations)
+
+    def test_rocm_storage_fails_closed_without_48_gib_on_the_selected_filesystem(self):
+        for label, temporary_source, storage_path in (
+            ("shared root", "/dev/mapper/cow-root", "/"),
+            ("independent temporary", "/dev/sdb1", "/mnt"),
+        ):
+            with self.subTest(layout=label):
+                result, operations = self.prepare_rocm_storage(
+                    "/dev/mapper/cow-root",
+                    temporary_source,
+                    48 * 1024 * 1024 - 1,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f"at least 48 GiB free at {storage_path}", result.stdout)
+                self.assertEqual(operations, ["docker image prune --all --force"])
+
+    def test_large_rocm_build_prepares_storage_before_buildx(self):
         job = job_block(self.text, "publish-base")
         self.assertIn("if: matrix.name == 'trainer-torch-rocm'", job)
-        self.assertIn("Move ROCm BuildKit storage to temporary disk", job)
-        self.assertIn('mount --bind "/mnt/nf-docker" /var/lib/docker', job)
-        self.assertIn('mount --bind "/mnt/nf-containerd" /var/lib/containerd', job)
+        self.assertIn("Prepare ROCm BuildKit storage", job)
+        self.assertIn("run: bash scripts/prepare-rocm-buildkit-storage.sh", job)
         self.assertLess(
-            job.index("Move ROCm BuildKit storage to temporary disk"),
+            job.index("Prepare ROCm BuildKit storage"),
             job.index("uses: docker/setup-buildx-action@v4"),
         )
-
-    def test_backend_notice_change_cannot_be_excluded_as_documentation(self):
-        scope = job_block(self.text, "path-scope")
-        self.assertLess(scope.index("THIRD_PARTY_NOTICES.md)"), scope.index("|docs/*|*.md)"))
 
 
 @unittest.skipUnless(shutil.which("helm"), "helm is required for chart packaging tests")
