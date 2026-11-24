@@ -189,7 +189,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn('"paddlepaddle-gpu==3.3.1"', text)
         self.assertNotIn("PADDLE_GPU_WHEEL", text)
 
-    def prepare_rocm_storage(self, root_source, temporary_source, available_kb):
+    def prepare_rocm_storage(self, root_source, temporary_source, available_kb, strict_findmnt=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary_dir = root / "bin"
@@ -197,6 +197,10 @@ class DevelopmentPublicationTest(unittest.TestCase):
             commands = {
                 "findmnt": """#!/usr/bin/env bash
 for target do :; done
+if [[ "$FAKE_STRICT_FINDMNT" == true && "$target" == /mnt &&
+      "$FAKE_TEMPORARY_SOURCE" == "$FAKE_ROOT_SOURCE" && " $* " != *" --target "* ]]; then
+  exit 1
+fi
 case "$target" in
   /) printf '%s\\n' "$FAKE_ROOT_SOURCE" ;;
   /mnt) printf '%s\\n' "$FAKE_TEMPORARY_SOURCE" ;;
@@ -227,6 +231,7 @@ printf '%s\\n' "$*" >> "$FAKE_SUDO_LOG"
                 FAKE_ROOT_SOURCE=root_source,
                 FAKE_TEMPORARY_SOURCE=temporary_source,
                 FAKE_AVAILABLE_KB=str(available_kb),
+                FAKE_STRICT_FINDMNT=str(strict_findmnt).lower(),
                 FAKE_SUDO_LOG=str(sudo_log),
             )
             result = subprocess.run(
@@ -245,6 +250,17 @@ printf '%s\\n' "$*" >> "$FAKE_SUDO_LOG"
             "/dev/mapper/cow-root",
             "/dev/mapper/cow-root",
             113 * 1024 * 1024,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("/mnt shares the root filesystem", result.stdout)
+        self.assertEqual(operations, ["docker image prune --all --force"])
+
+    def test_rocm_storage_resolves_a_shared_mnt_by_target_path(self):
+        result, operations = self.prepare_rocm_storage(
+            "/dev/root",
+            "/dev/root",
+            110 * 1024 * 1024,
+            strict_findmnt=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("/mnt shares the root filesystem", result.stdout)
