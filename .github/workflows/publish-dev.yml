@@ -292,28 +292,41 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: stamp
-        name: Derive immutable build arguments
+        name: Derive immutable build arguments and valid annotation levels
         env:
           IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
           EXTRA_BUILD_ARGS: ${{ matrix.build-args }}
-        run: |
-          set -euo pipefail
-          extra="${EXTRA_BUILD_ARGS//@IMMUTABLE@/$IMMUTABLE}"
-          {
-            echo "build_args<<BUILD_ARGS_EOF"
-            echo "VERSION=$IMMUTABLE"
-            echo "GIT_SHA=$GITHUB_SHA"
-            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            if [[ -n "$extra" ]]; then printf '%s\n' "$extra"; fi
-            echo "BUILD_ARGS_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+          PLATFORMS: ${{ matrix.platforms }}
+        run: bash scripts/stamp-dev-image.sh
       - name: Free runner disk
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
                       /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
-          df -h /
+          df -h / /mnt
+      - name: Move ROCm BuildKit storage to temporary disk
+        if: matrix.name == 'trainer-torch-rocm'
+        run: |
+          set -euo pipefail
+          sudo docker image prune --all --force
+          root_source="$(findmnt -n -o SOURCE /)"
+          temporary_source="$(findmnt -n -o SOURCE /mnt)"
+          if [[ -z "$temporary_source" || "$temporary_source" == "$root_source" ]]; then
+            echo "::error::The ROCm build requires an independent temporary disk at /mnt"
+            exit 1
+          fi
+          available_kb="$(df -Pk /mnt | awk 'NR == 2 {print $4}')"
+          if (( available_kb < 48 * 1024 * 1024 )); then
+            echo "::error::The ROCm build requires at least 48 GiB free at /mnt"
+            exit 1
+          fi
+          sudo systemctl stop docker.socket docker.service containerd.service
+          sudo mkdir -p /mnt/nf-docker /mnt/nf-containerd /var/lib/docker /var/lib/containerd
+          sudo mount --bind "/mnt/nf-docker" /var/lib/docker
+          sudo mount --bind "/mnt/nf-containerd" /var/lib/containerd
+          sudo systemctl start containerd.service docker.service
+          df -h /var/lib/docker /var/lib/containerd
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:
@@ -328,12 +341,7 @@ jobs:
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platforms }}
           build-args: ${{ steps.stamp.outputs.build_args }}
-          annotations: |
-            index,manifest:org.opencontainers.image.source=https://github.com/NereidAI/NereidForge
-            index,manifest:org.opencontainers.image.version=${{ needs.preflight.outputs.immutable }}
-            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
-            index,manifest:org.opencontainers.image.vendor=YIQISOFT
-            index,manifest:org.opencontainers.image.licenses=Apache-2.0
+          annotations: ${{ steps.stamp.outputs.annotations }}
           push: true
           provenance: false
           sbom: false
@@ -385,28 +393,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - id: stamp
-        name: Derive immutable build arguments
+        name: Derive immutable build arguments and valid annotation levels
         env:
           IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
           EXTRA_BUILD_ARGS: ${{ matrix.build-args }}
-        run: |
-          set -euo pipefail
-          extra="${EXTRA_BUILD_ARGS//@IMMUTABLE@/$IMMUTABLE}"
-          {
-            echo "build_args<<BUILD_ARGS_EOF"
-            echo "VERSION=$IMMUTABLE"
-            echo "GIT_SHA=$GITHUB_SHA"
-            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            if [[ -n "$extra" ]]; then printf '%s\n' "$extra"; fi
-            echo "BUILD_ARGS_EOF"
-          } >> "$GITHUB_OUTPUT"
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+          PLATFORMS: ${{ matrix.platforms }}
+        run: bash scripts/stamp-dev-image.sh
       - name: Free runner disk
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
                       /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
           df -h /
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:
@@ -421,12 +420,7 @@ jobs:
           file: ${{ matrix.file }}
           platforms: ${{ matrix.platforms }}
           build-args: ${{ steps.stamp.outputs.build_args }}
-          annotations: |
-            index,manifest:org.opencontainers.image.source=https://github.com/NereidAI/NereidForge
-            index,manifest:org.opencontainers.image.version=${{ needs.preflight.outputs.immutable }}
-            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
-            index,manifest:org.opencontainers.image.vendor=YIQISOFT
-            index,manifest:org.opencontainers.image.licenses=Apache-2.0
+          annotations: ${{ steps.stamp.outputs.annotations }}
           push: true
           provenance: false
           sbom: false

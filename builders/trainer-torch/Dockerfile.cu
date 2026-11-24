@@ -47,8 +47,10 @@ RUN if [ -n "$APT_MIRROR" ]; then \
     apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libglib2.0-0 && rm -rf /var/lib/apt/lists/*
 
+# torch.cuda.get_arch_list() returns [] without a GPU in torch 2.8. Query the
+# compiled CUDA_ARCH_FLAGS directly so this build-time assertion works on CI.
 RUN python -c "import torch, torchvision; print('torch', torch.__version__, 'cuda', torch.version.cuda); \
-    arches=torch.cuda.get_arch_list(); print('arch list:', arches); \
+    arches=torch._C._cuda_getArchFlags().split(); print('arch list:', arches); \
     assert any('sm_120' in a for a in arches), 'Blackwell sm_120 cubin missing from the torch build'" \
     && pip install --no-cache-dir --timeout 120 --retries 10 \
         "timm>=1.0" "segmentation-models-pytorch>=0.3" \

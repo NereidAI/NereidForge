@@ -14,6 +14,7 @@ import unittest
 
 ROOT = Path(__file__).parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "publish-dev.yml"
+STAMP_SCRIPT_PATH = ROOT / "scripts" / "stamp-dev-image.sh"
 EXPECTED_IMAGES = {
     "inference-model-server-openvino-xpu",
     "ml-backend",
@@ -53,6 +54,16 @@ def job_block(text, name):
 
 def matrix_names(text, job_name):
     return set(re.findall(r"(?m)^          - name: ([a-z0-9-]+)\s*$", job_block(text, job_name)))
+
+
+def output_block(text, name):
+    match = re.search(
+        rf"(?ms)^{re.escape(name)}<<([A-Z0-9_]+)\n(.*?)^\1$",
+        text,
+    )
+    if not match:
+        raise AssertionError(f"multiline output not found: {name}")
+    return match.group(2).splitlines()
 
 
 class DevelopmentPublicationTest(unittest.TestCase):
@@ -102,6 +113,78 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn('manifest = json.loads(oras(["manifest", "fetch"], reference))', alias)
         self.assertNotIn("gh release", self.text)
         self.assertNotIn("0.0.1", self.text)
+
+    def stamp(self, platforms):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "github-output"
+            environment = os.environ.copy()
+            environment.update(
+                IMMUTABLE="0.0.0-dev-abcdef1",
+                EXTRA_BUILD_ARGS="BASE_IMAGE=example/base:@IMMUTABLE@",
+                PLATFORMS=platforms,
+                GITHUB_SHA="abcdef1234567890",
+                GITHUB_OUTPUT=str(output),
+            )
+            subprocess.run(
+                ["bash", str(STAMP_SCRIPT_PATH)],
+                cwd=ROOT,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            return output.read_text(encoding="utf-8")
+
+    def test_stamp_exports_platform_appropriate_annotations(self):
+        single = self.stamp("linux/amd64")
+        annotations = output_block(single, "annotations")
+        self.assertEqual(len(annotations), 5)
+        self.assertTrue(all(line.startswith("manifest:") for line in annotations))
+        self.assertFalse(any(line.startswith("index") for line in annotations))
+        self.assertIn(
+            "BASE_IMAGE=example/base:0.0.0-dev-abcdef1",
+            output_block(single, "build_args"),
+        )
+
+        multiple = self.stamp("linux/amd64,linux/arm64")
+        self.assertTrue(
+            all(
+                line.startswith("index,manifest:")
+                for line in output_block(multiple, "annotations")
+            )
+        )
+        for job_name in ("publish-base", "publish-dependent"):
+            job = job_block(self.text, job_name)
+            self.assertIn("run: bash scripts/stamp-dev-image.sh", job)
+            self.assertIn("annotations: ${{ steps.stamp.outputs.annotations }}", job)
+            self.assertNotIn("index,manifest:org.opencontainers", job)
+
+    def test_cuda_build_checks_do_not_require_a_gpu_on_the_runner(self):
+        for relative_path in (
+            "builders/trainer-torch/Dockerfile.cu",
+            "builders/trainer-llm-cu/Dockerfile",
+        ):
+            text = (ROOT / relative_path).read_text(encoding="utf-8")
+            self.assertIn("torch._C._cuda_getArchFlags().split()", text)
+            self.assertIn("'sm_120'", text)
+            self.assertNotIn("arches=torch.cuda.get_arch_list()", text)
+
+    def test_paddle_cuda_uses_the_official_package_index_not_a_file_url(self):
+        text = (ROOT / "builders/trainer-paddle/Dockerfile.cu").read_text(encoding="utf-8")
+        self.assertIn('--index-url "${PADDLE_GPU_INDEX}"', text)
+        self.assertIn('"paddlepaddle-gpu==3.3.1"', text)
+        self.assertNotIn("PADDLE_GPU_WHEEL", text)
+
+    def test_large_rocm_build_uses_the_independent_temporary_disk(self):
+        job = job_block(self.text, "publish-base")
+        self.assertIn("if: matrix.name == 'trainer-torch-rocm'", job)
+        self.assertIn("Move ROCm BuildKit storage to temporary disk", job)
+        self.assertIn('mount --bind "/mnt/nf-docker" /var/lib/docker', job)
+        self.assertIn('mount --bind "/mnt/nf-containerd" /var/lib/containerd', job)
+        self.assertLess(
+            job.index("Move ROCm BuildKit storage to temporary disk"),
+            job.index("uses: docker/setup-buildx-action@v4"),
+        )
 
     def test_backend_notice_change_cannot_be_excluded_as_documentation(self):
         scope = job_block(self.text, "path-scope")
