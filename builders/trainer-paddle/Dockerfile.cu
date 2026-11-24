@@ -8,8 +8,10 @@
 #
 # GPU wheels come from the official Paddle cu129 index, not from PyPI: `pip
 # install paddlepaddle` on a GPU host installs the CPU build and silently trains
-# on CPU. The wheel is the manylinux x86_64 cp311 build for CUDA 12.9, pinned by
-# filename so the index cannot hand back a different flavour. Paddle 3.3.x is
+# on CPU. Resolve the exact paddlepaddle-gpu version from that package index;
+# its links select the manylinux x86_64 cp311 build for this Python 3.11 base.
+# Do not construct a wheel URL below the index root: the official repository
+# nests files under /paddlepaddle-gpu/ and redirects them to its CDN. Paddle 3.3.x is
 # the first line whose cu129 wheels embed sm_120 (Blackwell, e.g. RTX 5060 Ti)
 # cubins; the former cu126 / paddle 3.0.0 combination stops at sm_90 and fails
 # on Blackwell with an architecture-mismatch error. The wheel bundles its own
@@ -51,7 +53,6 @@ ARG APT_MIRROR=""
 # train -> PIR export -> ONNX chain on 3.3.1 is a required on-device release
 # gate (ADR-023): it cannot be exercised without an sm_120 GPU.
 ARG PADDLE_GPU_INDEX=""
-ARG PADDLE_GPU_WHEEL=paddlepaddle_gpu-3.3.1-cp311-cp311-linux_x86_64.whl
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 ENV PYTHONUNBUFFERED=1
@@ -68,10 +69,11 @@ RUN if [ -z "$PADDLE_GPU_INDEX" ]; then \
         echo "ERROR: PADDLE_GPU_INDEX is required for the CUDA Paddle wheel" >&2; exit 1; \
     fi; \
     pip install --no-cache-dir --timeout 600 --retries 20 \
-        "${PADDLE_GPU_INDEX%/}/${PADDLE_GPU_WHEEL}"
+        --index-url "${PADDLE_GPU_INDEX}" \
+        "paddlepaddle-gpu==3.3.1"
 
-# The direct pinned wheel URL keeps generic indexes limited to dependencies;
-# they can never select a different Paddle build during resolution.
+# The GPU-only distribution name and exact version prevent the generic package
+# index from substituting the CPU paddlepaddle build during resolution.
 # Fail fast if the base image ever moves off Python 3.11: a later layer writes
 # into a hardcoded python3.11 site-packages path for the PaddleX repo tree.
 RUN python -c "import sys; assert sys.version_info[:2] == (3, 11), sys.version" \

@@ -34,11 +34,13 @@ ARG PIP_TRUSTED_HOST=""
 ENV PIP_INDEX_URL=${PIP_INDEX_URL} PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 # LLaMA-Factory 0.9.5 (torch>=2.4, transformers>=4.55). The base already
 # satisfies torch 2.8.0+cu128, so pip must not swap the CUDA torch build.
+# Check compiled CUDA_ARCH_FLAGS directly: torch 2.8's public get_arch_list()
+# returns [] on a CI builder without a GPU even when sm_120 cubins are present.
 COPY sdk /opt/nf-trainer-sdk
 RUN pip install --no-cache-dir "llamafactory[torch,metrics]==0.9.5" \
         "boto3>=1.34" "pyyaml>=6.0" /opt/nf-trainer-sdk \
     && rm -rf /opt/nf-trainer-sdk \
-    && python -c "import torch; arches=torch.cuda.get_arch_list(); print('arch list:', arches); \
+    && python -c "import torch; arches=torch._C._cuda_getArchFlags().split(); print('arch list:', arches); \
 assert any('sm_120' in a for a in arches), 'Blackwell sm_120 cubin missing from the torch build'" \
     && python -c "from importlib.metadata import version; print('llamafactory', version('llamafactory')); assert version('llamafactory').startswith('0.9.5')"
 COPY trainer-llm-cu/llm_train.py /app/llm_train.py
