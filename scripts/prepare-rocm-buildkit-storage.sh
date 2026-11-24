@@ -6,9 +6,23 @@ set -euo pipefail
 
 readonly minimum_available_kb=$((48 * 1024 * 1024))
 
+filesystem_source() {
+  local target="$1"
+  local source
+  if ! source="$(findmnt -n -o SOURCE --target "$target")"; then
+    echo "::error::Unable to identify the filesystem containing $target" >&2
+    return 1
+  fi
+  if [[ -z "$source" ]]; then
+    echo "::error::No source device found for the filesystem containing $target" >&2
+    return 1
+  fi
+  printf '%s\n' "$source"
+}
+
 sudo docker image prune --all --force
-root_source="$(findmnt -n -o SOURCE /)"
-temporary_source="$(findmnt -n -o SOURCE /mnt)"
+root_source="$(filesystem_source /)"
+temporary_source="$(filesystem_source /mnt)"
 storage_path=/mnt
 move_storage=true
 if [[ -z "$temporary_source" || "$temporary_source" == "$root_source" ]]; then
