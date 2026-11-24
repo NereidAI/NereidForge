@@ -21,7 +21,7 @@
         plugin-build plugin-validate images-build helm-package installer-package \
         build-runtime build-xpu-base build-trainer-vendor \
         build-ml-backend-custom build-jupyter-base \
-        test test-scripts lint fmt license-check license-report scaffold-plugin
+        test test-scripts nf-verify lint fmt license-check license-report scaffold-plugin
 
 # help prints the local-only development, build, and verification interface.
 help:
@@ -59,6 +59,7 @@ help:
 	@echo "  make -C deploy/pre-nereidforge helm-package  Archive five pre charts"
 	@echo "  make test / lint / fmt / license-check"
 	@echo "  make test-scripts    Run stdlib script integration tests without dev dependencies"
+	@echo "  make nf-verify       Verify application/suite delivery and NF charts offline"
 	@echo ""
 	@echo "Every image build carries three tags (VERSION, VERSION-<utc-ts>, VERSION-<git-sha>);"
 	@echo "no target publishes an artifact or deploys to a cluster."
@@ -315,6 +316,15 @@ installer-package:
 test-scripts:
 	@echo "=== Script integration tests ==="
 	python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+
+# Application-owned first delivery seam. These stdlib tests include backend and
+# frontend coordinate/compatibility checks plus offline Helm lint/render/package
+# checks when Helm is installed. They never run pre or builder unit tests,
+# install dependencies, build images, contact registries, or publish artifacts.
+nf-verify:
+	@echo "=== Application and suite delivery verification ==="
+	python3 -m unittest scripts.tests.test_nf_delivery scripts.tests.test_nf_publication scripts.tests.test_nf_legacy_compatibility -v
+	bash -n scripts/lib/nf_publication.sh
 
 test: test-scripts
 	@echo "=== Python tests ==="

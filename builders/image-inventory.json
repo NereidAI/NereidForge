@@ -1,0 +1,196 @@
+{
+  "schema": "nf.builder-image-inventory/1",
+  "images": [
+    {
+      "name": "inference-model-server-openvino-xpu",
+      "dockerfile": "builders/inference-model-server-openvino-xpu/Dockerfile",
+      "context": "builders/inference-model-server-openvino-xpu",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "ml-backend",
+      "dockerfile": "builders/ml-backend/Dockerfile",
+      "context": "builders/ml-backend",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "ml-backend-custom",
+      "dockerfile": "builders/ml-backend-custom/Dockerfile",
+      "context": "builders/ml-backend-custom",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "nf-runtime",
+      "dockerfile": "kfp-pipelines/docker/Dockerfile.runtime",
+      "context": "kfp-pipelines/docker",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": []
+    },
+    {
+      "name": "prediction-jupyter-base",
+      "dockerfile": "builders/notebook-base/Dockerfile",
+      "context": "builders/notebook-base",
+      "platforms": ["linux/amd64"],
+      "dependencies": [],
+      "version": "py3.12"
+    },
+    {
+      "name": "train-evaluator",
+      "dockerfile": "builders/evaluator/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": ["nf-runtime"]
+    },
+    {
+      "name": "train-evaluator-xpu",
+      "dockerfile": "builders/evaluator-xpu/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": ["trainer-xpu-base"]
+    },
+    {
+      "name": "train-optimizer",
+      "dockerfile": "builders/optimizer/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": ["nf-runtime"]
+    },
+    {
+      "name": "trainer-convert",
+      "dockerfile": "kfp-pipelines/docker/Dockerfile.convert",
+      "context": "kfp-pipelines/docker",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-convert-pp",
+      "dockerfile": "kfp-pipelines/docker/Dockerfile.convert-pp",
+      "context": "kfp-pipelines/docker",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-convert-tf",
+      "dockerfile": "kfp-pipelines/docker/Dockerfile.convert-tf",
+      "context": "kfp-pipelines/docker",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-llm-cu",
+      "dockerfile": "builders/trainer-llm-cu/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-llm-rocm",
+      "dockerfile": "builders/trainer-llm-rocm/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-llm-xpu",
+      "dockerfile": "builders/trainer-llm-xpu/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": ["trainer-xpu-base"]
+    },
+    {
+      "name": "trainer-paddle-cpu",
+      "dockerfile": "builders/trainer-paddle/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-paddle-cu",
+      "dockerfile": "builders/trainer-paddle/Dockerfile.cu",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-torch-cpu",
+      "dockerfile": "builders/trainer-torch/Dockerfile",
+      "context": "builders",
+      "platforms": ["linux/amd64", "linux/arm64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-torch-cu",
+      "dockerfile": "builders/trainer-torch/Dockerfile.cu",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-torch-rocm",
+      "dockerfile": "builders/trainer-torch/Dockerfile.rocm",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    },
+    {
+      "name": "trainer-torch-xpu",
+      "dockerfile": "builders/trainer-torch/Dockerfile.xpu",
+      "context": "builders",
+      "platforms": ["linux/amd64"],
+      "dependencies": ["trainer-xpu-base"]
+    },
+    {
+      "name": "trainer-xpu-base",
+      "dockerfile": "builders/trainer-xpu/Dockerfile",
+      "context": "builders/trainer-xpu",
+      "platforms": ["linux/amd64"],
+      "dependencies": []
+    }
+  ],
+  "profiles": {
+    "full": [
+      "inference-model-server-openvino-xpu",
+      "ml-backend",
+      "ml-backend-custom",
+      "nf-runtime",
+      "prediction-jupyter-base",
+      "train-evaluator",
+      "train-evaluator-xpu",
+      "train-optimizer",
+      "trainer-convert",
+      "trainer-convert-pp",
+      "trainer-convert-tf",
+      "trainer-llm-cu",
+      "trainer-llm-rocm",
+      "trainer-llm-xpu",
+      "trainer-paddle-cpu",
+      "trainer-paddle-cu",
+      "trainer-torch-cpu",
+      "trainer-torch-cu",
+      "trainer-torch-rocm",
+      "trainer-torch-xpu",
+      "trainer-xpu-base"
+    ],
+    "cpu-xpu": [
+      "inference-model-server-openvino-xpu",
+      "ml-backend",
+      "ml-backend-custom",
+      "nf-runtime",
+      "prediction-jupyter-base",
+      "train-evaluator",
+      "train-evaluator-xpu",
+      "train-optimizer",
+      "trainer-convert",
+      "trainer-convert-pp",
+      "trainer-convert-tf",
+      "trainer-llm-xpu",
+      "trainer-paddle-cpu",
+      "trainer-torch-cpu",
+      "trainer-torch-xpu",
+      "trainer-xpu-base"
+    ]
+  }
+}

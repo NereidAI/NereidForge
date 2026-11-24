@@ -49,8 +49,9 @@
 #     ml-pipeline-nf AuthorizationPolicy (pit 126).
 #
 # To use: source config.sh first, provide POD_CIDR and SERVICE_CIDR for the
-# non-meshed NF authorization rules, and provide DEX_STATIC_PASSWORD_HASH for
-# the temporary Dex Secret render. Then run:
+# non-meshed NF authorization rules, retain the fixed DEX_STATIC_EMAIL, and
+# provide the matching bcrypt DEX_STATIC_PASSWORD_HASH for the temporary Dex
+# Secret render. Then run:
 #   bash deploy/pre-nereidforge/scripts/30_install-kubeflow.sh
 # All output is printed to stdout (capture via your orchestrator, e.g. tee -a $LOG).
 
@@ -61,8 +62,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PRE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$PRE_ROOT/scripts/lib/common.sh"
 source "$PRE_ROOT/scripts/lib/config.sh"
-validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_PASSWORD_HASH || exit 1
+validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_EMAIL DEX_STATIC_PASSWORD_HASH || exit 1
 check_cmd envsubst python3 || exit 1
+if [[ "$DEX_STATIC_EMAIL" != "admin@nereidforge.local" ]]; then
+    log_err "DEX_STATIC_EMAIL must remain admin@nereidforge.local because the vendored Dex, Profile, and RBAC manifests use that identity"
+    exit 1
+fi
+if [[ ! "$DEX_STATIC_PASSWORD_HASH" =~ ^\$2[aby]\$(0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$ ]]; then
+    log_err "DEX_STATIC_PASSWORD_HASH must be a complete bcrypt hash matching DEX_STATIC_PASSWORD"
+    exit 1
+fi
 # Reuse the identity retained by the SeaweedFS stage instead of accepting a
 # second credential source that could drift during an upgrade.
 load_seaweedfs_s3_credentials secret seaweedfs-s3-credentials secret || exit 1
@@ -148,12 +157,27 @@ W="$MANIFESTS_DIR/.wfp-kubeflow-new"
 KUBECTL="${KUBECTL:-kubectl}"
 
 # ---- build+apply each target in order ----
+apply_diagnostic() {
+    local err="$1"
+    # Rendered targets include Dex and object-store Secret material. Never copy
+    # raw kubectl stderr into the tee'd deployment log: an API rejection or
+    # webhook could echo the rejected manifest. Return only fixed classifications.
+    if grep -qiE 'webhook|no matches for kind|connection refused|timed out|timeout|TLS|EOF|Unable to connect' "$err"; then
+        printf 'API, CRD, or admission webhook is not ready'
+    elif grep -qiE 'forbidden|unauthorized' "$err"; then
+        printf 'Kubernetes authorization failed'
+    else
+        printf 'raw kubectl diagnostic suppressed to protect rendered Secret data'
+    fi
+}
+
 tapply() {
     local name="$1" targets="$2"
     rm -rf "$W"
     mkdir -p "$W"
     # build res string: each target prefixed with "  - ../"
-    local res=$(printf '%s' "$targets" | tr ',' '\n' | sed 's#^#  - ../#')
+    local res
+    res="$(printf '%s' "$targets" | tr ',' '\n' | sed 's#^#  - ../#')"
     # Single-reference scheme (root treaty section 18): manifests keep upstream
     # image refs; air-gapped nodes resolve them through the containerd registry
     # mirror rendered by NereidOverview harbor-sync.sh, path preserved.
@@ -164,34 +188,68 @@ resources:
 $res
 EOF
     log_info "Building kustomize target: $name"
-    # Render first so a single oversized resource (e.g. the ~1MB JobSet CRD)
-    # does not abort the whole apply. Client-side apply stores the config in a
-    # last-applied annotation capped at 262144 bytes; on that limit we retry the
-    # whole target with server-side apply instead of silently dropping the CRD.
-    local rendered err status=0
-    rendered="$(mktemp)"
-    if ! timeout 180 $KUBECTL kustomize "$W" > "$rendered" 2>/dev/null; then
-        log_err "kustomize render failed: $name"
-        rm -f "$rendered"
+    # Render once so retries apply identical bytes. Client-side apply stores the
+    # config in a last-applied annotation capped at 262144 bytes; on that limit
+    # switch the same target to server-side apply instead of dropping its CRD.
+    # A few bounded retries tolerate CRD registration and admission webhooks
+    # still starting, while persistent failures retain a safe diagnostic.
+    local rendered err diagnostic mode=client
+    local attempt=1
+    local max_attempts="${KUBEFLOW_APPLY_ATTEMPTS:-4}"
+    local retry_delay="${KUBEFLOW_APPLY_RETRY_DELAY:-15}"
+    rendered="$(mktemp "$RENDER_WORKDIR/nf-rendered.XXXXXX")"
+    err="$(mktemp "$RENDER_WORKDIR/nf-apply-error.XXXXXX")"
+    if [[ ! "$max_attempts" =~ ^[1-9][0-9]*$ || ! "$retry_delay" =~ ^[0-9]+$ ]]; then
+        log_err "KUBEFLOW_APPLY_ATTEMPTS must be a positive integer and KUBEFLOW_APPLY_RETRY_DELAY a non-negative integer"
+        rm -f "$rendered" "$err"
         return 1
     fi
-    err="$(mktemp)"
-    if $KUBECTL apply -f "$rendered" > /dev/null 2>"$err"; then
-        log_ok "Applied: $name"
-    elif grep -qE "262144|Too long" "$err"; then
-        log_warn "Annotation limit for $name, retrying server-side apply"
-        if $KUBECTL apply --server-side=true --field-manager=wfp --force-conflicts -f "$rendered" > /dev/null 2>"$err"; then
-            log_ok "Applied (server-side): $name"
-        else
-            log_err "server-side apply failed: $name ($(tail -n1 "$err"))"
-            status=1
-        fi
-    else
-        log_err "apply failed: $name ($(tail -n1 "$err"))"
-        status=1
+    if ! timeout 180 $KUBECTL kustomize "$W" > "$rendered" 2>"$err"; then
+        log_err "kustomize render failed: $name (raw diagnostic suppressed to protect rendered Secret data)"
+        rm -f "$rendered" "$err"
+        return 1
     fi
-    rm -f "$rendered" "$err"
-    return "$status"
+    while (( attempt <= max_attempts )); do
+        : > "$err"
+        if [[ "$mode" == server-side ]]; then
+            if $KUBECTL apply --server-side=true --field-manager=wfp --force-conflicts \
+                -f "$rendered" > /dev/null 2>"$err"; then
+                log_ok "Applied (server-side): $name"
+                rm -f "$rendered" "$err"
+                return 0
+            fi
+        else
+            if $KUBECTL apply -f "$rendered" > /dev/null 2>"$err"; then
+                log_ok "Applied: $name"
+                rm -f "$rendered" "$err"
+                return 0
+            fi
+            if grep -qE "262144|Too long" "$err"; then
+                if (( attempt == max_attempts )); then
+                    log_err "apply failed: $name after $max_attempts attempts (annotation limit; server-side retry exceeds the attempt budget)"
+                    rm -f "$rendered" "$err"
+                    return 1
+                fi
+                log_warn "Annotation limit for $name, switching to server-side apply"
+                ((attempt++))
+                mode=server-side
+                continue
+            fi
+        fi
+        diagnostic="$(apply_diagnostic "$err")"
+        if (( attempt == max_attempts )); then
+            if [[ "$mode" == server-side ]]; then
+                log_err "server-side apply failed: $name after $max_attempts attempts ($diagnostic)"
+            else
+                log_err "apply failed: $name after $max_attempts attempts ($diagnostic)"
+            fi
+            rm -f "$rendered" "$err"
+            return 1
+        fi
+        log_warn "Apply attempt $attempt/$max_attempts failed for $name; retrying in ${retry_delay}s: $diagnostic"
+        sleep "$retry_delay"
+        ((attempt++))
+    done
 }
 
 # ordered list: name '|' targets (comma-separated, no spaces around pipe)

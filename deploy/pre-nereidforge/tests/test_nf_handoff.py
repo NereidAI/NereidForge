@@ -234,6 +234,9 @@ class PreflightTest(FakeClusterTest):
                 if [[ "$NF_TEST_MODE" == missing-jwt && "$*" == *NEREIDFORGE_AUTH_JWT_SECRET* ]]; then
                     exit 0
                 fi
+                if [[ "$NF_TEST_MODE" == literal-jsonpath && "$*" == *nereid-internal-ca* && "$*" != *'jsonpath={.data.ca\.crt}'* ]]; then
+                    exit 0
+                fi
                 printf 'ZmFrZQ=='; exit 0
             fi
             exit 0
@@ -269,6 +272,16 @@ class PreflightTest(FakeClusterTest):
             self.assertNotIn(" apply ", f" {arguments} ")
             self.assertNotIn(" create ", f" {arguments} ")
             self.assertNotIn(" patch ", f" {arguments} ")
+
+    def test_dotted_secret_key_is_read_as_a_literal_jsonpath_field(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.prepare_values(root)
+            result = self.run_preflight(root, "literal-jsonpath")
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertIn("preflight passed", result.stdout + result.stderr)
+            arguments = (root / "kubectl.log").read_text(encoding="utf-8")
+            self.assertIn(r"jsonpath={.data.ca\.crt}", arguments)
 
     def test_missing_operator_overlay_fails_before_cluster_access(self):
         with tempfile.TemporaryDirectory() as directory:

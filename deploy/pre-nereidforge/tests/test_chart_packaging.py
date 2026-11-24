@@ -14,7 +14,6 @@ import unittest
 
 
 PRE_ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = PRE_ROOT.parents[1]
 HELM = shutil.which("helm")
 PRE_VERSIONS = {
     "cvat": ("2.73.0", "2.73.0"),
@@ -22,12 +21,6 @@ PRE_VERSIONS = {
     "postgresql": ("0.29.0", "16.4"),
     "seaweedfs": ("3.60.0", "4.34"),
     "valkey": ("1.0.0", "8.0"),
-}
-NF_CHARTS = {
-    "nereidforge-ml-backend",
-    "nereidforge-backend",
-    "nereidforge-frontend",
-    "nereidforge-tenant-check",
 }
 
 
@@ -45,7 +38,7 @@ def metadata(helm, chart):
     return values
 
 
-@unittest.skipUnless(HELM and (REPOSITORY / "scripts" / "03_package-charts.sh").is_file(), "requires Helm and a combined checkout")
+@unittest.skipUnless(HELM, "requires Helm")
 class ChartPackagingTests(unittest.TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory(prefix="chart-packaging-tests-")
@@ -83,65 +76,6 @@ class ChartPackagingTests(unittest.TestCase):
             timeout=120,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_root_packages_exactly_four_versioned_nf_charts(self):
-        output = self.base / "nf"
-        archive = self.base / "nf.tar.gz"
-        sources = {
-            path: hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in (REPOSITORY / "charts").glob("*/Chart.yaml")
-        }
-        self.run_packager(
-            ["bash", "scripts/03_package-charts.sh"],
-            REPOSITORY,
-            {
-                "RELEASE_TAG": "1.2.3",
-                "CHARTS_OUTPUT_DIR": str(output),
-                "CHARTS_ARCHIVE": str(archive),
-            },
-        )
-        packages = sorted(output.glob("*.tgz"))
-        self.assertEqual(len(packages), 4)
-        actual = {metadata(HELM, package)["name"]: metadata(HELM, package) for package in packages}
-        self.assertEqual(set(actual), NF_CHARTS)
-        for chart in actual.values():
-            self.assertEqual(chart["version"], "1.2.3")
-            self.assertEqual(chart["appVersion"], "1.2.3")
-        for path, digest in sources.items():
-            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
-        with tarfile.open(archive, "r:gz") as bundle:
-            self.assertEqual(len([name for name in bundle.getnames() if name.endswith(".tgz")]), 4)
-            self.assertFalse(any(name.startswith("deploy/") for name in bundle.getnames()))
-
-    def test_legacy_offline_bundle_composes_independent_chart_trees(self):
-        offline = self.base / "offline"
-        self.run_packager(
-            ["bash", "scripts/01_prepare-offline/package-charts.sh"],
-            REPOSITORY,
-            {
-                "OFFLINE_DIR": str(offline),
-                "RELEASE_TAG": "1.2.3",
-                "JWT_SECRET": "local-offline-test-only",
-            },
-        )
-        archive = offline / "charts" / "charts-offline.tar.gz"
-        self.assertTrue(archive.is_file())
-        with tarfile.open(archive, "r:gz") as bundle:
-            names = bundle.getnames()
-        nf_definitions = [
-            name for name in names
-            if name.startswith("charts/") and name.count("/") == 2 and name.endswith("/Chart.yaml")
-        ]
-        pre_definitions = [
-            name for name in names
-            if name.startswith("deploy/pre-nereidforge/charts/")
-            and name.count("/") == 4
-            and name.endswith("/Chart.yaml")
-        ]
-        self.assertEqual(len(nf_definitions), 4)
-        self.assertEqual(len(pre_definitions), 5)
-        self.assertEqual({name.split("/")[3] for name in pre_definitions}, set(PRE_VERSIONS))
-        self.assertFalse(any(name.startswith("infra/charts/kubeflow") for name in names))
 
     def package_pre(self, channel, version=None):
         output = self.base / channel

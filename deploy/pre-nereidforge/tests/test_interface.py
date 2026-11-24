@@ -64,7 +64,7 @@ class PreInterfaceTests(unittest.TestCase):
             "SEAWEEDFS_S3_ACCESS_KEY": "",
             "SEAWEEDFS_S3_SECRET_KEY": "",
             "LABEL_STUDIO_STORAGE": "20Gi",
-            "DEX_STATIC_EMAIL": "",
+            "DEX_STATIC_EMAIL": "admin@nereidforge.local",
             "DEX_STATIC_PASSWORD": "",
             "DEX_STATIC_PASSWORD_HASH": "",
             "POD_CIDR": "10.42.0.0/16",
@@ -95,49 +95,6 @@ class PreInterfaceTests(unittest.TestCase):
         )
         self.assertEqual(result.stdout, "")
         self.assertNotIn("JWT", result.stderr)
-
-    def test_full_stack_site_and_handoff_paths_remain_compatible(self):
-        with tempfile.TemporaryDirectory() as directory:
-            values = Path(directory) / "values"
-            handoff = Path(directory) / "handoff"
-            site = Path(directory) / "root-site.env"
-            offline = Path(directory) / "offline"
-            site.write_text("BASE_DOMAIN=full-stack.example.test\n")
-            result = self.source_config(
-                {
-                    "PRE_ENV_FILE": "",
-                    "NF_ENV_FILE": str(site),
-                    "DEPLOY_VALUES_DIR": str(values),
-                    "PRE_HANDOFF_DIR": "",
-                    "NF_HANDOFF_DIR": str(handoff),
-                    "OFFLINE_DIR": str(offline),
-                },
-                script='export_all; printf "%s\\n%s\\n%s\\n%s\\n%s" "$PRE_ENV_FILE" "$NF_ENV_FILE" "$PRE_HANDOFF_DIR" "$NF_HANDOFF_DIR" "$OFFLINE_DIR"',
-            )
-        self.assertEqual(
-            result.stdout.splitlines(),
-            [str(site), str(site), str(handoff), str(handoff), str(offline)],
-        )
-
-    def test_root_full_stack_entry_points_still_address_pre_scripts(self):
-        repository = PRE_ROOT.parents[1]
-        if not (repository / "scripts" / "00_deploy-all.sh").is_file():
-            self.skipTest("full-stack compatibility is available only in a combined checkout")
-        deploy_all = (repository / "scripts" / "00_deploy-all.sh").read_text()
-        verify = (repository / "scripts" / "60_verify.sh").read_text()
-        for relative in (
-            "deploy/pre-nereidforge/scripts/10_infra.sh",
-            "deploy/pre-nereidforge/scripts/30_install-kubeflow.sh",
-        ):
-            self.assertIn(relative, deploy_all)
-            self.assertTrue((repository / relative).is_file())
-        for relative in (
-            "deploy/pre-nereidforge/scripts/60_verify/infra-check.sh",
-            "deploy/pre-nereidforge/scripts/60_verify/kubeflow-check.sh",
-            "deploy/pre-nereidforge/scripts/60_verify/mr-check.sh",
-        ):
-            self.assertIn(relative, verify)
-            self.assertTrue((repository / relative).is_file())
 
     def test_no_pre_script_sources_root_libraries_or_uses_root_paths(self):
         forbidden = {

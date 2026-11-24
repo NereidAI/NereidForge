@@ -9,13 +9,11 @@ on:
   pull_request:
     paths:
       - 'deploy/pre-nereidforge/**'
-      - 'scripts/lib/common.sh'
       - '.github/workflows/pre-*.yml'
   push:
     branches: [main]
     paths:
       - 'deploy/pre-nereidforge/**'
-      - 'scripts/lib/common.sh'
       - '.github/workflows/pre-*.yml'
   workflow_dispatch:
 

@@ -48,10 +48,13 @@ require_resource() {
 require_secret_keys() {
     local namespace="$1" name="$2"
     shift 2
-    local key value
+    local key jsonpath_key value
     for key in "$@"; do
+        # Secret keys such as ca.crt are literal field names. Without escaping,
+        # JSONPath treats the dot as traversal and falsely reports an empty key.
+        jsonpath_key="${key//./\\.}"
         if ! value="$("$KUBECTL" get secret "$name" -n "$namespace" \
-            -o "jsonpath={.data.$key}" 2>/dev/null)" || [[ -z "$value" ]]; then
+            -o "jsonpath={.data.$jsonpath_key}" 2>/dev/null)" || [[ -z "$value" ]]; then
             log_err "Missing required Secret key: $namespace/$name [$key]"
             return 1
         fi
