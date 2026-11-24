@@ -73,12 +73,9 @@ COPY trainer-torch/common.py trainer-torch/dataset.py trainer-torch/models.py \
      trainer-torch/metrics.py trainer-torch/train.py trainer-torch/evaluate.py \
      trainer-torch/export.py trainer-torch/catalog.py trainer-torch/nf_profile.py \
      trainer-torch/trainer-profile.json /app/
-# Pre-baked torchvision COCO weights: the upstream download host is slow
-# (~35 kB/s) or unreachable in regional/offline sites, and run-time
-# downloads hang pod startup.
-# Filenames carry the torchvision sha256 prefix; load_state_dict_from_url()
-# verifies them and skips the download when present.
-COPY trainer-torch/cache/torch/hub/checkpoints/ /root/.cache/torch/hub/checkpoints/
+# No third-party weights are baked in (ADR-014): base_weights_uri (S3) or the
+# explicit pretrained configuration resolves them at runtime. In particular,
+# never COPY the ignored developer-local trainer-torch/cache/ directory.
 WORKDIR /app
 
 ENTRYPOINT ["sh", "-c", "case \"${SCRIPT:-train}\" in evaluate) exec python /app/evaluate.py;; export) exec python /app/export.py;; catalog) exec python /app/catalog.py;; profile) exec python /app/nf_profile.py;; *) exec python /app/train.py;; esac"]

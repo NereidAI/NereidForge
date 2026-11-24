@@ -236,6 +236,39 @@ class DevelopmentPublicationTest(unittest.TestCase):
             self.assertIn("annotations: ${{ steps.stamp.outputs.annotations }}", job)
             self.assertNotIn("index,manifest:org.opencontainers", job)
 
+    def test_xpu_dockerfile_copy_sources_are_present_in_clean_checkout(self):
+        """A scratch build checks COPY inputs without pulling or installing dependencies."""
+        if not shutil.which("docker"):
+            self.skipTest("docker with buildx is required for the build-context check")
+        available = subprocess.run(
+            ["docker", "buildx", "version"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if available.returncode != 0:
+            self.skipTest("docker with buildx is required for the build-context check")
+
+        source = (ROOT / "builders/trainer-torch/Dockerfile.xpu").read_text(encoding="utf-8")
+        copies = re.findall(r"(?ms)^COPY[ \t]+.*?(?=^[A-Z#]|\Z)", source)
+        self.assertTrue(copies)
+        with tempfile.TemporaryDirectory() as directory:
+            dockerfile = Path(directory) / "Dockerfile.copy-context"
+            dockerfile.write_text("FROM scratch\n" + "".join(copies), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "docker", "buildx", "build", "--file", str(dockerfile),
+                    "--progress=plain", "builders",
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                timeout=60,
+                check=False,
+            )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def test_cuda_build_checks_do_not_require_a_gpu_on_the_runner(self):
         for relative_path in (
             "builders/trainer-torch/Dockerfile.cu",
