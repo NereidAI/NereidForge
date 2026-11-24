@@ -189,6 +189,24 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn('"paddlepaddle-gpu==3.3.1"', text)
         self.assertNotIn("PADDLE_GPU_WHEEL", text)
 
+    def test_paddle_cuda_build_uses_compat_driver_only_during_builds(self):
+        text = (ROOT / "builders/trainer-paddle/Dockerfile.cu").read_text(encoding="utf-8")
+        compat = 'export LD_LIBRARY_PATH="/usr/local/cuda/compat${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}";'
+        self.assertGreaterEqual(text.count(compat), 3)
+        self.assertNotIn("ENV LD_LIBRARY_PATH=/usr/local/cuda/compat", text)
+        self.assertIn("pip uninstall -y torch torchvision torchaudio torchelastic triton", text)
+        self.assertEqual(text.count("pip check"), 2)
+        self.assertIn("rm -rf /opt/nf-trainer-sdk && pip check", text)
+        self.assertIn('repo_dir="$(python -c', text)
+        self.assertIn('os.path.dirname(paddlex.__file__),"repo_manager","repos"', text)
+        self.assertNotIn("mkdir -p /usr/local/lib/python3.11/site-packages/paddlex/repo_manager/repos", text)
+        opencv = '"opencv-python==4.5.5.64"'
+        opencv_contrib = '"opencv-contrib-python==4.10.0.84"'
+        self.assertIn(opencv, text)
+        self.assertIn(opencv_contrib, text)
+        self.assertLess(text.index(opencv), text.index(opencv_contrib))
+        self.assertIn('hasattr(cv2, "ximgproc")', text)
+
     def prepare_rocm_storage(self, root_source, temporary_source, available_kb, strict_findmnt=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
