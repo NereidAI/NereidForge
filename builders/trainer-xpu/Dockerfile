@@ -26,11 +26,14 @@ LABEL license='SPDX-License-Identifier: Apache-2.0' \
 COPY LICENSE NOTICE /licenses/
 
 ENV DEBIAN_FRONTEND=noninteractive
-# Prebuilt torch XPU wheels + Intel userspace stack are pinned on the build host.
+# Prebuilt torch XPU wheels + Intel userspace stack use a pinned build contract;
+# an unversioned install can silently select a newer upstream torch and break
+# every dependent image with a different compatibility constraint.
 # Generic network endpoints use pristine upstream defaults when empty. The
 # specialized XPU index is mandatory because generic PyPI torch is not an XPU
 # build; callers inject its official or mirrored endpoint at build time.
 ARG TORCH_XPU_INDEX=""
+ARG TORCH_VERSION=2.14.0
 ARG PYPI_INDEX=""
 ARG PIP_TRUSTED_HOST=""
 
@@ -73,9 +76,11 @@ RUN if [ -z "$TORCH_XPU_INDEX" ]; then \
     fi; \
     /opt/xpu/bin/pip install --no-cache-dir --timeout 120 --retries 10 \
         --index-url "${TORCH_XPU_INDEX}" ${PYPI_INDEX:+--extra-index-url "${PYPI_INDEX}"} \
-        torch \
-    && /opt/xpu/bin/python -c "import torch; \
-        assert '+xpu' in torch.__version__, torch.__version__; \
+        "torch==${TORCH_VERSION}+xpu" \
+    && /opt/xpu/bin/python -c "import importlib.metadata, torch; \
+        expected = '${TORCH_VERSION}+xpu'; \
+        assert torch.__version__ == expected, torch.__version__; \
+        assert importlib.metadata.version('torch') == expected, importlib.metadata.version('torch'); \
         print('XPU torch verified:', torch.__version__)"
 
 # Toolchain + Level Zero headers: triton-XPU JIT-compiles kernels at *runtime*
