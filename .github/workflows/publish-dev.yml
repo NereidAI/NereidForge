@@ -2,8 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Complete NereidForge development snapshot (root treaty §19.5). An explicit
-# manual dispatch on main publishes all 23 NF-owned images and exactly four NF
-# charts with immutable 0.0.0-dev-<short-sha> identities. The floating 0.0.0-dev
+# manual dispatch on main publishes exactly four NF charts and either all 23
+# NF-owned images (full) or 18 core/CPU/Intel-XPU images without AMD/NVIDIA
+# trainers (cpu-xpu), using
+# immutable 0.0.0-dev-<short-sha> identities. The floating 0.0.0-dev
 # tags are aliases of those verified manifests; no GitHub Release or formal
 # version is created. The independent pre-nereidforge-publish-dev workflow owns
 # the five supporting charts and the pre installer.
@@ -21,6 +23,15 @@ name: publish-dev
 
 on:
   workflow_dispatch:
+    inputs:
+      image_profile:
+        description: Image set to publish and anonymously verify before charts
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - cpu-xpu
 
 permissions:
   contents: read
@@ -39,6 +50,9 @@ jobs:
     outputs:
       immutable: ${{ steps.ver.outputs.immutable }}
       floating: ${{ steps.ver.outputs.floating }}
+      image_profile: ${{ steps.ver.outputs.image_profile }}
+      expected_count: ${{ steps.ver.outputs.expected_count }}
+      selected: ${{ steps.inventory.outputs.selected }}
       existing: ${{ steps.inventory.outputs.existing }}
     steps:
       - uses: actions/checkout@v7
@@ -47,13 +61,22 @@ jobs:
           version: 1.4.0
       - id: ver
         name: Derive immutable development identity
+        env:
+          IMAGE_PROFILE: ${{ inputs.image_profile }}
         run: |
           set -euo pipefail
           test "$GITHUB_EVENT_NAME" = workflow_dispatch
           test "$GITHUB_REF_TYPE" = branch
           test "$GITHUB_REF_NAME" = main
+          case "$IMAGE_PROFILE" in
+            full) expected_count=23 ;;
+            cpu-xpu) expected_count=18 ;;
+            *) echo "::error::Unsupported image profile: $IMAGE_PROFILE"; exit 2 ;;
+          esac
           echo "immutable=0.0.0-dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           echo "floating=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          echo "image_profile=$IMAGE_PROFILE" >> "$GITHUB_OUTPUT"
+          echo "expected_count=$expected_count" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR with isolated publisher configuration
         env:
           GHCR_USERNAME: ${{ github.actor }}
@@ -70,6 +93,8 @@ jobs:
         env:
           IMMUTABLE: ${{ steps.ver.outputs.immutable }}
           EXPECTED_REVISION: ${{ github.sha }}
+          IMAGE_PROFILE: ${{ steps.ver.outputs.image_profile }}
+          EXPECTED_COUNT: ${{ steps.ver.outputs.expected_count }}
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
         run: |
           set -euo pipefail
@@ -78,11 +103,16 @@ jobs:
             inference-model-server-openvino-xpu ml-backend ml-backend-custom
             nereidforge-backend nereidforge-frontend nf-runtime prediction-jupyter-base
             train-evaluator train-evaluator-xpu train-optimizer trainer-convert
-            trainer-convert-pp trainer-convert-tf trainer-llm-cu trainer-llm-rocm
-            trainer-llm-xpu trainer-paddle-cpu trainer-paddle-cu trainer-torch-cpu
-            trainer-torch-cu trainer-torch-rocm trainer-torch-xpu trainer-xpu-base
+            trainer-convert-pp trainer-convert-tf trainer-llm-xpu trainer-paddle-cpu
+            trainer-torch-cpu trainer-torch-xpu trainer-xpu-base
           )
-          test "${#images[@]}" -eq 23
+          if [[ "$IMAGE_PROFILE" == full ]]; then
+            images+=(
+              trainer-llm-cu trainer-llm-rocm trainer-paddle-cu
+              trainer-torch-cu trainer-torch-rocm
+            )
+          fi
+          test "${#images[@]}" -eq "$EXPECTED_COUNT"
           existing=()
           for name in "${images[@]}"; do
             reference="ghcr.io/nereidai/${name}:${IMMUTABLE}"
@@ -124,6 +154,14 @@ jobs:
           PY
           )"
           echo "existing=$existing_json" >> "$GITHUB_OUTPUT"
+          selected_json="$(python3 - "${images[@]}" <<'PY'
+          import json
+          import sys
+          print(json.dumps(sys.argv[1:], separators=(",", ":")))
+          PY
+          )"
+          echo "selected=$selected_json" >> "$GITHUB_OUTPUT"
+          echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); charts remain gated on every selected image"
 
   publish-base:
     name: Publish ${{ matrix.name }} immutable dev image
@@ -247,6 +285,9 @@ jobs:
               BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
     steps:
       - uses: actions/checkout@v7
+      - name: Record an image excluded by the selected hardware profile
+        if: ${{ !contains(fromJSON(needs.preflight.outputs.selected), matrix.name) }}
+        run: echo "${{ matrix.name }} is excluded by the ${{ needs.preflight.outputs.image_profile }} profile; it will not be built or aliased"
       - id: stamp
         name: Derive immutable build arguments and valid annotation levels
         env:
@@ -260,7 +301,7 @@ jobs:
                       /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
           df -h / /mnt
       - name: Prepare ROCm BuildKit storage
-        if: matrix.name == 'trainer-torch-rocm'
+        if: matrix.name == 'trainer-torch-rocm' && contains(fromJSON(needs.preflight.outputs.selected), matrix.name)
         run: bash scripts/prepare-rocm-buildkit-storage.sh
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
@@ -271,7 +312,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build missing immutable image without moving the floating alias
-        if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
+        if: ${{ contains(fromJSON(needs.preflight.outputs.selected), matrix.name) && !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -329,6 +370,9 @@ jobs:
               HF_ENDPOINT=${{ vars.HF_ENDPOINT }}
     steps:
       - uses: actions/checkout@v7
+      - name: Record an image excluded by the selected hardware profile
+        if: ${{ !contains(fromJSON(needs.preflight.outputs.selected), matrix.name) }}
+        run: echo "${{ matrix.name }} is excluded by the ${{ needs.preflight.outputs.image_profile }} profile; it will not be built or aliased"
       - id: stamp
         name: Derive immutable build arguments and valid annotation levels
         env:
@@ -350,7 +394,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build missing immutable image without moving the floating alias
-        if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
+        if: ${{ contains(fromJSON(needs.preflight.outputs.selected), matrix.name) && !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
         uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
@@ -366,7 +410,7 @@ jobs:
           tags: ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}
 
   alias-images:
-    name: Anonymously verify 23 images and move floating aliases
+    name: Anonymously verify selected images and move floating aliases
     needs: [preflight, publish-base, publish-dependent]
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -381,6 +425,8 @@ jobs:
         env:
           IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
           EXPECTED_REVISION: ${{ github.sha }}
+          IMAGE_PROFILE: ${{ needs.preflight.outputs.image_profile }}
+          EXPECTED_COUNT: ${{ needs.preflight.outputs.expected_count }}
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
           DIGEST_FILE: ${{ runner.temp }}/dev-image-digests.json
         run: |
@@ -392,22 +438,27 @@ jobs:
           from pathlib import Path
           import subprocess
 
+          profile = os.environ["IMAGE_PROFILE"]
+          expected_count = int(os.environ["EXPECTED_COUNT"])
           images = [
               "inference-model-server-openvino-xpu", "ml-backend", "ml-backend-custom",
               "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
               "prediction-jupyter-base", "train-evaluator", "train-evaluator-xpu",
               "train-optimizer", "trainer-convert", "trainer-convert-pp",
-              "trainer-convert-tf", "trainer-llm-cu", "trainer-llm-rocm",
-              "trainer-llm-xpu", "trainer-paddle-cpu", "trainer-paddle-cu",
-              "trainer-torch-cpu", "trainer-torch-cu", "trainer-torch-rocm",
-              "trainer-torch-xpu", "trainer-xpu-base",
+              "trainer-convert-tf", "trainer-llm-xpu", "trainer-paddle-cpu",
+              "trainer-torch-cpu", "trainer-torch-xpu", "trainer-xpu-base",
           ]
+          if profile == "full":
+              images += [
+                  "trainer-llm-cu", "trainer-llm-rocm", "trainer-paddle-cu",
+                  "trainer-torch-cu", "trainer-torch-rocm",
+              ]
           multi_arch = {
               "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
               "trainer-torch-cpu", "trainer-convert", "trainer-convert-tf",
               "train-optimizer", "train-evaluator",
           }
-          assert len(images) == 23 and len(set(images)) == 23
+          assert len(images) == expected_count and len(set(images)) == expected_count
           immutable = os.environ["IMMUTABLE"]
           revision = os.environ["EXPECTED_REVISION"]
           config = os.environ["ORAS_REGISTRY_CONFIG"]
@@ -467,10 +518,12 @@ jobs:
             oras tag --registry-config "$ORAS_REGISTRY_CONFIG" \
               "${repository}@${digest}" "$FLOATING"
           done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' "$DIGEST_FILE")
-      - name: Anonymously verify all 23 floating aliases against immutable digests
+      - name: Anonymously verify selected floating aliases against immutable digests
         env:
           IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
           FLOATING: ${{ needs.preflight.outputs.floating }}
+          IMAGE_PROFILE: ${{ needs.preflight.outputs.image_profile }}
+          EXPECTED_COUNT: ${{ needs.preflight.outputs.expected_count }}
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
           DIGEST_FILE: ${{ runner.temp }}/dev-image-digests.json
         run: |
@@ -482,13 +535,15 @@ jobs:
           import subprocess
 
           digests = json.loads(Path(os.environ["DIGEST_FILE"]).read_text())
-          assert len(digests) == 23
+          assert len(digests) == int(os.environ["EXPECTED_COUNT"])
           config = os.environ["ORAS_REGISTRY_CONFIG"]
           immutable = os.environ["IMMUTABLE"]
           floating = os.environ["FLOATING"]
+          profile = os.environ["IMAGE_PROFILE"]
           lines = [
               "# Copyright (C) 2026 YIQISOFT",
               "# SPDX-License-Identifier: Apache-2.0",
+              f"# Image profile: {profile}",
               "# Immutable image | floating image | shared OCI manifest digest",
           ]
           for name, immutable_digest in sorted(digests.items()):
@@ -504,8 +559,8 @@ jobs:
           manifest = "\n".join(lines) + "\n"
           Path(os.environ["RUNNER_TEMP"], f"nereidforge-dev-images-{immutable}.txt").write_text(manifest)
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-              summary.write(f"## NF development images {immutable}\n\n")
-              summary.write("All 23 immutable images and floating aliases passed anonymous digest verification.\n\n")
+              summary.write(f"## NF development images {immutable} ({profile})\n\n")
+              summary.write(f"All {len(digests)} selected immutable images and floating aliases passed anonymous digest verification.\n\n")
               summary.write("```text\n" + manifest + "```\n")
           PY
 

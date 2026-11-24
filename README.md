@@ -77,23 +77,36 @@ configuration; no shared development secret is supplied.
 
 ### Development OCI publication
 
-The complete NF development snapshot contains 23 images and exactly four OCI
-Helm charts. It is published only by explicitly dispatching `publish-dev` on
-`main`; pushes, merges, and pull requests never start this workflow. The full
-publication matrix is never a pull-request check. Dispatch a run only when a
-complete snapshot is intended:
+A complete NF development snapshot contains exactly four OCI Helm charts and
+one of two explicitly selected image profiles. `full` contains all 23 images.
+`cpu-xpu` contains 18 core/CPU/Intel-XPU images and excludes only the five
+AMD/NVIDIA trainer images (`trainer-torch-cu`, `trainer-paddle-cu`,
+`trainer-llm-cu`, `trainer-torch-rocm`, and `trainer-llm-rocm`). Intel XPU
+images remain required in that profile. Publication occurs only by explicitly
+dispatching `publish-dev` on `main`; pushes, merges, and pull requests never
+start this workflow. The publication matrix is never a pull-request check.
+Dispatch a run only when a complete selected-profile snapshot is intended:
 
 ```bash
-gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main
+# Full 23-image snapshot (the default).
+gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
+  -f image_profile=full
+
+# 18-image core/CPU/Intel-XPU snapshot without AMD/NVIDIA trainers.
+gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
+  -f image_profile=cpu-xpu
 ```
 
 Each run uses immutable `0.0.0-dev-<short-sha>` identities and floating
 `0.0.0-dev` aliases. Same-commit immutable artifacts are anonymously verified
-and reused without overwrite. New immutable images must all pass anonymous
-revision verification before any floating alias moves or chart publication
-starts. Registry failures and source-revision collisions fail closed. Repeating
-a manual dispatch for the same commit resumes missing artifacts without
-rewriting existing ones; no formal release is created.
+and reused without overwrite. Every image selected by the run's profile must
+pass anonymous revision verification before any selected floating alias moves
+or chart publication starts. The run summary records the profile and all 23 or
+18 verified digests. Excluded AMD/NVIDIA aliases are not part of a `cpu-xpu`
+snapshot and must not be treated as evidence for that snapshot. Registry
+failures and source-revision collisions fail closed. Repeating a manual dispatch
+for the same commit and profile resumes missing artifacts without rewriting
+existing ones; no formal release is created.
 
 ## Deployment
 
@@ -152,13 +165,14 @@ publishes an OCI installer artifact and all five charts with floating
 `0.0.0-dev` and immutable `0.0.0-dev-<short-sha>` identities. Floating tags are
 aliases of the immutable manifests; no moving GitHub Release is created.
 
-The separate NF development workflow publishes one complete snapshot of all 23
-NF-owned images and exactly four charts with the same floating/immutable
-identity contract. Image builds never overwrite an existing immutable tag and
-push no floating tag. All 23 immutable manifests must pass anonymous source-
-revision verification before their floating aliases move; chart publication
-starts only after that gate. Same-commit reruns reuse verified artifacts, and
-repackaged charts are byte-identical. No formal NF release is required.
+The separate NF development workflow publishes one complete selected-profile
+snapshot of 23 `full` images or 18 `cpu-xpu` images and exactly four charts with
+the same floating/immutable identity contract. Image builds never overwrite an
+existing immutable tag and push no floating tag. Every selected immutable
+manifest must pass anonymous source-revision verification before its floating
+alias moves; chart publication starts only after that gate. Same-commit reruns
+reuse verified artifacts, and repackaged charts are byte-identical. No formal NF
+release is required.
 
 `make installer-package` and `scripts/04_package-installer.sh` remain as a
 **deprecated local-only compatibility interface** for existing full-stack

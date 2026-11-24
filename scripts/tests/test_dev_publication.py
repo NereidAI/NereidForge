@@ -16,6 +16,13 @@ ROOT = Path(__file__).parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "publish-dev.yml"
 STAMP_SCRIPT_PATH = ROOT / "scripts" / "stamp-dev-image.sh"
 ROCM_STORAGE_SCRIPT_PATH = ROOT / "scripts" / "prepare-rocm-buildkit-storage.sh"
+AMD_NVIDIA_IMAGES = {
+    "trainer-llm-cu",
+    "trainer-llm-rocm",
+    "trainer-paddle-cu",
+    "trainer-torch-cu",
+    "trainer-torch-rocm",
+}
 EXPECTED_IMAGES = {
     "inference-model-server-openvino-xpu",
     "ml-backend",
@@ -75,7 +82,11 @@ class DevelopmentPublicationTest(unittest.TestCase):
     def test_complete_publication_requires_manual_dispatch_on_main(self):
         trigger = re.search(r"(?ms)^on:\n(.*?)(?=^permissions:\n)", self.text)
         self.assertIsNotNone(trigger)
-        self.assertEqual(trigger.group(1), "  workflow_dispatch:\n\n")
+        self.assertIn("  workflow_dispatch:\n", trigger.group(1))
+        self.assertIn("      image_profile:\n", trigger.group(1))
+        self.assertIn("        default: full\n", trigger.group(1))
+        self.assertIn("          - full\n", trigger.group(1))
+        self.assertIn("          - cpu-xpu\n", trigger.group(1))
         self.assertNotIn("  path-scope:\n", self.text)
         self.assertNotIn("github.event.before", self.text)
 
@@ -100,6 +111,58 @@ class DevelopmentPublicationTest(unittest.TestCase):
             },
         )
 
+    def test_cpu_xpu_profile_selects_18_images_and_excludes_only_amd_nvidia_variants(self):
+        self.assertEqual(len(EXPECTED_IMAGES - AMD_NVIDIA_IMAGES), 18)
+        preflight = job_block(self.text, "preflight")
+        self.assertIn('case "$IMAGE_PROFILE" in', preflight)
+        self.assertIn('full) expected_count=23', preflight)
+        self.assertIn('cpu-xpu) expected_count=18', preflight)
+        self.assertIn('if [[ "$IMAGE_PROFILE" == full ]]; then', preflight)
+        for name in AMD_NVIDIA_IMAGES:
+            self.assertIn(name, preflight)
+        self.assertIn('test "${#images[@]}" -eq "$EXPECTED_COUNT"', preflight)
+        self.assertIn('echo "selected=$selected_json" >> "$GITHUB_OUTPUT"', preflight)
+        self.assertIn('echo "expected_count=$expected_count" >> "$GITHUB_OUTPUT"', preflight)
+
+        for job_name in ("publish-base", "publish-dependent"):
+            job = job_block(self.text, job_name)
+            self.assertIn("contains(fromJSON(needs.preflight.outputs.selected), matrix.name)", job)
+        base = job_block(self.text, "publish-base")
+        self.assertIn("if: ${{ !contains(fromJSON(needs.preflight.outputs.selected), matrix.name) }}", base)
+        self.assertIn("if: matrix.name == 'trainer-torch-rocm' && contains(fromJSON(needs.preflight.outputs.selected), matrix.name)", base)
+
+        alias = job_block(self.text, "alias-images")
+        self.assertIn('profile = os.environ["IMAGE_PROFILE"]', alias)
+        self.assertIn('if profile == "full":', alias)
+        self.assertIn('expected_count = int(os.environ["EXPECTED_COUNT"])', alias)
+        self.assertIn('assert len(images) == expected_count', alias)
+        self.assertIn('assert len(digests) == int(os.environ["EXPECTED_COUNT"])', alias)
+        self.assertNotIn("assert len(images) == 23", alias)
+        self.assertNotIn("assert len(digests) == 23", alias)
+        self.assertNotIn("All 23 immutable images", alias)
+
+        shell_base = re.search(r"(?ms)^          images=\(\n(.*?)^          \)", preflight)
+        shell_extra = re.search(r"(?ms)^            images\+=\(\n(.*?)^            \)", preflight)
+        python_base = re.search(r"(?ms)^          images = \[\n(.*?)^          \]", alias)
+        python_extra = re.search(r"(?ms)^              images \+= \[\n(.*?)^              \]", alias)
+        for match in (shell_base, shell_extra, python_base, python_extra):
+            self.assertIsNotNone(match)
+        shell_names = lambda match: set(re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)+", match.group(1)))
+        python_names = lambda match: set(re.findall(r'"([a-z0-9-]+)"', match.group(1)))
+        expected_selected = EXPECTED_IMAGES - AMD_NVIDIA_IMAGES
+        self.assertEqual(shell_names(shell_base), expected_selected)
+        self.assertEqual(python_names(python_base), expected_selected)
+        self.assertEqual(shell_names(shell_extra), AMD_NVIDIA_IMAGES)
+        self.assertEqual(python_names(python_extra), AMD_NVIDIA_IMAGES)
+
+    def test_gpu_images_are_not_static_chart_install_dependencies(self):
+        chart_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in (ROOT / "charts").rglob("*.yaml")
+        )
+        for name in AMD_NVIDIA_IMAGES:
+            self.assertNotIn(name, chart_text)
+
     def test_existing_images_are_checked_before_any_build(self):
         preflight = job_block(self.text, "preflight")
         self.assertIn("EXPECTED_REVISION: ${{ github.sha }}", preflight)
@@ -120,7 +183,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         alias = job_block(self.text, "alias-images")
         immutable_index = alias.index("Anonymously verify every immutable image and record its digest")
         alias_index = alias.index("Alias floating tags only to anonymously verified immutable digests")
-        floating_index = alias.index("Anonymously verify all 23 floating aliases against immutable digests")
+        floating_index = alias.index("Anonymously verify selected floating aliases against immutable digests")
         self.assertLess(immutable_index, alias_index)
         self.assertLess(alias_index, floating_index)
         self.assertIn('digest = oras(["resolve"], reference)', alias)

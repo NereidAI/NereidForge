@@ -301,7 +301,9 @@ class PublicationWorkflowTests(unittest.TestCase):
 
     def test_nf_development_publication_requires_manual_main_dispatch(self):
         text = self.read("publish-dev.yml")
-        self.assertIn("on:\n  workflow_dispatch:\n\npermissions:", text)
+        self.assertIn("on:\n  workflow_dispatch:\n    inputs:\n      image_profile:", text)
+        self.assertIn("        default: full\n", text)
+        self.assertIn("          - cpu-xpu\n", text)
         for trigger in ("  push:\n", "  pull_request:\n", "  merge_group:\n"):
             self.assertNotIn(trigger, text)
         self.assertNotIn("path-scope:", text)
@@ -316,12 +318,24 @@ class PublicationWorkflowTests(unittest.TestCase):
                 GITHUB_REF_NAME="main",
                 GITHUB_SHA="0123456789abcdef0123456789abcdef01234567",
                 GITHUB_OUTPUT=str(output),
+                IMAGE_PROFILE="full",
             )
             result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             values = dict(line.split("=", 1) for line in output.read_text().splitlines())
             self.assertEqual(values["immutable"], "0.0.0-dev-0123456")
             self.assertEqual(values["floating"], "0.0.0-dev")
+            self.assertEqual(values["image_profile"], "full")
+            self.assertEqual(values["expected_count"], "23")
+
+            cpu_output = Path(directory) / "cpu-output"
+            env.update(IMAGE_PROFILE="cpu-xpu", GITHUB_OUTPUT=str(cpu_output))
+            result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            cpu_values = dict(line.split("=", 1) for line in cpu_output.read_text().splitlines())
+            self.assertEqual(cpu_values["image_profile"], "cpu-xpu")
+            self.assertEqual(cpu_values["expected_count"], "18")
+            env["IMAGE_PROFILE"] = "full"
 
             invalid = (
                 ("push", "branch", "main"),
