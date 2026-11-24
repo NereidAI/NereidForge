@@ -299,22 +299,55 @@ class PublicationWorkflowTests(unittest.TestCase):
                 self.assertNotIn("registry login", anonymous)
                 self.assertNotIn("oras login", anonymous)
 
-    def test_pre_only_paths_do_not_publish_or_warm_nf_images(self):
+    def test_nf_development_publication_requires_manual_main_dispatch(self):
+        text = self.read("publish-dev.yml")
+        self.assertIn("on:\n  workflow_dispatch:\n\npermissions:", text)
+        for trigger in ("  push:\n", "  pull_request:\n", "  merge_group:\n"):
+            self.assertNotIn(trigger, text)
+        self.assertNotIn("path-scope:", text)
+
+        script = run_block(text, "id: ver")
+        with tempfile.TemporaryDirectory(prefix="nf-dev-manual-") as directory:
+            output = Path(directory) / "output"
+            env = os.environ.copy()
+            env.update(
+                GITHUB_EVENT_NAME="workflow_dispatch",
+                GITHUB_REF_TYPE="branch",
+                GITHUB_REF_NAME="main",
+                GITHUB_SHA="0123456789abcdef0123456789abcdef01234567",
+                GITHUB_OUTPUT=str(output),
+            )
+            result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            values = dict(line.split("=", 1) for line in output.read_text().splitlines())
+            self.assertEqual(values["immutable"], "0.0.0-dev-0123456")
+            self.assertEqual(values["floating"], "0.0.0-dev")
+
+            invalid = (
+                ("push", "branch", "main"),
+                ("workflow_dispatch", "branch", "topic"),
+                ("workflow_dispatch", "tag", "0.0.0-dev"),
+            )
+            for index, (event, ref_type, ref_name) in enumerate(invalid):
+                with self.subTest(event=event, ref_type=ref_type, ref_name=ref_name):
+                    env.update(
+                        GITHUB_EVENT_NAME=event,
+                        GITHUB_REF_TYPE=ref_type,
+                        GITHUB_REF_NAME=ref_name,
+                        GITHUB_OUTPUT=str(Path(directory) / f"invalid-{index}"),
+                    )
+                    result = subprocess.run(["bash", "-c", script], env=env, text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+
+    def test_pre_only_paths_do_not_warm_nf_images(self):
         paths = (
             "deploy/pre-nereidforge/values/cvat.yaml",
             "deploy/pre-nereidforge/scripts/package.sh",
             ".github/workflows/pre-publish.yml",
         )
-        self.execute_scope("publish-dev.yml", paths, {"publish": "false"})
         self.execute_scope("ci.yml", paths, {"applications": "false", "core": "false", "vendor": "false"})
 
-    def test_nf_classifier_publishes_one_complete_fail_safe_snapshot(self):
-        for paths in (
-            ("python-backend/app/main.py",),
-            ("THIRD_PARTY_NOTICES.md",),
-            ("unknown/new-input.txt",),
-        ):
-            self.execute_scope("publish-dev.yml", paths, {"publish": "true"})
+    def test_nf_cache_classifier_selects_expected_scopes_and_fails_safe(self):
         self.execute_scope(
             "ci.yml",
             ("python-backend/app/main.py",),
@@ -323,6 +356,11 @@ class PublicationWorkflowTests(unittest.TestCase):
         self.execute_scope(
             "ci.yml",
             (".github/workflows/publish-images.yml",),
+            {"applications": "true", "core": "true", "vendor": "true"},
+        )
+        self.execute_scope(
+            "ci.yml",
+            ("unknown/new-input.txt",),
             {"applications": "true", "core": "true", "vendor": "true"},
         )
 
