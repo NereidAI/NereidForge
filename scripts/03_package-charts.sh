@@ -7,6 +7,8 @@
 # source Chart.yaml files. Supporting-service charts belong to the independent
 # pre-NereidForge packager. The legacy Kubeflow Helm umbrella is not an active
 # installation path and is deliberately excluded. No upload path exists.
+# Archive metadata is normalized so repackaging one commit is byte-identical,
+# which permits safe immutable-tag reuse on development workflow reruns.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,6 +41,22 @@ CHARTS=(
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
 mkdir -p "$OUTPUT_DIR"
+
+normalize_chart_package() {
+    local archive="$1" name="$2"
+    local tree="$STAGING/normalized/$name"
+    rm -rf "$tree"
+    mkdir -p "$tree"
+    tar -xzf "$archive" -C "$tree"
+    [[ -f "$tree/$name/Chart.yaml" ]] || {
+        echo "Helm package has an unexpected archive layout: $archive" >&2
+        return 1
+    }
+    rm -f "$archive"
+    tar --sort=name --mtime="@${SOURCE_DATE_EPOCH:-0}" --owner=0 --group=0 \
+        --numeric-owner -czf "$archive" -C "$tree" "$name"
+}
+
 # A reused output directory must not reintroduce removed charts into the index
 # or archive. Only generated chart packages are cleaned; unrelated directories
 # and operator files are left alone, and the package archive uses an allowlist.
@@ -96,6 +114,7 @@ for entry in "${CHARTS[@]}"; do
     [[ "$vermode" == "version" ]] && package_args+=(--version "$CHART_VERSION" --app-version "$CHART_VERSION")
     "$HELM" package "${package_args[@]}"
     package_version="$(awk '/^version:/ {print $2; exit}' "$workdir/Chart.yaml" | tr -d '"')"
+    normalize_chart_package "$OUTPUT_DIR/${pubname}-${package_version}.tgz" "$pubname"
     package_files+=("${pubname}-${package_version}.tgz")
 done
 [[ "${#CHARTS[@]}" -eq 4 ]]

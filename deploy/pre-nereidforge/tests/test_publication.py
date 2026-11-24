@@ -305,24 +305,20 @@ class PublicationWorkflowTests(unittest.TestCase):
             "deploy/pre-nereidforge/scripts/package.sh",
             ".github/workflows/pre-publish.yml",
         )
-        self.execute_scope("publish-dev.yml", paths, {"backend": "false", "frontend": "false"})
+        self.execute_scope("publish-dev.yml", paths, {"publish": "false"})
         self.execute_scope("ci.yml", paths, {"applications": "false", "core": "false", "vendor": "false"})
 
-    def test_nf_classifier_preserves_narrow_and_fail_safe_behavior(self):
-        self.execute_scope(
-            "publish-dev.yml",
+    def test_nf_classifier_publishes_one_complete_fail_safe_snapshot(self):
+        for paths in (
             ("python-backend/app/main.py",),
-            {"backend": "true", "frontend": "false"},
-        )
+            ("THIRD_PARTY_NOTICES.md",),
+            ("unknown/new-input.txt",),
+        ):
+            self.execute_scope("publish-dev.yml", paths, {"publish": "true"})
         self.execute_scope(
             "ci.yml",
             ("python-backend/app/main.py",),
             {"applications": "true", "core": "false", "vendor": "false"},
-        )
-        self.execute_scope(
-            "publish-dev.yml",
-            ("unknown/new-input.txt",),
-            {"backend": "true", "frontend": "true"},
         )
         self.execute_scope(
             "ci.yml",

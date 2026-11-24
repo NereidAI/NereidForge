@@ -1,22 +1,22 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Rolling dev channel (root treaty §19.5). Every push to main publishes the
-# two suite application images (backend, frontend) to GHCR with exactly two
-# tags sharing one index digest: the immutable 0.0.0-dev-<short-sha> for
-# traceability/rollback, listed first, and the floating 0.0.0-dev moved to the
-# new HEAD, listed last so GHCR displays it as the primary tag. Pull requests
-# deliberately do not trigger this workflow, so forks cannot publish into the
-# organization namespace. Vendor/trainer/runtime/base images stay
-# release-only in publish-images.yml; the local Makefile remains build-only.
+# Complete NereidForge development snapshot (root treaty §19.5). Relevant main
+# branch changes publish all 23 NF-owned images and exactly four NF charts with
+# immutable 0.0.0-dev-<short-sha> identities. The floating 0.0.0-dev tags are
+# aliases of those verified manifests; no GitHub Release or formal version is
+# created. The independent pre-nereidforge-publish-dev workflow owns the five
+# supporting charts and the pre installer.
 #
-# Path scoping: a plain-git path-scope job gates each publication on the real
-# inputs of its image. Unlike the optional manual cache-warm filter,
-# frontend/public/help/ is NOT excluded here: the help corpus ships inside
-# the frontend image, so a docs-only merge must still publish a fresh frontend dev image while the
-# unchanged backend image is skipped. Pure documentation paths outside image
-# contexts (docs/, root markdown), the self-contained pre module, and pre-only
-# workflows publish no NF image. Unknown/shared NF inputs still fail safe.
+# Image builds push only immutable tags. An existing immutable tag is reused,
+# never overwritten, and its source revision is checked before any build starts.
+# Final anonymous verification rechecks every image before any floating alias
+# moves. Dependent images start only after their base
+# images exist. All immutable images are anonymously verified before the
+# floating aliases move, and charts start only after that image gate succeeds.
+# Re-running an interrupted publication therefore resumes missing artifacts
+# without rewriting existing ones. Registry errors and revision collisions fail
+# closed. Pull requests never trigger publication.
 name: publish-dev
 
 on:
@@ -27,22 +27,18 @@ permissions:
   contents: read
   packages: write
 
-# Never cancel a dev publication: a cancelled run could leave the floating
-# 0.0.0-dev tag pointing at a superseded commit.
 concurrency:
   group: publish-dev-${{ github.ref }}
   cancel-in-progress: false
 
+# Specialized wheel indexes use public upstream defaults in the matrix below;
+# same-named Actions variables may override them with trusted regional mirrors.
 jobs:
-  # path-scope mirrors the manual cache-warm classifier with publication
-  # semantics: the frontend image bundles the help corpus, so frontend
-  # changes always publish the frontend, while backend scoping follows its COPY inputs.
   path-scope:
-    name: Determine changed-path publication scope
+    name: Determine whether NF development artifacts changed
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.scope.outputs.backend }}
-      frontend: ${{ steps.scope.outputs.frontend }}
+      publish: ${{ steps.scope.outputs.publish }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,125 +46,681 @@ jobs:
       - id: scope
         run: |
           set -euo pipefail
-          # publish-dev only fires on main pushes; github.event.before is the
-          # previous main tip (zero sha on the rare first-push case).
           base="${{ github.event.before }}"
           case "$base" in ""|0000000000000000000000000000000000000000) base="HEAD~1" ;; esac
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed ${#changed[@]} path(s) against $base:"
           printf '  %s\n' "${changed[@]}"
-          backend=false; frontend=false; broad=false; docs=0; pre=0
+          publish=false
           for f in "${changed[@]}"; do
             case "$f" in
-              # The self-contained pre module and its workflows never supply
-              # either NF application image build context.
-              deploy/pre-nereidforge/*|.github/workflows/pre-*.yml)
-                pre=$((pre + 1)) ;;
-              .github/workflows/*|scripts/*|\
-              configs/monitoring/*|images-manifest.txt|Makefile|\
-              LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
-                broad=true ;;
-              python-backend/*|kfp-pipelines/*|builders/*|configs/*)
-                backend=true ;;
-              frontend/*)
-                frontend=true ;;
-              docs/*|*.md)
-                docs=$((docs + 1)) ;;
-              # Unknown paths fail safe and publish both images.
+              # This notice is copied into the backend image and must not be
+              # swallowed by the generic root-Markdown exclusion below.
+              THIRD_PARTY_NOTICES.md)
+                publish=true ;;
+              # The self-contained pre module has its own publication channel.
+              deploy/pre-nereidforge/*|.github/workflows/pre-*.yml|docs/*|*.md)
+                ;;
+              # All NF images in a chart share its commit-qualified appVersion,
+              # so any NF input publishes one complete, coherent image snapshot.
+              .github/workflows/*|scripts/*|charts/*|python-backend/*|frontend/*|\
+              kfp-pipelines/*|builders/*|configs/*|images-manifest.txt|Makefile|\
+              LICENSE|NOTICE)
+                publish=true ;;
               *)
-                echo "Uncatalogued path '$f': failing safe to full scope"
-                broad=true ;;
+                echo "Uncatalogued path '$f': failing safe to complete NF publication"
+                publish=true ;;
             esac
           done
-          if "$broad"; then backend=true; frontend=true; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "Complete NF development publication: $publish"
+
+  preflight:
+    name: Derive identity and inventory existing immutable images
+    needs: path-scope
+    if: needs.path-scope.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      immutable: ${{ steps.ver.outputs.immutable }}
+      floating: ${{ steps.ver.outputs.floating }}
+      existing: ${{ steps.inventory.outputs.existing }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.4.0
+      - id: ver
+        name: Derive immutable development identity
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF_TYPE" = branch
+          test "$GITHUB_REF_NAME" = main
+          echo "immutable=0.0.0-dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "floating=0.0.0-dev" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR with isolated publisher configuration
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$ORAS_REGISTRY_CONFIG")"
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
+            --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --username "$GHCR_USERNAME" --password-stdin
+      - id: inventory
+        name: Validate existing immutable tags before any image build
+        env:
+          IMMUTABLE: ${{ steps.ver.outputs.immutable }}
+          EXPECTED_REVISION: ${{ github.sha }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          images=(
+            inference-model-server-openvino-xpu ml-backend ml-backend-custom
+            nereidforge-backend nereidforge-frontend nf-runtime prediction-jupyter-base
+            train-evaluator train-evaluator-xpu train-optimizer trainer-convert
+            trainer-convert-pp trainer-convert-tf trainer-llm-cu trainer-llm-rocm
+            trainer-llm-xpu trainer-paddle-cpu trainer-paddle-cu trainer-torch-cpu
+            trainer-torch-cu trainer-torch-rocm trainer-torch-xpu trainer-xpu-base
+          )
+          test "${#images[@]}" -eq 23
+          existing=()
+          for name in "${images[@]}"; do
+            reference="ghcr.io/nereidai/${name}:${IMMUTABLE}"
+            if pre_oras_resolve "$reference"; then
+              manifest="${RUNNER_TEMP}/preflight-${name}.json"
+              _pre_oras manifest fetch "${reference}@${PRE_ORAS_DIGEST}" > "$manifest"
+              python3 - "$manifest" "$name" "$IMMUTABLE" "$EXPECTED_REVISION" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              annotations = json.load(source).get("annotations", {})
+          name, immutable, revision = sys.argv[2:]
+          actual_revision = annotations.get("org.opencontainers.image.revision")
+          actual_version = annotations.get("org.opencontainers.image.version")
+          if actual_revision != revision or actual_version != immutable:
+              raise SystemExit(
+                  f"immutable collision for {name}:{immutable}: "
+                  f"revision={actual_revision!r}, version={actual_version!r}; "
+                  f"expected revision={revision!r}, version={immutable!r}"
+              )
+          PY
+              echo "Reusing verified source without overwrite: $reference@$PRE_ORAS_DIGEST"
+              existing+=("$name")
+            else
+              status=$?
+              if [[ "$status" -eq 10 ]]; then
+                echo "Will publish missing immutable image: $reference"
+              else
+                echo "::error::Unable to inventory $reference; refusing to treat a registry error as absence"
+                exit 1
+              fi
+            fi
+          done
+          existing_json="$(python3 - "${existing[@]}" <<'PY'
+          import json
+          import sys
+          print(json.dumps(sys.argv[1:], separators=(",", ":")))
+          PY
+          )"
+          echo "existing=$existing_json" >> "$GITHUB_OUTPUT"
+
+  publish-base:
+    name: Publish ${{ matrix.name }} immutable dev image
+    needs: [path-scope, preflight]
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nereidforge-backend
+            context: .
+            file: python-backend/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: ''
+          - name: nereidforge-frontend
+            context: frontend
+            file: frontend/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              VITE_APP_VERSION=@IMMUTABLE@
+              VITE_IMAGE_TAG=@IMMUTABLE@
+          - name: nf-runtime
+            context: kfp-pipelines/docker
+            file: kfp-pipelines/docker/Dockerfile.runtime
+            platforms: linux/amd64,linux/arm64
+            build-args: ''
+          - name: trainer-torch-cpu
+            context: builders
+            file: builders/trainer-torch/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              TORCH_CPU_INDEX=${{ vars.TORCH_CPU_INDEX }}
+          - name: trainer-paddle-cpu
+            context: builders
+            file: builders/trainer-paddle/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              PYTHON_BASE_IMAGE=python:3.11-slim
+          - name: trainer-convert
+            context: kfp-pipelines/docker
+            file: kfp-pipelines/docker/Dockerfile.convert
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              PYTHON_BASE_IMAGE=python:3.14-slim
+              TORCH_CPU_INDEX=${{ vars.TORCH_CPU_INDEX }}
+          - name: trainer-convert-tf
+            context: kfp-pipelines/docker
+            file: kfp-pipelines/docker/Dockerfile.convert-tf
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              PYTHON_BASE_IMAGE=python:3.11-slim
+          - name: trainer-convert-pp
+            context: kfp-pipelines/docker
+            file: kfp-pipelines/docker/Dockerfile.convert-pp
+            platforms: linux/amd64
+            build-args: |
+              PYTHON_BASE_IMAGE=python:3.11-slim
+          - name: inference-model-server-openvino-xpu
+            context: builders/inference-model-server-openvino-xpu
+            file: builders/inference-model-server-openvino-xpu/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=openvino/model_server:2025.1
+          - name: ml-backend
+            context: builders/ml-backend
+            file: builders/ml-backend/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              TORCH_CPU_INDEX=${{ vars.TORCH_CPU_INDEX }}
+          - name: ml-backend-custom
+            context: builders/ml-backend-custom
+            file: builders/ml-backend-custom/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              TORCH_CPU_INDEX=${{ vars.TORCH_CPU_INDEX }}
+          - name: prediction-jupyter-base
+            context: builders/notebook-base
+            file: builders/notebook-base/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              JUPYTER_BASE_IMAGE=quay.io/jupyter/base-notebook:python-3.12.9
+              TORCH_CPU_INDEX=${{ vars.TORCH_CPU_INDEX }}
+          - name: trainer-xpu-base
+            context: builders/trainer-xpu
+            file: builders/trainer-xpu/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              TORCH_XPU_INDEX=${{ vars.TORCH_XPU_INDEX || 'https://download.pytorch.org/whl/xpu' }}
+          - name: trainer-torch-cu
+            context: builders
+            file: builders/trainer-torch/Dockerfile.cu
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+          - name: trainer-paddle-cu
+            context: builders
+            file: builders/trainer-paddle/Dockerfile.cu
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+              PADDLE_GPU_INDEX=${{ vars.PADDLE_GPU_INDEX || 'https://www.paddlepaddle.org.cn/packages/stable/cu129' }}
+          - name: trainer-llm-cu
+            context: builders
+            file: builders/trainer-llm-cu/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+          - name: trainer-torch-rocm
+            context: builders
+            file: builders/trainer-torch/Dockerfile.rocm
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
+              TORCH_ROCM_INDEX=${{ vars.TORCH_ROCM_INDEX || 'https://download.pytorch.org/whl/rocm6.3' }}
+          - name: trainer-llm-rocm
+            context: builders
+            file: builders/trainer-llm-rocm/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
+    steps:
+      - uses: actions/checkout@v7
+      - id: stamp
+        name: Derive immutable build arguments
+        env:
+          IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
+          EXTRA_BUILD_ARGS: ${{ matrix.build-args }}
+        run: |
+          set -euo pipefail
+          extra="${EXTRA_BUILD_ARGS//@IMMUTABLE@/$IMMUTABLE}"
           {
-            echo "backend=$backend"
-            echo "frontend=$frontend"
+            echo "build_args<<BUILD_ARGS_EOF"
+            echo "VERSION=$IMMUTABLE"
+            echo "GIT_SHA=$GITHUB_SHA"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if [[ -n "$extra" ]]; then printf '%s\n' "$extra"; fi
+            echo "BUILD_ARGS_EOF"
           } >> "$GITHUB_OUTPUT"
-          echo "Scope decision -> backend=$backend frontend=$frontend (documentation-only files: $docs; pre-only files: $pre)"
-
-  publish-backend:
-    name: Publish nereidforge-backend dev image
-    needs: path-scope
-    if: needs.path-scope.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v7
-      - id: stamp
-        name: Derive image build metadata
-        run: |
-          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish multi-architecture backend index
+      - name: Build missing immutable image without moving the floating alias
+        if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: python-backend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            GIT_SHA=${{ github.sha }}
-            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
-            VERSION=0.0.0-dev
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          build-args: ${{ steps.stamp.outputs.build_args }}
+          annotations: |
+            index,manifest:org.opencontainers.image.source=https://github.com/NereidAI/NereidForge
+            index,manifest:org.opencontainers.image.version=${{ needs.preflight.outputs.immutable }}
+            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
+            index,manifest:org.opencontainers.image.vendor=YIQISOFT
+            index,manifest:org.opencontainers.image.licenses=Apache-2.0
           push: true
           provenance: false
           sbom: false
-          # Share the release applications cache scope (treaty §19.1).
-          # Publication is self-sufficient; no separate cache-warm run is required.
-          cache-from: type=gha,scope=nereidforge-backend
-          cache-to: type=gha,mode=max,scope=nereidforge-backend
-          tags: |
-            ghcr.io/nereidai/nereidforge-backend:0.0.0-dev-${{ steps.stamp.outputs.sha }}
-            ghcr.io/nereidai/nereidforge-backend:0.0.0-dev
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          tags: ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}
 
-  publish-frontend:
-    name: Publish nereidforge-frontend dev image
-    needs: path-scope
-    if: needs.path-scope.outputs.frontend == 'true'
+  publish-dependent:
+    name: Publish ${{ matrix.name }} immutable dev image
+    needs: [path-scope, preflight, publish-base]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: train-optimizer
+            context: builders
+            file: builders/optimizer/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              RUNTIME_IMAGE=ghcr.io/nereidai/nf-runtime:@IMMUTABLE@
+          - name: train-evaluator
+            context: builders
+            file: builders/evaluator/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              RUNTIME_IMAGE=ghcr.io/nereidai/nf-runtime:@IMMUTABLE@
+          - name: train-evaluator-xpu
+            context: builders
+            file: builders/evaluator-xpu/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              XPU_BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:@IMMUTABLE@
+          - name: trainer-torch-xpu
+            context: builders
+            file: builders/trainer-torch/Dockerfile.xpu
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:@IMMUTABLE@
+              TORCH_XPU_INDEX=${{ vars.TORCH_XPU_INDEX || 'https://download.pytorch.org/whl/xpu' }}
+          - name: trainer-llm-xpu
+            context: builders
+            file: builders/trainer-llm-xpu/Dockerfile
+            platforms: linux/amd64
+            build-args: |
+              BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:@IMMUTABLE@
+              HF_ENDPOINT=${{ vars.HF_ENDPOINT }}
     steps:
       - uses: actions/checkout@v7
       - id: stamp
-        name: Derive image build metadata
+        name: Derive immutable build arguments
+        env:
+          IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
+          EXTRA_BUILD_ARGS: ${{ matrix.build-args }}
         run: |
-          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "build_date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          extra="${EXTRA_BUILD_ARGS//@IMMUTABLE@/$IMMUTABLE}"
+          {
+            echo "build_args<<BUILD_ARGS_EOF"
+            echo "VERSION=$IMMUTABLE"
+            echo "GIT_SHA=$GITHUB_SHA"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            if [[ -n "$extra" ]]; then printf '%s\n' "$extra"; fi
+            echo "BUILD_ARGS_EOF"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v4
       - uses: docker/setup-buildx-action@v4
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h /
       - name: Login to GHCR
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build and publish multi-architecture frontend index
+      - name: Build missing immutable image without moving the floating alias
+        if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
         uses: docker/build-push-action@v6
         with:
-          context: frontend
-          file: frontend/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          build-args: |
-            VERSION=0.0.0-dev
-            GIT_SHA=${{ github.sha }}
-            BUILD_DATE=${{ steps.stamp.outputs.build_date }}
-            VITE_APP_VERSION=0.0.0-dev
-            VITE_IMAGE_TAG=0.0.0-dev
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          build-args: ${{ steps.stamp.outputs.build_args }}
+          annotations: |
+            index,manifest:org.opencontainers.image.source=https://github.com/NereidAI/NereidForge
+            index,manifest:org.opencontainers.image.version=${{ needs.preflight.outputs.immutable }}
+            index,manifest:org.opencontainers.image.revision=${{ github.sha }}
+            index,manifest:org.opencontainers.image.vendor=YIQISOFT
+            index,manifest:org.opencontainers.image.licenses=Apache-2.0
           push: true
           provenance: false
           sbom: false
-          # Share the release applications cache scope (treaty §19.1).
-          # Publication is self-sufficient; no separate cache-warm run is required.
-          cache-from: type=gha,scope=nereidforge-frontend
-          cache-to: type=gha,mode=max,scope=nereidforge-frontend
-          tags: |
-            ghcr.io/nereidai/nereidforge-frontend:0.0.0-dev-${{ steps.stamp.outputs.sha }}
-            ghcr.io/nereidai/nereidforge-frontend:0.0.0-dev
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          tags: ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}
+
+  alias-images:
+    name: Anonymously verify 23 images and move floating aliases
+    needs: [preflight, publish-base, publish-dependent]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      immutable: ${{ needs.preflight.outputs.immutable }}
+      floating: ${{ needs.preflight.outputs.floating }}
+    steps:
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.4.0
+      - name: Anonymously verify every immutable image and record its digest
+        env:
+          IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
+          EXPECTED_REVISION: ${{ github.sha }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+          DIGEST_FILE: ${{ runner.temp }}/dev-image-digests.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$ORAS_REGISTRY_CONFIG")"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          images = [
+              "inference-model-server-openvino-xpu", "ml-backend", "ml-backend-custom",
+              "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
+              "prediction-jupyter-base", "train-evaluator", "train-evaluator-xpu",
+              "train-optimizer", "trainer-convert", "trainer-convert-pp",
+              "trainer-convert-tf", "trainer-llm-cu", "trainer-llm-rocm",
+              "trainer-llm-xpu", "trainer-paddle-cpu", "trainer-paddle-cu",
+              "trainer-torch-cpu", "trainer-torch-cu", "trainer-torch-rocm",
+              "trainer-torch-xpu", "trainer-xpu-base",
+          ]
+          multi_arch = {
+              "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
+              "trainer-torch-cpu", "trainer-convert", "trainer-convert-tf",
+              "train-optimizer", "train-evaluator",
+          }
+          assert len(images) == 23 and len(set(images)) == 23
+          immutable = os.environ["IMMUTABLE"]
+          revision = os.environ["EXPECTED_REVISION"]
+          config = os.environ["ORAS_REGISTRY_CONFIG"]
+
+          def oras(arguments, reference):
+              result = subprocess.run(
+                  ["oras", *arguments, "--registry-config", config, reference],
+                  check=True, capture_output=True, text=True,
+              )
+              return result.stdout.strip()
+
+          digests = {}
+          for name in images:
+              repository = f"ghcr.io/nereidai/{name}"
+              reference = f"{repository}:{immutable}"
+              digest = oras(["resolve"], reference)
+              manifest = json.loads(oras(["manifest", "fetch"], reference))
+              annotations = manifest.get("annotations", {})
+              assert annotations.get("org.opencontainers.image.revision") == revision, (
+                  name, annotations.get("org.opencontainers.image.revision"), revision,
+              )
+              assert annotations.get("org.opencontainers.image.version") == immutable, (
+                  name, annotations.get("org.opencontainers.image.version"), immutable,
+              )
+              if name in multi_arch:
+                  platforms = {
+                      (item.get("platform", {}).get("os"), item.get("platform", {}).get("architecture"))
+                      for item in manifest.get("manifests", [])
+                  }
+                  assert ("linux", "amd64") in platforms and ("linux", "arm64") in platforms, (
+                      name, platforms,
+                  )
+              digests[name] = digest
+              print(f"anonymous immutable verified: {repository}:{immutable}@{digest}")
+          Path(os.environ["DIGEST_FILE"]).write_text(json.dumps(digests, indent=2) + "\n")
+          PY
+      - name: Log in to GHCR with isolated alias-publisher configuration
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$ORAS_REGISTRY_CONFIG")"
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
+            --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --username "$GHCR_USERNAME" --password-stdin
+      - name: Alias floating tags only to anonymously verified immutable digests
+        env:
+          FLOATING: ${{ needs.preflight.outputs.floating }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+          DIGEST_FILE: ${{ runner.temp }}/dev-image-digests.json
+        run: |
+          set -euo pipefail
+          while read -r name digest; do
+            repository="ghcr.io/nereidai/$name"
+            oras tag --registry-config "$ORAS_REGISTRY_CONFIG" \
+              "${repository}@${digest}" "$FLOATING"
+          done < <(jq -r 'to_entries[] | [.key, .value] | @tsv' "$DIGEST_FILE")
+      - name: Anonymously verify all 23 floating aliases against immutable digests
+        env:
+          IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
+          FLOATING: ${{ needs.preflight.outputs.floating }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+          DIGEST_FILE: ${{ runner.temp }}/dev-image-digests.json
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+
+          digests = json.loads(Path(os.environ["DIGEST_FILE"]).read_text())
+          assert len(digests) == 23
+          config = os.environ["ORAS_REGISTRY_CONFIG"]
+          immutable = os.environ["IMMUTABLE"]
+          floating = os.environ["FLOATING"]
+          lines = [
+              "# Copyright (C) 2026 YIQISOFT",
+              "# SPDX-License-Identifier: Apache-2.0",
+              "# Immutable image | floating image | shared OCI manifest digest",
+          ]
+          for name, immutable_digest in sorted(digests.items()):
+              repository = f"ghcr.io/nereidai/{name}"
+              result = subprocess.run(
+                  ["oras", "resolve", "--registry-config", config, f"{repository}:{floating}"],
+                  check=True, capture_output=True, text=True,
+              )
+              floating_digest = result.stdout.strip()
+              assert floating_digest == immutable_digest, (name, floating_digest, immutable_digest)
+              lines.append(f"{repository}:{immutable} {repository}:{floating} {immutable_digest}")
+              print(f"anonymous floating verified: {repository}:{floating}@{floating_digest}")
+          manifest = "\n".join(lines) + "\n"
+          Path(os.environ["RUNNER_TEMP"], f"nereidforge-dev-images-{immutable}.txt").write_text(manifest)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
+              summary.write(f"## NF development images {immutable}\n\n")
+              summary.write("All 23 immutable images and floating aliases passed anonymous digest verification.\n\n")
+              summary.write("```text\n" + manifest + "```\n")
+          PY
+
+  publish-charts:
+    name: Publish ${{ matrix.name }} development OCI chart
+    needs: alias-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nereidforge-ml-backend
+            path: charts/ml-backend
+            set-values: ''
+          - name: nereidforge-backend
+            path: charts/nereidforge-backend
+            set-values: ''
+          - name: nereidforge-frontend
+            path: charts/nereidforge-frontend
+            set-values: ingress.host=forge.example.test
+          - name: nereidforge-tenant-check
+            path: charts/tenant-check
+            set-values: ''
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.4.0
+      - name: Package and render the immutable chart
+        env:
+          CHART_PATH: ${{ matrix.path }}
+          CHART_NAME: ${{ matrix.name }}
+          SET_VALUES: ${{ matrix.set-values }}
+          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/charts"
+          values_args=()
+          while IFS= read -r assignment; do
+            [[ -z "$assignment" ]] || values_args+=(--set "$assignment")
+          done <<< "$SET_VALUES"
+          helm lint "$CHART_PATH" "${values_args[@]}"
+          # The shared packager normalizes tar/gzip metadata so an interrupted
+          # same-commit rerun can byte-verify and reuse an existing chart.
+          CHART_VERSION="$IMMUTABLE" \
+            CHARTS_OUTPUT_DIR="${RUNNER_TEMP}/charts" \
+            CHARTS_ARCHIVE="${RUNNER_TEMP}/nereidforge-charts.tar.gz" \
+            bash scripts/03_package-charts.sh
+          package="${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz"
+          test -s "$package"
+          metadata="$(helm show chart "$package")"
+          test "$(awk '/^name:/ {print $2; exit}' <<< "$metadata")" = "$CHART_NAME"
+          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$IMMUTABLE"
+          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$IMMUTABLE"
+          helm template "$CHART_NAME" "$package" "${values_args[@]}" \
+            > "${RUNNER_TEMP}/${CHART_NAME}.yaml"
+          python3 - "${RUNNER_TEMP}/${CHART_NAME}.yaml" "$IMMUTABLE" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          rendered = pathlib.Path(sys.argv[1]).read_text()
+          references = set(re.findall(
+              r"ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9_][A-Za-z0-9._-]*",
+              rendered,
+          ))
+          mismatches = sorted(ref for ref in references if not ref.endswith(":" + sys.argv[2]))
+          if mismatches:
+              raise SystemExit("suite images do not match chart appVersion: " + ", ".join(mismatches))
+          PY
+      - name: Log in to GHCR with isolated publisher configuration
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$HELM_REGISTRY_CONFIG")" "$(dirname "$ORAS_REGISTRY_CONFIG")"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io \
+            --username "$GHCR_USERNAME" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
+            --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --username "$GHCR_USERNAME" --password-stdin
+      - name: Publish the immutable chart and alias its verified digest
+        env:
+          CHART_NAME: ${{ matrix.name }}
+          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
+          FLOATING: ${{ needs.alias-images.outputs.floating }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          pre_publish_chart "ghcr.io/nereidai/charts/$CHART_NAME" \
+            "${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz" \
+            "$IMMUTABLE" "$FLOATING"
+      - name: Anonymously verify both chart identities and render the floating chart
+        env:
+          CHART_NAME: ${{ matrix.name }}
+          SET_VALUES: ${{ matrix.set-values }}
+          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
+          FLOATING: ${{ needs.alias-images.outputs.floating }}
+          HELM_CONFIG_HOME: ${{ runner.temp }}/anonymous/helm/config
+          HELM_CACHE_HOME: ${{ runner.temp }}/anonymous/helm/cache
+          HELM_DATA_HOME: ${{ runner.temp }}/anonymous/helm/data
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/helm/registry-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME" \
+            "$(dirname "$ORAS_REGISTRY_CONFIG")" \
+            "${RUNNER_TEMP}/anonymous/immutable" "${RUNNER_TEMP}/anonymous/floating"
+          repository="ghcr.io/nereidai/charts/$CHART_NAME"
+          helm pull "oci://$repository" --version "$IMMUTABLE" \
+            --destination "${RUNNER_TEMP}/anonymous/immutable"
+          helm pull "oci://$repository" --version "$FLOATING" \
+            --destination "${RUNNER_TEMP}/anonymous/floating"
+          immutable_package="${RUNNER_TEMP}/anonymous/immutable/${CHART_NAME}-${IMMUTABLE}.tgz"
+          floating_package="$(find "${RUNNER_TEMP}/anonymous/floating" -maxdepth 1 \
+            -type f -name "${CHART_NAME}-*.tgz" -print -quit)"
+          test -s "$immutable_package"
+          test -s "$floating_package"
+          cmp "${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz" "$immutable_package"
+          cmp "$immutable_package" "$floating_package"
+          metadata="$(helm show chart "$floating_package")"
+          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$IMMUTABLE"
+          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$IMMUTABLE"
+          immutable_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+            "${repository}:${IMMUTABLE}")"
+          floating_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+            "${repository}:${FLOATING}")"
+          test "$floating_digest" = "$immutable_digest"
+          values_args=()
+          while IFS= read -r assignment; do
+            [[ -z "$assignment" ]] || values_args+=(--set "$assignment")
+          done <<< "$SET_VALUES"
+          helm template "$CHART_NAME" "$floating_package" "${values_args[@]}" \
+            > "${RUNNER_TEMP}/anonymous/${CHART_NAME}.yaml"
+          test -s "${RUNNER_TEMP}/anonymous/${CHART_NAME}.yaml"
+          {
+            echo "Immutable chart: oci://${repository}:${IMMUTABLE}@${immutable_digest}"
+            echo "Floating chart: oci://${repository}:${FLOATING}@${floating_digest}"
+            echo "Both anonymous pulls are byte-identical and retain ${IMMUTABLE} metadata."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -130,9 +130,15 @@ versioned pre installer, checksum, lock, and chart manifest. No formal pre
 The pre development channel is triggered by scoped main-branch changes. It
 publishes an OCI installer artifact and all five charts with floating
 `0.0.0-dev` and immutable `0.0.0-dev-<short-sha>` identities. Floating tags are
-aliases of the immutable manifests; no moving GitHub Release is created. The NF
-rolling development workflow remains separate and publishes only backend and
-frontend images, not a complete Forge installation channel.
+aliases of the immutable manifests; no moving GitHub Release is created.
+
+The separate NF development workflow publishes one complete snapshot of all 23
+NF-owned images and exactly four charts with the same floating/immutable
+identity contract. Image builds never overwrite an existing immutable tag and
+push no floating tag. All 23 immutable manifests must pass anonymous source-
+revision verification before their floating aliases move; chart publication
+starts only after that gate. Same-commit reruns reuse verified artifacts, and
+repackaged charts are byte-identical. No formal NF release is required.
 
 `make installer-package` and `scripts/04_package-installer.sh` remain as a
 **deprecated local-only compatibility interface** for existing full-stack
@@ -151,15 +157,16 @@ those values in either values file or pass them with Helm `--set`.
 
 Create a non-secret `operator-values.yaml` (use `{}` when the generated defaults
 need no override), add the NF-owned Secret keys without replacing the pre-owned
-keys, and run the read-only preflight. Then select one anonymously verified
-formal NF version and install in this order:
+keys, and run the read-only preflight. Load `PRE_HANDOFF_DIR`,
+`NF_OPERATOR_VALUES_FILE`, and `NEREIDFORGE_VERSION=0.0.0-dev` from the
+persistent non-secret operator environment, then install in this order:
 
 ```bash
-export PRE_HANDOFF_DIR=/path/to/private/pre-handoff
-export NF_OPERATOR_VALUES_FILE="$PRE_HANDOFF_DIR/operator-values.yaml"
+: "${PRE_HANDOFF_DIR:?Load the persistent operator environment}"
+: "${NF_OPERATOR_VALUES_FILE:?Load the persistent operator environment}"
+: "${NEREIDFORGE_VERSION:?Load the persistent operator environment}"
 bash scripts/40_check-nf-handoff.sh  # run from the extracted pre installer
 
-export NEREIDFORGE_VERSION=<verified-formal-version>
 helm upgrade --install nereidforge-backend \
   oci://ghcr.io/nereidai/charts/nereidforge-backend \
   --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
