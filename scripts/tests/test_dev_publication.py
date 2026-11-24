@@ -269,6 +269,18 @@ class DevelopmentPublicationTest(unittest.TestCase):
             )
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
+    def test_xpu_base_torch_version_matches_vision_trainer_constraint(self):
+        base = (ROOT / "builders/trainer-xpu/Dockerfile").read_text(encoding="utf-8")
+        trainer = (ROOT / "builders/trainer-torch/Dockerfile.xpu").read_text(encoding="utf-8")
+        pattern = r"(?m)^ARG TORCH_VERSION=([0-9.]+)$"
+        base_version = re.search(pattern, base)
+        trainer_version = re.search(pattern, trainer)
+        self.assertIsNotNone(base_version, "the base must pin its torch version")
+        self.assertIsNotNone(trainer_version)
+        self.assertEqual(base_version.group(1), trainer_version.group(1))
+        self.assertIn("torch==${TORCH_VERSION}+xpu", base)
+        self.assertIn("importlib.metadata.version('torch')", base)
+
     def test_cuda_build_checks_do_not_require_a_gpu_on_the_runner(self):
         for relative_path in (
             "builders/trainer-torch/Dockerfile.cu",
