@@ -98,7 +98,7 @@ jobs:
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
         run: |
           set -euo pipefail
-          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          source scripts/lib/nf_publication.sh
           images=(
             inference-model-server-openvino-xpu ml-backend ml-backend-custom
             nereidforge-backend nereidforge-frontend nf-runtime prediction-jupyter-base
@@ -658,7 +658,7 @@ jobs:
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
         run: |
           set -euo pipefail
-          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          source scripts/lib/nf_publication.sh
           pre_publish_chart "ghcr.io/nereidai/charts/$CHART_NAME" \
             "${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz" \
             "$IMMUTABLE" "$FLOATING"

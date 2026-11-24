@@ -65,8 +65,10 @@ PRE_RELEASE_TAG="$(pre_version)"
 : "${LABEL_STUDIO_STORAGE:=20Gi}"
 
 # Dex is a Kubeflow input: installation consumes the hash and mr-check consumes
-# the plaintext identity. No application JWT or NF application secret is made.
-: "${DEX_STATIC_EMAIL:=}"
+# the plaintext identity. The vendored Dex, Profile, and RBAC manifests currently
+# use this fixed identity; 30_install-kubeflow.sh rejects a conflicting override.
+# No application JWT or NF application secret is made.
+: "${DEX_STATIC_EMAIL:=admin@nereidforge.local}"
 : "${DEX_STATIC_PASSWORD:=}"
 : "${DEX_STATIC_PASSWORD_HASH:=}"
 

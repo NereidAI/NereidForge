@@ -35,11 +35,30 @@ class PrePackageTests(unittest.TestCase):
         cls.tempdir = tempfile.TemporaryDirectory(prefix="pre-package-tests-")
         cls.base = Path(cls.tempdir.name)
         cls.packages = {}
+
+        # Package the current worktree, including intentional additions and
+        # deletions, without staging them in the operator's real Git index.
+        # Scope the temporary index to these setup/package commands only: other
+        # tests create independent Git repositories and must not inherit it.
+        repo_root = Path(inside_git.stdout.strip()).resolve()
+        module_relative = PRE_ROOT.relative_to(repo_root).as_posix()
+        cls.git_index = cls.base / "git-index"
+        git_env = os.environ.copy()
+        git_env["GIT_INDEX_FILE"] = str(cls.git_index)
+        for command in (
+            ["git", "-C", str(repo_root), "read-tree", "HEAD"],
+            ["git", "-C", str(repo_root), "add", "-A", "--", module_relative],
+        ):
+            result = subprocess.run(command, env=git_env, text=True, capture_output=True)
+            if result.returncode != 0:
+                raise AssertionError(f"could not prepare the package test index: {result.stderr}")
+
         for channel, version in (("formal", "0.0.1"), ("development", "0.0.0-dev")):
             output = cls.base / channel / "output"
             env = os.environ.copy()
             env.pop("PRE_RELEASE_TAG", None)
             env.pop("RELEASE_TAG", None)
+            env["GIT_INDEX_FILE"] = str(cls.git_index)
             env["SOURCE_COMMIT"] = "inherited-metadata-must-not-win"
             command = ["make", "package", f"PRE_OUTPUT_DIR={output}"]
             if channel == "formal":
@@ -93,6 +112,7 @@ class PrePackageTests(unittest.TestCase):
                         "scripts/lib/common.sh",
                         "scripts/lib/config.sh",
                         "scripts/lib/generate_nf_handoff.py",
+                        "scripts/lib/pg_credentials.py",
                         "scripts/40_finalize-handoff.sh",
                         "scripts/40_check-nf-handoff.sh",
                         "scripts/lib/provision_s3_buckets.py",

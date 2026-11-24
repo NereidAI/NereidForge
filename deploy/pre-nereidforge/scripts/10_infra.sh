@@ -17,6 +17,58 @@ init_deploy_log "10_infra"
 
 log_info "========== Deploy Infrastructure (Helm) =========="
 
+check_cmd kubectl helm python3 openssl || exit 1
+PY=python3
+if [[ -x "$PRE_ROOT/.venv/bin/python" ]] && "$PRE_ROOT/.venv/bin/python" -c 'import boto3' >/dev/null 2>&1; then
+    PY="$PRE_ROOT/.venv/bin/python"
+fi
+if ! "$PY" -c 'import boto3' >/dev/null 2>&1; then
+    log_err "Python boto3 is required before infrastructure installation; provision it in python3 or $PRE_ROOT/.venv"
+    exit 1
+fi
+
+# Validate first-use credentials before creating the namespace or changing any
+# cluster resource. Existing canonical Secrets are checked again by their stages.
+pre_resource_exists() {
+    local kind="$1" name="$2" output
+    if output="$($KUBECTL get "$kind" "$name" -n nereidforge -o name 2>&1)"; then
+        return 0
+    fi
+    if [[ "$output" == *"NotFound"* || "$output" == *"not found"* ]]; then
+        return 1
+    fi
+    log_err "Could not query $kind/$name in nereidforge"
+    return 2
+}
+
+PG_SECRET_NAME="pg-${PG_CLUSTER_NAME}-credentials"
+if pre_resource_exists secret "$PG_SECRET_NAME"; then
+    :
+else
+    status=$?
+    (( status == 1 )) || exit "$status"
+    validate_required PG_ADMIN_PASSWORD || exit 1
+fi
+
+S3_CREDENTIALS_EXIST=false
+for resource in \
+    secret:seaweedfs-s3-credentials \
+    secret:seaweedfs-s3-config \
+    configmap:seaweedfs-s3-config
+do
+    IFS=: read -r kind name <<< "$resource"
+    if pre_resource_exists "$kind" "$name"; then
+        S3_CREDENTIALS_EXIST=true
+        break
+    else
+        status=$?
+        (( status == 1 )) || exit "$status"
+    fi
+done
+if [[ "$S3_CREDENTIALS_EXIST" == false ]]; then
+    validate_required SEAWEEDFS_S3_ACCESS_KEY SEAWEEDFS_S3_SECRET_KEY || exit 1
+fi
+
 # 0. Namespace (blank cluster starts here). Images use public coordinates and
 #    pull anonymously; air-gapped nodes resolve them via the containerd
 #    registry mirror, so no in-pod pull secret is created (root treaty section 18).

@@ -1,0 +1,67 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Application-owned pull-request delivery verification. The make target runs
+# backend/frontend coordinate checks, suite composition and publication-safety
+# tests, and offline Helm lint/template/package checks. It never builds images,
+# contacts a registry or cluster, or publishes artifacts.
+name: nf-verify
+
+on:
+  pull_request:
+    paths:
+      - 'Makefile'
+      - 'configs/application-image-inventory.json'
+      - 'configs/unified/**'
+      - 'builders/image-inventory.json'
+      - 'builders/build.sh'
+      - 'deploy/pre-nereidforge/**'
+      - 'infra/charts/kubeflow/deploy-tools/build.sh'
+      - 'kfp-pipelines/**'
+      - '!kfp-pipelines/docker/**'
+      - 'python-backend/**'
+      - 'frontend/**'
+      - 'charts/**'
+      - 'scripts/00_deploy-all.sh'
+      - 'scripts/01_prepare-offline/package-charts.sh'
+      - 'scripts/02_build-images.sh'
+      - 'scripts/03_package-charts.sh'
+      - 'scripts/05_export-images.sh'
+      - 'scripts/60_verify.sh'
+      - 'scripts/image-ref.sh'
+      - 'scripts/stamp-dev-image.sh'
+      - 'scripts/lib/common.sh'
+      - 'scripts/lib/config.sh'
+      - 'scripts/lib/images.sh'
+      - 'scripts/lib/nf_publication.sh'
+      - 'scripts/tests/test_nf_delivery.py'
+      - 'scripts/tests/test_nf_publication.py'
+      - 'scripts/tests/test_nf_legacy_compatibility.py'
+      - '.github/workflows/ci.yml'
+      - '.github/workflows/nf-verify.yml'
+      - '.github/workflows/publish-dev.yml'
+      - '.github/workflows/publish-images.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nf-verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Application and suite delivery
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Helm for offline lint, template, and package checks
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Run application and suite verification
+        run: make nf-verify

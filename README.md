@@ -27,21 +27,25 @@
 ![NereidForge dashboard](docs/images/nereidforge.png)
 
 NereidForge provides dataset and annotation workflows, training, optimization,
-evaluation, model registration, and inference integrations. First-party
-application code and shared tooling live at the repository root. Deployment
-assets for the pre-NereidForge infrastructure and Kubeflow stages live under
-`deploy/pre-nereidforge/`; inactive legacy assets and externally owned CRDs
+evaluation, model registration, and inference integrations. Delivery is divided
+into three Modules: Pre-NereidForge infrastructure, NereidForge Builders, and
+Application-only NereidForge. They currently share one repository while their
+ownership and verification seams are established; separate repositories are a
+later extraction decision, not a prerequisite for independent delivery. See
+[ADR 0001](docs/three-delivery-modules.md) and the
+[domain glossary](CONTEXT.md). Inactive legacy assets and externally owned CRDs
 remain under `infra/`.
 
 ## Directory map
 
 | Layer | Directory | Contents |
 |----|------|------|
-| **Applications** | `python-backend/` | FastAPI API, synchronous SQLAlchemy worker, and notebook runtime |
+| **Application-only NereidForge** | `python-backend/` | FastAPI API, synchronous SQLAlchemy worker, and notebook runtime |
 | | `frontend/` | React, TypeScript, Ant Design, and Vite frontend |
-| | `kfp-pipelines/` | Training, optimization, and evaluation pipeline components |
-| | `optimizer-plugins/` | Manifest-driven optimization plugins |
-| | `builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
+| | `kfp-pipelines/` | Training, optimization, and evaluation pipeline definitions, excluding builder-owned `docker/` |
+| **NereidForge Builders** | `builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
+| | `kfp-pipelines/docker/` | Builder-owned runtime and conversion image build contexts |
+| | `optimizer-plugins/` | Optional builder-owned optimization plugin images |
 | **Application charts** | `charts/` | Backend, frontend, ML-backend, and tenant-check Helm charts |
 | **Shared tooling** | `configs/` | Host-neutral runtime configuration, templates, and development monitoring |
 | | `scripts/` | Full-stack compatibility, application, build, verification, and packaging entry points |
@@ -66,7 +70,24 @@ make test
 make license-check
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for component-specific checks, DCO
+Each delivery Module also has a focused offline gate. These commands do not
+build the release image set, contact a registry, install into a cluster, or
+publish artifacts:
+
+```bash
+make -C deploy/pre-nereidforge verify
+make -C builders verify
+make nf-verify
+```
+
+The builders gate includes its SDK, Paddle, XPU, inventory, and Dockerfile
+contracts. The NF gate composes the builder-owned 21/16-image inventories with
+the two application images and preserves the complete 23/18-image suite gates.
+The pre gate verifies only infrastructure, its five charts, installer, and
+handoff. The legacy aggregate `make test` remains as compatibility coverage
+while assertions move to their owning Modules.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for Module-specific checks, DCO
 requirements, source headers, and API-contract rules. Local dependencies are
 defined in `docker-compose.dev.yml`; the Compose file includes no Grafana,
 Loki, or Tempo server components. Set a unique `POSTGRES_PASSWORD` in an

@@ -32,8 +32,3 @@ cnpg:
     repository: ghcr.io/cloudnative-pg/cloudnative-pg
     tag: "1.30.0"
     pullPolicy: IfNotPresent
-
-# Bootstrap superuser password for the CNPG Cluster secret (templates/00-bootstrap-secret.yaml).
-# Supplied at deploy time via `helm upgrade --set bootstrap.password=...` (postgresql.sh).
-bootstrap:
-  password: ""

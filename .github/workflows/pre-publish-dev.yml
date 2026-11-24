@@ -161,8 +161,7 @@ jobs:
             values_args=()
             case "$name" in
               postgresql)
-                values_args=(-f deploy/pre-nereidforge/charts/postgresql/values-prod.yaml \
-                  --set bootstrap.password=ci-render-only-placeholder)
+                values_args=(-f deploy/pre-nereidforge/charts/postgresql/values-prod.yaml)
                 ;;
               cvat)
                 values_args=(-f deploy/pre-nereidforge/values/cvat.yaml \
