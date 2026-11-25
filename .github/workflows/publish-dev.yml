@@ -222,7 +222,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build missing immutable image without moving the floating alias
         if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -387,7 +387,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build missing immutable image without moving the floating alias
         if: ${{ contains(fromJSON(needs.preflight.outputs.selected), matrix.name) && !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -470,7 +470,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build missing immutable image without moving the floating alias
         if: ${{ contains(fromJSON(needs.preflight.outputs.selected), matrix.name) && !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}

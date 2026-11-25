@@ -123,7 +123,7 @@ jobs:
           VERSION: ${{ steps.ver.outputs.version }}
           VITE_APP_VERSION: ${{ steps.ver.outputs.version }}
           VITE_IMAGE_TAG: ${{ steps.ver.outputs.version }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -263,7 +263,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish runtime base
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: kfp-pipelines/docker
           file: kfp-pipelines/docker/Dockerfile.runtime
@@ -286,7 +286,7 @@ jobs:
             ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/nf-runtime:${{ steps.ver.outputs.version }}
       - name: Build and publish CPU torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-torch/Dockerfile
@@ -310,7 +310,7 @@ jobs:
             ghcr.io/nereidai/trainer-torch-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-torch-cpu:${{ steps.ver.outputs.version }}
       - name: Build and publish CPU paddle trainer (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-paddle/Dockerfile
@@ -335,7 +335,7 @@ jobs:
             ghcr.io/nereidai/trainer-paddle-cpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-paddle-cpu:${{ steps.ver.outputs.version }}
       - name: Build and publish torch converter
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: kfp-pipelines/docker
           file: kfp-pipelines/docker/Dockerfile.convert
@@ -360,7 +360,7 @@ jobs:
             ghcr.io/nereidai/trainer-convert:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-convert:${{ steps.ver.outputs.version }}
       - name: Build and publish TensorFlow converter
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: kfp-pipelines/docker
           file: kfp-pipelines/docker/Dockerfile.convert-tf
@@ -384,7 +384,7 @@ jobs:
             ghcr.io/nereidai/trainer-convert-tf:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-convert-tf:${{ steps.ver.outputs.version }}
       - name: Build and publish Paddle converter (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: kfp-pipelines/docker
           file: kfp-pipelines/docker/Dockerfile.convert-pp
@@ -409,7 +409,7 @@ jobs:
             ghcr.io/nereidai/trainer-convert-pp:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-convert-pp:${{ steps.ver.outputs.version }}
       - name: Build and publish optimizer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/optimizer/Dockerfile
@@ -433,7 +433,7 @@ jobs:
             ghcr.io/nereidai/train-optimizer:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/train-optimizer:${{ steps.ver.outputs.version }}
       - name: Build and publish evaluator
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/evaluator/Dockerfile
@@ -457,7 +457,7 @@ jobs:
             ghcr.io/nereidai/train-evaluator:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/train-evaluator:${{ steps.ver.outputs.version }}
       - name: Build and publish Intel GPU OVMS (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders/inference-model-server-openvino-xpu
           file: builders/inference-model-server-openvino-xpu/Dockerfile
@@ -481,7 +481,7 @@ jobs:
             ghcr.io/nereidai/inference-model-server-openvino-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/inference-model-server-openvino-xpu:${{ steps.ver.outputs.version }}
       - name: Build and publish ml-backend (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders/ml-backend
           file: builders/ml-backend/Dockerfile
@@ -506,7 +506,7 @@ jobs:
             ghcr.io/nereidai/ml-backend:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/ml-backend:${{ steps.ver.outputs.version }}
       - name: Build and publish ml-backend-custom (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders/ml-backend-custom
           file: builders/ml-backend-custom/Dockerfile
@@ -531,7 +531,7 @@ jobs:
             ghcr.io/nereidai/ml-backend-custom:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/ml-backend-custom:${{ steps.ver.outputs.version }}
       - name: Build and publish notebook workbench (single-arch exception, treaty §19.2.1)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders/notebook-base
           file: builders/notebook-base/Dockerfile
@@ -607,7 +607,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish XPU vendor base
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders/trainer-xpu
           file: builders/trainer-xpu/Dockerfile
@@ -634,7 +634,7 @@ jobs:
             ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-xpu-base:${{ steps.ver.outputs.version }}
       - name: Build and publish XPU packaging evaluator
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/evaluator-xpu/Dockerfile
@@ -658,7 +658,7 @@ jobs:
             ghcr.io/nereidai/train-evaluator-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/train-evaluator-xpu:${{ steps.ver.outputs.version }}
       - name: Build and publish XPU torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-torch/Dockerfile.xpu
@@ -683,7 +683,7 @@ jobs:
             ghcr.io/nereidai/trainer-torch-xpu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-torch-xpu:${{ steps.ver.outputs.version }}
       - name: Build and publish XPU LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-llm-xpu/Dockerfile
@@ -758,7 +758,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and publish CUDA torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-torch/Dockerfile.cu
@@ -782,7 +782,7 @@ jobs:
             ghcr.io/nereidai/trainer-torch-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-torch-cu:${{ steps.ver.outputs.version }}
       - name: Build and publish CUDA paddle trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-paddle/Dockerfile.cu
@@ -807,7 +807,7 @@ jobs:
             ghcr.io/nereidai/trainer-paddle-cu:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-paddle-cu:${{ steps.ver.outputs.version }}
       - name: Build and publish CUDA LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-llm-cu/Dockerfile
@@ -885,7 +885,7 @@ jobs:
       # tag now that manual dispatch no longer gates this job. Revisit the
       # trigger matrix if release frequency makes this too expensive.
       - name: Build and publish ROCm torch trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-torch/Dockerfile.rocm
@@ -910,7 +910,7 @@ jobs:
             ghcr.io/nereidai/trainer-torch-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-torch-rocm:${{ steps.ver.outputs.version }}
       - name: Build and publish ROCm LLM trainer
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: builders
           file: builders/trainer-llm-rocm/Dockerfile
