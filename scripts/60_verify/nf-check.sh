@@ -17,8 +17,9 @@ fail_check() {
     FAIL=$((FAIL+1))
 }
 
-# kubectl run may repeat curl's formatted status in this probe path. Accept one
-# exact status or its known doubled form, never an arbitrary substring or 000.
+# Accept curl's exact status or its legacy doubled form, never an arbitrary
+# substring or 000. HTTP probes below use kubectl exec so cleanup messages from
+# kubectl run --rm cannot be interleaved with or replace curl's output.
 http_code_is() {
     local actual="$1" expected="$2" normalized
     normalized="$(printf '%s' "$actual" | tr -d '[:space:]')"
@@ -35,6 +36,22 @@ fi
 
 API_URL="http://nereidforge-api.$TENANT:8080"
 FE_URL="http://nereidforge-frontend.$TENANT:80"
+
+# Reuse an API container as the curl client for the login and HTTP contract
+# probes. The requests still traverse the API Service, while kubectl exec
+# avoids the attach/log fallback and deletion-message races of kubectl run --rm.
+API_POD=""
+if ! API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge-backend,component=api \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); then
+    API_POD=""
+fi
+
+api_http_code() {
+    local url="$1"
+    [[ -n "$API_POD" ]] || return 1
+    kubectl exec -n "$TENANT" "$API_POD" -c api -- \
+        curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null
+}
 
 # 1. healthz / ready (L1)
 if HEALTH=$(kubectl run -n "$TENANT" "api-verify-$$" --rm -i --restart=Never --image="$IMG_BUSYBOX" -- \
@@ -79,13 +96,6 @@ if [[ -z "$NF_ADMIN_PW" ]]; then
     if ADMIN_PASSWORD_B64=$(kubectl get secret nereidforge-admin-credentials -n "$TENANT" \
         -o jsonpath='{.data.password}' 2>/dev/null); then
         NF_ADMIN_PW=$(printf '%s' "$ADMIN_PASSWORD_B64" | base64 -d 2>/dev/null) || NF_ADMIN_PW=""
-    fi
-fi
-API_POD=""
-if [[ -n "$NF_ADMIN_PW" ]]; then
-    if ! API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge-backend,component=api \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); then
-        API_POD=""
     fi
 fi
 LOGIN_SCRIPT='
@@ -147,8 +157,7 @@ fi
 # bearer token, so an unauthenticated 401 proves reachability just as a 200 does
 # in an explicitly auth-disabled development deployment. Other statuses fail.
 log_info "Check training jobs endpoint..."
-if JOBS_CODE=$(kubectl run -n "$TENANT" "train-verify-$$" --rm -i --restart=Never --image="$IMG_CURL" -- \
-    curl -s -o /dev/null -w "%{http_code}" "$API_URL/api/v1/training/jobs" 2>/dev/null); then
+if JOBS_CODE=$(api_http_code "$API_URL/api/v1/training/jobs"); then
     if http_code_is "$JOBS_CODE" 200 || http_code_is "$JOBS_CODE" 401; then
         log_ok "Training jobs endpoint reachable (HTTP 200 or authenticated 401)"
     else
@@ -161,8 +170,7 @@ fi
 # 2c. NS integration tenant-list endpoint lives OUTSIDE /api and must be
 # secret-gated: with no X-NS-Integration-Secret it must answer 401 even though
 # the route is mounted without the normal bearer-token protection.
-if INT_CODE=$(kubectl run -n "$TENANT" "int-verify-$$" --rm -i --restart=Never --image="$IMG_CURL" -- \
-    curl -s -o /dev/null -w "%{http_code}" "$API_URL/v1/integration/ns/tenants" 2>/dev/null); then
+if INT_CODE=$(api_http_code "$API_URL/v1/integration/ns/tenants"); then
     if http_code_is "$INT_CODE" 401; then
         log_ok "NS integration tenant-list secret-gated (401 without secret)"
     else
