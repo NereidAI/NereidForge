@@ -181,10 +181,10 @@ class NereidForgeVerificationTest(unittest.TestCase):
                                 if [[ "${NF_TEST_LOGIN_EXIT:-0}" != 0 ]]; then
                                     exit "$NF_TEST_LOGIN_EXIT"
                                 fi
+                                printf '%s\\n' "${NF_TEST_LOGIN_OUT-LOGIN_OK}"
                                 if [[ "${NF_TEST_LOGIN_CONTRACT_EXIT:-0}" != 0 ]]; then
                                     exit "$NF_TEST_LOGIN_CONTRACT_EXIT"
                                 fi
-                                printf '%s\\n' "${NF_TEST_LOGIN_OUT-LOGIN_OK}"
                             fi
                             ;;
                         run)
@@ -349,6 +349,27 @@ class NereidForgeVerificationTest(unittest.TestCase):
         self.assertIn("admin login OK", output)
         self.assertIn("verification done", output)
 
+    def test_login_diagnostics_are_safely_filtered(self):
+        """Actionable status survives without relaying JSON keys or bodies."""
+        output = self.assert_failed_check(
+            {
+                "NF_TEST_LOGIN_CONTRACT_EXIT": 1,
+                "NF_TEST_LOGIN_OUT": (
+                    "DIAG_REMOTE_RESULT=1\n"
+                    "DIAG_CURL_EXIT=0\n"
+                    "DIAG_HTTP_CODE=200\n"
+                    "DIAG_TOKEN_REGEX=NO_MATCH\n"
+                    "DIAG_JSON_KEYS=access_token\n"
+                    '{"access_token":"do-not-relay-token"}'
+                ),
+            }
+        )
+        for field in ("REMOTE_RESULT=1", "CURL_EXIT=0", "HTTP_CODE=200", "TOKEN_REGEX=NO_MATCH"):
+            self.assertIn("DIAG_" + field, output)
+        self.assertNotIn("DIAG_JSON_KEYS", output)
+        self.assertNotIn("do-not-relay-token", output)
+        self.assertNotIn("access_token", output)
+
     def test_login_failure_does_not_leak_sensitive_response(self):
         """Failed login output never exposes tokens or the full response body."""
         token = "do-not-log-access-token"
@@ -418,6 +439,8 @@ class LoginScriptContractTest(unittest.TestCase):
                 result = self.run_login(status, body, curl_exit)
                 self.assertEqual(expected_exit, result.returncode, result.stdout + result.stderr)
                 self.assertEqual("", result.stdout)
+                self.assertIn(f"DIAG_REMOTE_RESULT={expected_exit}", result.stderr)
+                self.assertIn(f"DIAG_HTTP_CODE={status}", result.stderr)
                 self.assertNotIn(token, result.stdout + result.stderr)
 
 
