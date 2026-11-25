@@ -83,6 +83,17 @@ def resolve(state, reference):
     forced_error = os.environ.get("FAKE_RESOLVE_ERROR")
     if forced_error:
         fail(forced_error)
+    # Simulate GHCR first-publication propagation: the first N resolves answer
+    # not-found even though the push already wrote the tag, then visibility
+    # recovers. The counter lives in the state directory across processes.
+    absent_file = state_root / "resolve-absent-remaining"
+    if not absent_file.exists() and os.environ.get("FAKE_RESOLVE_ABSENT_TIMES"):
+        absent_file.write_text(os.environ["FAKE_RESOLVE_ABSENT_TIMES"])
+    if absent_file.exists():
+        remaining = int(absent_file.read_text() or "0")
+        if remaining > 0:
+            absent_file.write_text(str(remaining - 1))
+            fail("Error: " + reference + ": not found")
     try:
         return state["tags"][reference]
     except KeyError:
@@ -517,6 +528,55 @@ class FakeRegistryPublicationTests(unittest.TestCase):
         self.assertIn("Immutable chart collision", result.stderr)
         self.assertFalse(any(item["args"][0] in ("push", "tag") for item in self.commands()))
         self.assertEqual(self.tags(), before)
+
+    def test_post_push_absence_retries_until_propagation_then_aliases(self):
+        # GHCR can answer not-found for a few reads after a brand-new package's
+        # first push. The bounded read-back retry must ride out that window and
+        # still complete the floating alias.
+        immutable = "0.0.0-dev-abcdef1"
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.base / "propagation" / f"demo-{immutable}.tgz"
+        self.make_chart(package, immutable)
+        self.env["FAKE_CHART_NAME"] = "demo"
+        result = self.run_helper(
+            "pre_publish_chart", repository, package, immutable, floating,
+            extra_env={
+                "FAKE_RESOLVE_ABSENT_TIMES": "2",
+                "PRE_ORAS_READBACK_ATTEMPTS": "5",
+                "PRE_ORAS_READBACK_DELAY_SECONDS": "0",
+            },
+        )
+        resolves = [
+            item for item in self.commands()
+            if item["tool"] == "oras" and item["args"][0] == "resolve"
+        ]
+        self.assertGreaterEqual(len(resolves), 4)
+        self.assertIn("read-back attempt 1/5", result.stderr)
+        self.assertEqual(self.tags()[repository + ":" + floating],
+                         self.tags()[repository + ":" + immutable])
+
+    def test_persistent_absence_exhausts_retries_without_moving_alias(self):
+        immutable = "0.0.0-dev-abcdef1"
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.base / "persistent-absence" / f"demo-{immutable}.tgz"
+        self.make_chart(package, immutable)
+        self.env["FAKE_CHART_NAME"] = "demo"
+        result = self.run_helper(
+            "pre_publish_chart", repository, package, immutable, floating,
+            succeed=False,
+            extra_env={
+                "FAKE_RESOLVE_ABSENT_TIMES": "99",
+                "PRE_ORAS_READBACK_ATTEMPTS": "3",
+                "PRE_ORAS_READBACK_DELAY_SECONDS": "0",
+            },
+        )
+        self.assertIn("absent after 3 read-back attempts", result.stderr)
+        self.assertNotIn(repository + ":" + floating, self.tags())
+        self.assertFalse(
+            any(item["tool"] == "oras" and item["args"][0] == "tag" for item in self.commands())
+        )
 
     def test_formal_chart_reuses_fixed_upstream_version_without_alias_or_push(self):
         version = "1.2.3"
