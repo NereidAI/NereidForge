@@ -6,6 +6,32 @@ import react from '@vitejs/plugin-react';
 import svgr from 'vite-plugin-svgr';
 import path from 'path';
 
+// Vite 8 is built on Rolldown, which no longer accepts the object form of
+// output.manualChunks; each package group below therefore maps to an explicit
+// membership test inside this function while keeping the same chunk names.
+const MANUAL_CHUNKS: Record<string, string[]> = {
+  vendor: ['react', 'react-dom', 'react-router-dom'],
+  antd: ['antd', '@ant-design/icons'],
+  utils: ['axios', 'zustand', 'lodash-es', 'dayjs'],
+};
+
+/**
+ * resolveManualChunk mirrors the former object-form manualChunks grouping.
+ * @param id absolute module identifier emitted by the bundler.
+ * @returns the destination chunk name, or undefined for default placement.
+ */
+function resolveManualChunk(id: string): string | undefined {
+  if (!id.includes('node_modules')) {
+    return undefined;
+  }
+  for (const [chunkName, packages] of Object.entries(MANUAL_CHUNKS)) {
+    if (packages.some((pkg) => id.includes(`node_modules/${pkg}/`))) {
+      return chunkName;
+    }
+  }
+  return undefined;
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -57,11 +83,7 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          antd: ['antd', '@ant-design/icons'],
-          utils: ['axios', 'zustand', 'lodash-es', 'dayjs'],
-        },
+        manualChunks: resolveManualChunk,
       },
     },
   },
