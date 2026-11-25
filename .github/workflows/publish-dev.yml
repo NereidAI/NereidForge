@@ -647,7 +647,16 @@ jobs:
   publish-charts:
     name: Publish ${{ matrix.name }} development OCI chart
     needs: alias-images
-    if: inputs.image_profile != 'backend-frontend'
+    # alias-images escapes its own skipped siblings through always(); a plain
+    # conditional here still inherits the skipped result of the
+    # profile-excluded publish-applications job, which silently skipped the
+    # whole chart matrix on every hardware profile. Escalate with always()
+    # while staying fail-closed: charts publish only after the anonymous
+    # alias verification succeeds and the selected profile includes charts
+    # (the backend-frontend profile keeps excluding them).
+    if: >-
+      ${{ always() && inputs.image_profile != 'backend-frontend' &&
+          needs.alias-images.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

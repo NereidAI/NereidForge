@@ -559,7 +559,11 @@ class DevelopmentGateTests(unittest.TestCase):
 
     def test_suite_charts_wait_for_suite_images_and_application_profile_excludes_them(self):
         charts = job_block(self.text, "publish-charts")
-        self.assertIn("if: inputs.image_profile != 'backend-frontend'", charts)
+        # always() escapes skipped profile-excluded siblings; the explicit
+        # alias-images success result keeps chart publication fail-closed.
+        self.assertIn("always()", charts)
+        self.assertIn("inputs.image_profile != 'backend-frontend'", charts)
+        self.assertIn("needs.alias-images.result == 'success'", charts)
         names = matrix_names(self.text, "publish-charts")
         self.assertEqual(len(names), 3)
         self.assertEqual(set(names), NF_CHARTS.keys())

@@ -209,7 +209,20 @@ class DevelopmentPublicationTest(unittest.TestCase):
             alias,
         )
         charts = job_block(self.text, "publish-charts")
-        self.assertIn("if: inputs.image_profile != 'backend-frontend'", charts)
+        self.assertIn("inputs.image_profile != 'backend-frontend'", charts)
+
+    def test_publish_charts_escapes_skipped_siblings_but_stays_fail_closed(self):
+        """Regression: a skipped profile-excluded job transitively skips a
+        plain downstream conditional, so the chart matrix never scheduled on
+        hardware profiles. publish-charts must use always() to evaluate its
+        own condition while still refusing to publish unless alias verification
+        succeeded on a chart-bearing profile."""
+        charts = job_block(self.text, "publish-charts")
+        self.assertIn("always()", charts)
+        self.assertIn("needs.alias-images.result == 'success'", charts)
+        self.assertIn("inputs.image_profile != 'backend-frontend'", charts)
+        # A loose result check would publish charts after a failed verification.
+        self.assertNotIn("needs.alias-images.result != 'failure'", charts)
 
     def test_gpu_images_are_not_static_chart_install_dependencies(self):
         chart_text = "\n".join(
