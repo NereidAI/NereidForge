@@ -114,27 +114,24 @@ RESP=$(curl -s -w '\n%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/log
   -d "{\"captcha_id\":\"${CID}\",\"captcha_answer\":${ans},\"username\":\"admin\",\"password\":\"${NF_ADMIN_PASSWORD}\"}")
 HTTP_CODE=$(printf "%s\n" "$RESP" | tail -n 1)
 RESP_BODY=$(printf "%s\n" "$RESP" | sed "\$d")
-# Require both a successful HTTP response and a non-empty token. Only return a
-# marker to the host; neither the response body nor bearer credentials are logged.
+# Require both a successful HTTP response and a non-empty token. Return only an
+# exit status; neither response output nor bearer credentials cross the exec
+# stream, and acceptance does not depend on a short-lived stdout marker.
 if [ "$HTTP_CODE" = 200 ] && printf "%s\n" "$RESP_BODY" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
-    echo LOGIN_OK
+    exit 0
 else
-    echo LOGIN_FAIL
+    exit 1
 fi
 '
 if [[ -z "$NF_ADMIN_PW" ]]; then
     fail_check "admin login credential unavailable: set NF_ADMIN_PASSWORD, provide $CRED_FILE, or retain $TENANT/nereidforge-admin-credentials [password]"
 elif [[ -z "$API_POD" ]]; then
     fail_check "admin login failed: no API pod is available for the login probe"
-elif LOGIN_OUT=$(kubectl exec -n "$TENANT" "$API_POD" -c api -- \
-    env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" 2>/dev/null); then
-    if printf '%s\n' "$LOGIN_OUT" | grep -qx 'LOGIN_OK'; then
-        log_ok "admin login OK (got access_token)"
-    else
-        fail_check "admin login did not return a non-empty access token"
-    fi
+elif kubectl exec -n "$TENANT" "$API_POD" -c api -- \
+    env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" >/dev/null 2>&1; then
+    log_ok "admin login OK (got access_token)"
 else
-    fail_check "admin login probe command failed"
+    fail_check "admin login probe failed or did not return a non-empty access token"
 fi
 
 # 2b. SSO status endpoint (verifies SSO config + suite reachability)
