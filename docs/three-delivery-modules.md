@@ -60,8 +60,10 @@ builder implementations:
 
 - `backend-frontend`: only the 2 application images, with no builder or chart
   publication; this development scope is not a complete Suite Release;
-- `full`: 21 builder images plus 2 application images, exactly 23 images;
-- `cpu-xpu`: 16 builder images plus 2 application images, exactly 18 images;
+- `full`: all 21 builder images; hardware profiles never build the two
+  application images, which are exclusive to `backend-frontend`;
+- `cpu-xpu`: 16 builder images, i.e. the `full` builder set minus the five
+  AMD/NVIDIA trainer images;
 - exactly five AMD/NVIDIA trainer images are excluded from `cpu-xpu`;
 - every selected immutable image passes inventory, reuse/collision, anonymous
   digest, platform, and source-revision checks before floating aliases move;

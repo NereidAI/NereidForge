@@ -4,8 +4,12 @@
 # Scoped NereidForge development publication (root treaty §19.5). An explicit
 # manual dispatch on main selects one image profile:
 # - backend-frontend publishes only the two application images and no charts;
-# - cpu-xpu publishes 18 core/CPU/Intel-XPU images and exactly three NF charts;
-# - full publishes all 23 NF-owned images and exactly three NF charts.
+# - cpu-xpu publishes the 16 core/CPU/Intel-XPU builder images and exactly
+#   four NF charts;
+# - full publishes all 21 builder images and exactly four NF charts.
+# The two application images (nereidforge-backend/nereidforge-frontend) are
+# unrelated to the hardware builder matrices and are published exclusively by
+# the backend-frontend profile; no hardware profile builds or aliases them.
 # Every image uses an immutable 0.0.0-dev-<short-sha> identity. The floating
 # 0.0.0-dev tags are aliases of those verified manifests; no GitHub Release or
 # formal version is created. The independent pre-nereidforge-publish-dev
@@ -72,8 +76,8 @@ jobs:
           test "$GITHUB_REF_TYPE" = branch
           test "$GITHUB_REF_NAME" = main
           case "$IMAGE_PROFILE" in
-            full) expected_count=23 ;;
-            cpu-xpu) expected_count=18 ;;
+            full) expected_count=21 ;;
+            cpu-xpu) expected_count=16 ;;
             backend-frontend) expected_count=2 ;;
             *) echo "::error::Unsupported image profile: $IMAGE_PROFILE"; exit 2 ;;
           esac
@@ -103,9 +107,11 @@ jobs:
         run: |
           set -euo pipefail
           source scripts/lib/nf_publication.sh
+          # Hardware profiles inventory builder images only; the two
+          # application images belong to the backend-frontend profile.
           images=(
             inference-model-server-openvino-xpu ml-backend ml-backend-custom
-            nereidforge-backend nereidforge-frontend nf-runtime prediction-jupyter-base
+            nf-runtime prediction-jupyter-base
             train-evaluator train-evaluator-xpu train-optimizer trainer-convert
             trainer-convert-pp trainer-convert-tf trainer-llm-xpu trainer-paddle-cpu
             trainer-torch-cpu trainer-torch-xpu trainer-xpu-base
@@ -246,18 +252,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: nereidforge-backend
-            context: .
-            file: python-backend/Dockerfile
-            platforms: linux/amd64,linux/arm64
-            build-args: ''
-          - name: nereidforge-frontend
-            context: frontend
-            file: frontend/Dockerfile
-            platforms: linux/amd64,linux/arm64
-            build-args: |
-              VITE_APP_VERSION=@IMMUTABLE@
-              VITE_IMAGE_TAG=@IMMUTABLE@
           - name: nf-runtime
             context: kfp-pipelines/docker
             file: kfp-pipelines/docker/Dockerfile.runtime
@@ -526,11 +520,11 @@ jobs:
           expected_count = int(os.environ["EXPECTED_COUNT"])
           images = [
               "inference-model-server-openvino-xpu", "ml-backend", "ml-backend-custom",
-              "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
-              "prediction-jupyter-base", "train-evaluator", "train-evaluator-xpu",
-              "train-optimizer", "trainer-convert", "trainer-convert-pp",
-              "trainer-convert-tf", "trainer-llm-xpu", "trainer-paddle-cpu",
-              "trainer-torch-cpu", "trainer-torch-xpu", "trainer-xpu-base",
+              "nf-runtime", "prediction-jupyter-base", "train-evaluator",
+              "train-evaluator-xpu", "train-optimizer", "trainer-convert",
+              "trainer-convert-pp", "trainer-convert-tf", "trainer-llm-xpu",
+              "trainer-paddle-cpu", "trainer-torch-cpu", "trainer-torch-xpu",
+              "trainer-xpu-base",
           ]
           if profile == "backend-frontend":
               images = ["nereidforge-backend", "nereidforge-frontend"]

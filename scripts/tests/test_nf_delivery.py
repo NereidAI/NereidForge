@@ -58,6 +58,10 @@ BUILDER_IMAGES = {
 }
 FULL_IMAGES = BUILDER_IMAGES | APPLICATION_IMAGES
 CPU_XPU_IMAGES = FULL_IMAGES - AMD_NVIDIA_IMAGES
+# Hardware dev profiles publish builder images only: the two application
+# images are exclusive to the backend-frontend profile (16 and 21 images).
+DEV_HARDWARE_IMAGES = BUILDER_IMAGES - AMD_NVIDIA_IMAGES
+DEV_FULL_IMAGES = BUILDER_IMAGES
 NF_CHARTS = {
     "nereidforge": "charts/nereidforge",
     "nereidforge-ml-backend": "charts/ml-backend",
@@ -191,17 +195,20 @@ class ApplicationInventoryTests(unittest.TestCase):
                 self.assertNotIn("opt-tensorrt", entry)
 
     def test_development_application_matrices_use_inventory_coordinates(self):
-        for job_name in ("publish-applications", "publish-base"):
-            for name, expected in APPLICATION_DEFINITIONS.items():
-                with self.subTest(job=job_name, image=name):
-                    entry = matrix_entry(self.dev, job_name, name)
-                    self.assertIn(f"context: {expected['context']}\n", entry)
-                    self.assertIn(f"file: {expected['file']}\n", entry)
-                    self.assertIn("platforms: " + ",".join(expected["platforms"]) + "\n", entry)
-                    self.assertIn(
-                        "ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}",
-                        job_block(self.dev, job_name),
-                    )
+        # Application images exist only in the narrow publish-applications
+        # matrix; the hardware publish-base matrix must not build them.
+        for name, expected in APPLICATION_DEFINITIONS.items():
+            entry = matrix_entry(self.dev, "publish-applications", name)
+            self.assertIn(f"context: {expected['context']}\n", entry)
+            self.assertIn(f"file: {expected['file']}\n", entry)
+            self.assertIn("platforms: " + ",".join(expected["platforms"]) + "\n", entry)
+            self.assertIn(
+                "ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}",
+                job_block(self.dev, "publish-applications"),
+            )
+        base_names = matrix_names(self.dev, "publish-base")
+        for name in APPLICATION_IMAGES:
+            self.assertNotIn(name, base_names)
 
     def test_formal_application_matrix_retains_sources_and_multi_architecture_indexes(self):
         applications = job_block(self.formal, "applications")
@@ -314,16 +321,17 @@ class ImageCompositionTests(unittest.TestCase):
     def test_development_profile_lists_match_the_composed_inventories(self):
         shell_base, shell_extra, python_base, python_extra = workflow_image_lists(self.dev)
         for base in (shell_base, python_base):
-            self.assertEqual(base, CPU_XPU_IMAGES)
-            self.assertEqual(len(base), 18)
+            self.assertEqual(base, DEV_HARDWARE_IMAGES)
+            self.assertEqual(len(base), 16)
+            self.assertTrue(base.isdisjoint(APPLICATION_IMAGES))
         for extra in (shell_extra, python_extra):
             self.assertEqual(extra, AMD_NVIDIA_IMAGES)
             self.assertEqual(len(extra), 5)
-        self.assertEqual(shell_base | shell_extra, FULL_IMAGES)
-        self.assertEqual(python_base | python_extra, FULL_IMAGES)
+        self.assertEqual(shell_base | shell_extra, DEV_FULL_IMAGES)
+        self.assertEqual(python_base | python_extra, DEV_FULL_IMAGES)
         preflight = job_block(self.dev, "preflight")
-        self.assertIn("full) expected_count=23", preflight)
-        self.assertIn("cpu-xpu) expected_count=18", preflight)
+        self.assertIn("full) expected_count=21", preflight)
+        self.assertIn("cpu-xpu) expected_count=16", preflight)
         self.assertIn("backend-frontend) expected_count=2", preflight)
         self.assertIn('test "${#images[@]}" -eq "$EXPECTED_COUNT"', preflight)
         self.assertNotIn("opt-tensorrt", self.dev)
@@ -456,7 +464,7 @@ class DevelopmentGateTests(unittest.TestCase):
             self.assertEqual(values["immutable"], "0.0.0-dev-0123456")
             self.assertEqual(values["floating"], "0.0.0-dev")
             self.assertEqual(values["image_profile"], "full")
-            self.assertEqual(values["expected_count"], "23")
+            self.assertEqual(values["expected_count"], "21")
 
             cpu_output = Path(directory) / "cpu-output"
             env.update(IMAGE_PROFILE="cpu-xpu", GITHUB_OUTPUT=str(cpu_output))
@@ -466,7 +474,7 @@ class DevelopmentGateTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
             cpu_values = dict(line.split("=", 1) for line in cpu_output.read_text().splitlines())
             self.assertEqual(cpu_values["image_profile"], "cpu-xpu")
-            self.assertEqual(cpu_values["expected_count"], "18")
+            self.assertEqual(cpu_values["expected_count"], "16")
 
             application_output = Path(directory) / "application-output"
             env.update(IMAGE_PROFILE="backend-frontend", GITHUB_OUTPUT=str(application_output))
