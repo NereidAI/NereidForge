@@ -195,7 +195,7 @@ EOF
     # still starting, while persistent failures retain a safe diagnostic.
     local rendered err diagnostic mode=client
     local attempt=1
-    local max_attempts="${KUBEFLOW_APPLY_ATTEMPTS:-4}"
+    local max_attempts="${KUBEFLOW_APPLY_ATTEMPTS:-40}"
     local retry_delay="${KUBEFLOW_APPLY_RETRY_DELAY:-15}"
     rendered="$(mktemp "$RENDER_WORKDIR/nf-rendered.XXXXXX")"
     err="$(mktemp "$RENDER_WORKDIR/nf-apply-error.XXXXXX")"

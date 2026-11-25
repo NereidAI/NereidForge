@@ -64,6 +64,10 @@ class KubeflowApplyTest(unittest.TestCase):
                                 printf '%s\\n' 'webhook is temporarily unavailable; rejected Secret: nf-test-dex-secret nf-test-s3-secret' >&2
                                 exit 1
                             fi
+                            if [[ "$NF_TEST_KF_MODE" == slow-webhook && "$count" -le 5 ]]; then
+                                printf '%s\\n' 'webhook is still starting; rejected Secret: nf-test-dex-secret nf-test-s3-secret' >&2
+                                exit 1
+                            fi
                             if [[ "$NF_TEST_KF_MODE" == server-retry* && "$count" == 1 ]]; then
                                 printf '%s\\n' 'annotation exceeds 262144 bytes: Too long' >&2
                                 exit 1
@@ -108,9 +112,12 @@ class KubeflowApplyTest(unittest.TestCase):
                 NF_TEST_DEPLOY_LOG=str(root / "deploy.log"),
                 NF_TEST_KUSTOMIZE_COUNT=str(root / "kustomize-count"),
                 NF_TEST_APPLY_COUNT=str(root / "apply-count"),
-                KUBEFLOW_APPLY_ATTEMPTS=str(attempts),
                 KUBEFLOW_APPLY_RETRY_DELAY="0",
             )
+            if attempts is None:
+                env.pop("KUBEFLOW_APPLY_ATTEMPTS", None)
+            else:
+                env["KUBEFLOW_APPLY_ATTEMPTS"] = str(attempts)
             result = subprocess.run(
                 ["bash", str(harness)],
                 env=env,
@@ -168,6 +175,21 @@ class KubeflowApplyTest(unittest.TestCase):
         self.assertIn("18 targets applied", output)
         # Three attempts for istio-crds, then one apply for each remaining target.
         self.assertEqual(3 + 17, result.apply_count)
+
+    def test_default_attempt_budget_tolerates_slow_webhook_startup(self):
+        result = self.run_apply_stage("slow-webhook", attempts=None)
+        output = result.stdout + result.stderr
+        self.assertEqual(0, result.returncode, output)
+        self.assertIn("Apply attempt 4/40 failed for istio-crds", output)
+        self.assertIn("Apply attempt 5/40 failed for istio-crds", output)
+        self.assertIn("API, CRD, or admission webhook is not ready", output)
+        self.assertNotIn("webhook is still starting", output)
+        self.assertNotIn("nf-test-dex-secret", output)
+        self.assertNotIn("nf-test-s3-secret", output)
+        self.assertIn("Applied: istio-crds", output)
+        self.assertIn("18 targets applied", output)
+        # Six attempts for istio-crds, then one apply for each remaining target.
+        self.assertEqual(6 + 17, result.apply_count)
 
     def test_server_side_fallback_counts_against_the_total_attempt_budget(self):
         result = self.run_apply_stage("server-retry-fail")

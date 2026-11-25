@@ -185,7 +185,7 @@ consumer starts, the stage idempotently creates and authenticates list access to
 Dex configuration, Kubeflow Profile, and RBAC. The Kubeflow stage rejects a
 different identity or a malformed/non-bcrypt `DEX_STATIC_PASSWORD_HASH` before
 reading cluster credentials. Its 18 ordered targets use one immutable render
-per target and at most four apply attempts, 15 seconds apart by default, to
+per target and at most forty apply attempts, 15 seconds apart by default, to
 tolerate starting CRDs and admission webhooks. Annotation-size failures switch
 to server-side apply. `KUBEFLOW_APPLY_ATTEMPTS` and
 `KUBEFLOW_APPLY_RETRY_DELAY` can tune those limits; persistent failures retain
