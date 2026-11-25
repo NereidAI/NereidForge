@@ -36,6 +36,19 @@ class HelmHandoffRenderingTest(unittest.TestCase):
             check=True,
             capture_output=True,
         )
+        # The single consolidated chart renders API, worker and frontend from
+        # one release using the same generated handoff values.
+        cls.rendered = subprocess.run(
+            [
+                "helm", "template", "nereidforge",
+                str(ROOT / "charts/nereidforge"),
+                "--namespace", "nereidforge", "-f", str(cls.values),
+            ],
+            cwd=ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
 
     @classmethod
     def tearDownClass(cls):
@@ -53,17 +66,19 @@ class HelmHandoffRenderingTest(unittest.TestCase):
             capture_output=True,
         ).stdout
 
-    def test_backend_uses_only_retained_secrets_and_renders_ordered_jobs(self):
-        rendered = self.render("charts/nereidforge-backend", "nereidforge-backend")
+    def test_application_uses_only_retained_secrets_and_renders_ordered_jobs(self):
+        rendered = self.rendered
         self.assertNotIn("kind: Namespace\n", rendered)
         self.assertNotIn("name: pg-nereidforge-credentials\n", rendered)
         self.assertIn("name: pg-nereidforge-postgresql-credentials", rendered)
         self.assertIn("name: nereidforge-service-credentials", rendered)
-        self.assertNotIn("name: nereidforge-backend-secrets\n", rendered)
+        # The chart renders no managed Secret when every credential is retained.
+        self.assertNotIn("kind: Secret\n", rendered)
+        self.assertNotIn("name: nereidforge-secrets\n", rendered)
         self.assertEqual(2, rendered.count("kind: Job\n"))
         self.assertEqual(4, rendered.count("mountPath: /etc/nereidforge/config.yaml"))
         # One ConfigMap resource plus API, worker, and both hook Job volumes.
-        self.assertEqual(5, rendered.count("name: nereidforge-backend-config"))
+        self.assertEqual(5, rendered.count("name: nereidforge-config"))
         self.assertIn('component: admin-seed', rendered)
         self.assertIn('component: pipeline-upload', rendered)
         self.assertLess(
@@ -74,8 +89,8 @@ class HelmHandoffRenderingTest(unittest.TestCase):
         self.assertIn('value: "false"', rendered)
         self.assertIn('before-hook-creation', rendered)
 
-    def test_backend_deep_merged_config_preserves_secret_env_placeholders(self):
-        rendered = self.render("charts/nereidforge-backend", "nereidforge-backend")
+    def test_deep_merged_config_preserves_secret_env_placeholders(self):
+        rendered = self.rendered
         self.assertIn('host: nereidforge-postgresql-rw.nereidforge.svc.cluster.local', rendered)
         self.assertIn('base_url: https://nereidsphere.example.test', rendered)
         self.assertIn('namespace: nereidforge', rendered)
@@ -95,8 +110,10 @@ class HelmHandoffRenderingTest(unittest.TestCase):
         self.assertIn("name: seaweedfs-s3-credentials", rendered)
         self.assertNotIn("stringData:", rendered)
 
-    def test_frontend_contains_same_origin_urls_and_all_five_routes(self):
-        rendered = self.render("charts/nereidforge-frontend", "nereidforge-frontend")
+    def test_frontend_tier_contains_same_origin_urls_and_all_five_routes(self):
+        # The frontend templates are part of the consolidated release; the
+        # handoff frontend: block drives the ingress and SPA environment.
+        rendered = self.rendered
         self.assertIn('value: https://nereidforge.example.test/api', rendered)
         self.assertIn('value: wss://nereidforge.example.test', rendered)
         positions = [rendered.index(f'path: "{path}"') for path in (
@@ -104,6 +121,10 @@ class HelmHandoffRenderingTest(unittest.TestCase):
         )]
         self.assertEqual(positions, sorted(positions))
         self.assertIn('secretName: nereidforge-frontend-tls', rendered)
+        # The live object names are pinned despite the merged release.
+        self.assertIn("name: nereidforge-frontend", rendered)
+        for deployment in ("nereidforge-api", "nereidforge-worker", "nereidforge-frontend"):
+            self.assertIn(f"name: {deployment}", rendered)
 
 
 class SeedAdminJobTest(unittest.TestCase):
@@ -151,7 +172,7 @@ class SeedAdminJobTest(unittest.TestCase):
             "app.services": types.ModuleType("app.services"),
             "app.services.admin": types.SimpleNamespace(AdminService=AdminService),
         }
-        path = ROOT / "charts/nereidforge-backend/scripts/seed_admin.py"
+        path = ROOT / "charts/nereidforge/scripts/seed_admin.py"
         spec = importlib.util.spec_from_file_location("nf_seed_admin_test", path)
         module = importlib.util.module_from_spec(spec)
         environment = {
@@ -187,15 +208,15 @@ class SeedAdminJobTest(unittest.TestCase):
 class DirectHelmDocumentationTest(unittest.TestCase):
     def test_readme_documents_oci_order_without_an_nf_source_installer(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        backend = readme.index("helm upgrade --install nereidforge-backend")
-        frontend = readme.index("helm upgrade --install nereidforge-frontend")
+        application = readme.index("helm upgrade --install nereidforge ")
         ml_backend = readme.index("helm upgrade --install ml-backend")
-        self.assertLess(backend, frontend)
-        self.assertLess(frontend, ml_backend)
+        self.assertLess(application, ml_backend)
         self.assertIn("40_check-nf-handoff.sh", readme)
         self.assertIn("values.generated.yaml", readme)
         self.assertIn("operator-values.yaml", readme)
-        self.assertNotIn("helm upgrade --install nereidforge-backend .", readme)
+        # The two retired standalone releases must not be documented anymore.
+        self.assertNotIn("helm upgrade --install nereidforge-backend", readme)
+        self.assertNotIn("helm upgrade --install nereidforge-frontend", readme)
 
 
 if __name__ == "__main__":

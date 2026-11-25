@@ -43,8 +43,10 @@ resident runtime.
 
 Its Interface accepts a verified Pre-NereidForge Handoff, retained application
 identities, and a pinned builder-image manifest. It produces and verifies the
-backend and frontend images, four application charts, and the suite release
-composition. It owns runtime image selection and compatibility mappings. It
+backend and frontend images, three application charts (the consolidated
+nereidforge chart deploys API, worker and frontend in one release), and the
+suite release composition. It owns runtime image selection and compatibility
+mappings. It
 does not initialize infrastructure or implicitly build builder images during
 installation.
 
@@ -63,7 +65,7 @@ builder implementations:
 - exactly five AMD/NVIDIA trainer images are excluded from `cpu-xpu`;
 - every selected immutable image passes inventory, reuse/collision, anonymous
   digest, platform, and source-revision checks before floating aliases move;
-- all four NF charts wait for the complete `full` or `cpu-xpu` image gate and
+- all three NF charts wait for the complete `full` or `cpu-xpu` image gate and
   are not scheduled by `backend-frontend`;
 - formal publication continues to require all 23 images;
 - Pre-NereidForge publication remains independent: five charts and its source

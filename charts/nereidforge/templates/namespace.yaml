@@ -4,9 +4,9 @@ SPDX-License-Identifier: Apache-2.0
 */}}
 
 {{- /*
-Tenant namespace. Created by the chart (shared by backend + frontend releases)
-instead of `kubectl label`. The resource-policy: keep annotation prevents Helm
-from deleting the shared namespace on uninstall of either release.
+Tenant namespace. Created by the single consolidated NereidForge release.
+The resource-policy: keep annotation prevents Helm from deleting the shared
+namespace on uninstall.
 
 No istio-injection canary label: the NF api/frontend opt OUT of the mesh. Pronged
 by the KF profile-controller's `ns-owner-access-istio` AuthorizationPolicy which

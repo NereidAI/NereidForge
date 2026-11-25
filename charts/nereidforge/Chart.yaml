@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 apiVersion: v2
-name: nereidforge-backend
-description: NereidForge Backend Helm Chart (API + Worker)
+name: nereidforge
+description: NereidForge Helm Chart (API, Worker and embedded SPA Frontend)
 type: application
 version: 0.0.0-dev
 # In-branch placeholder (root treaty §19.5): release packaging injects the
@@ -12,9 +12,11 @@ appVersion: "0.0.0-dev"
 keywords:
   - nereidforge
   - backend
+  - frontend
   - api
   - worker
   - fastapi
+  - react
 maintainers:
   - name: NereidForge Team
     email: jiekechoo@gmail.com

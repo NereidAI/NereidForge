@@ -1,20 +1,20 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
-# API Deployment for the NereidForge backend chart.
+# API Deployment for the consolidated NereidForge chart.
 {{- if and .Values.enabled .Values.api.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "nereidforge-backend.api.fullname" . }}
+  name: {{ include "nereidforge.api.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
     component: api
 spec:
   replicas: {{ .Values.api.replicas }}
   selector:
     matchLabels:
-      {{- include "nereidforge-backend.selectorLabels" . | nindent 6 }}
+      {{- include "nereidforge.selectorLabels" . | nindent 6 }}
       component: api
   template:
     metadata:
@@ -26,14 +26,14 @@ spec:
         checksum/pg-credentials: {{ include (print $.Template.BasePath "/pg-credentials.yaml") . | sha256sum }}
         checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
       labels:
-        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        {{- include "nereidforge.selectorLabels" . | nindent 8 }}
         component: api
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      serviceAccountName: {{ include "nereidforge.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -109,7 +109,7 @@ spec:
             {{- end }}
           envFrom:
             - secretRef:
-                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+                name: {{ include "nereidforge.runtimeSecretName" . }}
           volumeMounts:
             - name: config
               mountPath: /etc/nereidforge/config.yaml
@@ -124,7 +124,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "nereidforge-backend.fullname" . }}-config
+            name: {{ include "nereidforge.fullname" . }}-config
         {{- if .Values.caBundleSecret }}
         - name: ca-bundle
           secret:
@@ -151,10 +151,10 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "nereidforge-backend.api.fullname" . }}
+  name: {{ include "nereidforge.api.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
     component: api
   {{- with .Values.api.ingress.annotations }}
   annotations:
@@ -174,16 +174,16 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ include "nereidforge-backend.api.fullname" . }}
+  name: {{ include "nereidforge.api.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
     component: api
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: {{ include "nereidforge-backend.api.fullname" . }}
+    name: {{ include "nereidforge.api.fullname" . }}
   minReplicas: {{ .Values.api.autoscaling.minReplicas }}
   maxReplicas: {{ .Values.api.autoscaling.maxReplicas }}
   metrics:

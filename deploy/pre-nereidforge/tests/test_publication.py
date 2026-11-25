@@ -154,7 +154,7 @@ class PublicationWorkflowTests(unittest.TestCase):
                 for forbidden in (
                     "docker/build-push-action",
                     "uses: NereidAI/.github",
-                    "charts/nereidforge-backend",
+                    "charts/nereidforge",
                     "charts/ml-backend",
                     "ghcr.io/nereidai/nereidforge-backend:",
                     "ghcr.io/nereidai/nereidforge-frontend:",

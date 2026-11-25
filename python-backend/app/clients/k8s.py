@@ -655,8 +655,9 @@ class K8sService:
 # Unlike the KServe helpers above (executed through a KFP cluster-op pipeline),
 # the notebook workbench manages Kubeflow Notebook CRs + workspace PVCs via the
 # kubernetes python SDK using the pod's own ServiceAccount, which is bound to a
-# namespaced Role limited to exactly these resources (see the nereidforge-backend
-# chart notebook-rbac template). Config resolution: in-cluster SA token first
+# namespaced Role limited to exactly these resources (see the consolidated
+# nereidforge chart notebook-rbac template). Config resolution: in-cluster SA
+# token first
 # (prod), then $KUBECONFIG or /etc/rancher/k3s/k3s.yaml (dev on the host).
 # ---------------------------------------------------------------------------
 

@@ -130,7 +130,7 @@ class PrePackageTests(unittest.TestCase):
                         "values-prod.yaml",
                         "secrets.yaml.template",
                         "images-manifest.txt",
-                        "charts/nereidforge-backend/Chart.yaml",
+                        "charts/nereidforge/Chart.yaml",
                         ".git",
                     ]
                     for relative in forbidden:

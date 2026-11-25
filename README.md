@@ -101,8 +101,8 @@ configuration; no shared development secret is supplied.
 An NF development publication explicitly selects one of three image profiles.
 `backend-frontend` builds and publishes only `nereidforge-backend` and
 `nereidforge-frontend`; it schedules no builder, dependent-image, or chart jobs.
-A complete suite snapshot instead uses `full` (all 23 images and exactly four
-OCI Helm charts) or `cpu-xpu` (18 core/CPU/Intel-XPU images and the same four
+A complete suite snapshot instead uses `full` (all 23 images and exactly three
+OCI Helm charts) or `cpu-xpu` (18 core/CPU/Intel-XPU images and the same three
 charts). `cpu-xpu` excludes only the five AMD/NVIDIA trainer images
 (`trainer-torch-cu`, `trainer-paddle-cu`, `trainer-llm-cu`,
 `trainer-torch-rocm`, and `trainer-llm-rocm`); Intel XPU images remain required.
@@ -115,11 +115,11 @@ matrix is never a pull-request check. Select only the intended scope:
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=backend-frontend
 
-# 18-image core/CPU/Intel-XPU snapshot plus four charts.
+# 18-image core/CPU/Intel-XPU snapshot plus three charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=cpu-xpu
 
-# Full 23-image snapshot plus four charts (the default).
+# Full 23-image snapshot plus three charts (the default).
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=full
 ```
@@ -161,7 +161,7 @@ configuration.
 Local chart packaging is split by ownership:
 
 ```bash
-# Exactly four NF product charts; no upload.
+# Exactly three NF product charts; no upload.
 make helm-package
 
 # Exactly five supporting-service charts with independent upstream versions;
@@ -174,7 +174,7 @@ path and is not packaged. Kubeflow remains an ordered Kustomize/platform
 installer in the pre module, not an umbrella Helm chart.
 
 A formal NF Git tag `v<SemVer>` publishes the 23 NF-owned images and only the
-four charts under `charts/`. Its GitHub Release contains only
+three charts under `charts/`. Its GitHub Release contains only
 `nereidforge-images-<version>.txt` and `nereidforge-charts-<version>.txt`. NF is
 installed through those OCI Helm charts against a compatible pre-NereidForge
 release; NF releases do not publish pre charts or a repository-shaped
@@ -194,7 +194,7 @@ aliases of the immutable manifests; no moving GitHub Release is created.
 
 The separate NF development workflow publishes either the two-image
 `backend-frontend` application scope without charts, or a complete suite
-snapshot of 23 `full` images or 18 `cpu-xpu` images with exactly four charts.
+snapshot of 23 `full` images or 18 `cpu-xpu` images with exactly three charts.
 All profiles use the same floating/immutable identity contract. Image builds
 never overwrite an existing immutable tag and push no floating tag. Every
 selected immutable manifest must pass anonymous source-revision verification
@@ -229,13 +229,10 @@ persistent non-secret operator environment, then install in this order:
 : "${NEREIDFORGE_VERSION:?Load the persistent operator environment}"
 bash scripts/40_check-nf-handoff.sh  # run from the extracted pre installer
 
-helm upgrade --install nereidforge-backend \
-  oci://ghcr.io/nereidai/charts/nereidforge-backend \
-  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
-  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
-  --wait --timeout 10m
-helm upgrade --install nereidforge-frontend \
-  oci://ghcr.io/nereidai/charts/nereidforge-frontend \
+# Consolidated application release: API, worker and the embedded SPA frontend
+# in one Helm chart; the frontend tier is configured under the frontend: block.
+helm upgrade --install nereidforge \
+  oci://ghcr.io/nereidai/charts/nereidforge \
   --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
   -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
   --wait --timeout 10m
@@ -246,10 +243,10 @@ helm upgrade --install ml-backend \
   --wait --timeout 10m
 ```
 
-The backend chart's post-install/post-upgrade hooks seed the administrator
+The nereidforge chart's post-install/post-upgrade hooks seed the administrator
 without implicit password rotation and synchronize the existing KFP pipeline
 definitions. Hook failures fail the Helm operation; they are not warning-only
-steps. The fourth chart, `nereidforge-tenant-check`, remains a verification tool,
+steps. The third chart, `nereidforge-tenant-check`, remains a verification tool,
 not an application release. No NF source installer is required or published.
 
 These local/static checks do not establish GHCR publication success, anonymous

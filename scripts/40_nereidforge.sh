@@ -20,16 +20,13 @@ TENANT="${1:-nereidforge}"
 
 log_info "========== Deploying the NereidForge application layer ($TENANT) =========="
 
-log_info "Step 0/4: ML Backend (YOLO pre-annotation, app layer)"
+log_info "Step 0/3: ML Backend (YOLO pre-annotation, app layer)"
 "$SCRIPT_DIR/ml-backend.sh"
 
-log_info "Step 1/4: Backend (API + Worker)"
-"$SCRIPT_DIR/backend.sh" "$TENANT"
+log_info "Step 1/3: NereidForge application (API + Worker + Frontend)"
+"$SCRIPT_DIR/app.sh" "$TENANT"
 
-log_info "Step 2/4: Frontend"
-"$SCRIPT_DIR/frontend.sh" "$TENANT"
-
-log_info "Step 3/4: Ingress TLS"
+log_info "Step 2/3: Ingress TLS"
 "$SCRIPT_DIR/ingress-tls.sh" "$TENANT"
 
 log_ok "========== NereidForge application-layer deployment completed =========="

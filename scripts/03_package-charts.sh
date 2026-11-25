@@ -2,11 +2,13 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Package exactly the four NF-owned Helm charts for local or offline use.
-# Staging applies the tag-sourced product release version without modifying
-# source Chart.yaml files. Supporting-service charts belong to the independent
-# pre-NereidForge packager. The legacy Kubeflow Helm umbrella is not an active
-# installation path and is deliberately excluded. No upload path exists.
+# Package exactly the three NF-owned Helm charts for local or offline use.
+# The consolidated nereidforge chart deploys API, worker and frontend in one
+# release. Staging applies the tag-sourced product release version without
+# modifying source Chart.yaml files. Supporting-service charts belong to the
+# independent pre-NereidForge packager. The legacy Kubeflow Helm umbrella is
+# not an active installation path and is deliberately excluded. No upload
+# path exists.
 # Archive metadata is normalized so repackaging one commit is byte-identical,
 # which permits safe immutable-tag reuse on development workflow reruns.
 set -euo pipefail
@@ -33,8 +35,7 @@ CHART_VERSION="${CHART_VERSION:-$(nf_version)}"
 # source-dir : package-name : version-mode (always the NF CHART_VERSION).
 CHARTS=(
     "charts/ml-backend:nereidforge-ml-backend:version"
-    "charts/nereidforge-backend:nereidforge-backend:version"
-    "charts/nereidforge-frontend:nereidforge-frontend:version"
+    "charts/nereidforge:nereidforge:version"
     "charts/tenant-check:nereidforge-tenant-check:version"
 )
 
@@ -117,8 +118,8 @@ for entry in "${CHARTS[@]}"; do
     normalize_chart_package "$OUTPUT_DIR/${pubname}-${package_version}.tgz" "$pubname"
     package_files+=("${pubname}-${package_version}.tgz")
 done
-[[ "${#CHARTS[@]}" -eq 4 ]]
-[[ "${#package_files[@]}" -eq 4 ]]
+[[ "${#CHARTS[@]}" -eq 3 ]]
+[[ "${#package_files[@]}" -eq 3 ]]
 
 # A relative index works for offline use; an operator may provide a site URL.
 if [[ -n "${CHARTS_REPO_URL:-}" ]]; then

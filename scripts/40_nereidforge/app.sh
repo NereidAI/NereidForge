@@ -2,7 +2,11 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# backend.sh - Deploy nereidforge-backend (API + Worker)
+# app.sh - Deploy the consolidated NereidForge release (API + Worker + the
+# embedded SPA frontend) through the single charts/nereidforge Helm chart.
+# It replaces the former two-release backend.sh/frontend.sh flow while keeping
+# every live object name (nereidforge-api, nereidforge-worker,
+# nereidforge-frontend) stable through the chart's nameOverride pins.
 
 set -euo pipefail
 
@@ -44,32 +48,37 @@ case "$SSO_MODE" in
     *) log_err "SSO_MODE must be local, ns, or oidc"; exit 1 ;;
 esac
 
-log_info "========== Deploy NereidForge Backend ($TENANT) =========="
+log_info "========== Deploy NereidForge application ($TENANT) =========="
 
 # Namespace (istio-injection) + the optional registry pull secret + the
 # pg-nereidforge-credentials secret are rendered by the chart
 # (templates/namespace.yaml, registry-secret.yaml, pg-credentials.yaml). The
 # registry secret renders only when registry.host, registry.username and
 # registry.password are all supplied; default public installs render no secret.
-# The pg secret is
-# replicated from nereidforge via lookup.
+# The pg secret is replicated from nereidforge via lookup.
 
-# NF_BACKEND_IMAGE is the public flat GHCR ref from lib/config.sh.
+# NF_BACKEND_IMAGE / NF_FRONTEND_IMAGE are the public flat GHCR refs from
+# lib/config.sh; the two images stay independently versioned containers.
 NF_BACKEND_IMAGE="${NF_BACKEND_IMAGE:?config.sh failed to provide NF_BACKEND_IMAGE}"
 NF_BACKEND_REPO="${NF_BACKEND_IMAGE%:*}"
 NF_BACKEND_TAG="${NF_BACKEND_IMAGE##*:}"
+NF_FRONTEND_IMAGE="${NF_FRONTEND_IMAGE:?config.sh failed to provide NF_FRONTEND_IMAGE}"
+NF_FRONTEND_REPO="${NF_FRONTEND_IMAGE%:*}"
+NF_FRONTEND_TAG="${NF_FRONTEND_IMAGE##*:}"
 
-log_info "Image repo: $NF_BACKEND_REPO"
-log_info "Image tag: $NF_BACKEND_TAG"
+log_info "Backend image repo: $NF_BACKEND_REPO"
+log_info "Backend image tag: $NF_BACKEND_TAG"
+log_info "Frontend image repo: $NF_FRONTEND_REPO"
+log_info "Frontend image tag: $NF_FRONTEND_TAG"
 
-cd "$APP_CHARTS_DIR/nereidforge-backend"
+cd "$APP_CHARTS_DIR/nereidforge"
 
 # The namespace is pre-created by 10_infra (kubectl). Pre-adopt it for this
 # release so the chart's templates/namespace.yaml does not fail Helm's
 # ownership validation; the chart keeps resource-policy: keep on uninstall.
 kubectl label namespace "$TENANT" app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
 kubectl annotate namespace "$TENANT" \
-    meta.helm.sh/release-name=nereidforge-backend \
+    meta.helm.sh/release-name=nereidforge \
     meta.helm.sh/release-namespace="$TENANT" --overwrite >/dev/null
 
 # Adopt any pre-existing harbor-registry-secret (e.g. created by the operator
@@ -79,7 +88,7 @@ if kubectl get secret harbor-registry-secret -n "$TENANT" >/dev/null 2>&1; then
     kubectl label secret harbor-registry-secret -n "$TENANT" \
         app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
     kubectl annotate secret harbor-registry-secret -n "$TENANT" \
-        meta.helm.sh/release-name=nereidforge-backend \
+        meta.helm.sh/release-name=nereidforge \
         meta.helm.sh/release-namespace="$TENANT" --overwrite >/dev/null
 fi
 
@@ -100,7 +109,11 @@ else
     log_warn "cert-manager/nereid-internal-ca-tls not found; outbound TLS to SSO may fail"
 fi
 
-$HELM upgrade --install nereidforge-backend . -n "$TENANT" --create-namespace \
+# One Helm release owns all three tiers. Backend values stay at the chart root;
+# the frontend tier lives under frontend.* (ingress is the same-origin entry
+# point path-routing /api, /auth/ns-callback, /v1/integration/ns and
+# /notebook-servers to the API service).
+$HELM upgrade --install nereidforge . -n "$TENANT" --create-namespace \
     --set image.repository="$NF_BACKEND_REPO" \
     --set image.tag="$NF_BACKEND_TAG" \
     --set config.database.host="nereidforge-postgresql-rw.nereidforge.svc.cluster.local" \
@@ -126,6 +139,28 @@ $HELM upgrade --install nereidforge-backend . -n "$TENANT" --create-namespace \
     --set secrets.sso.ns.client_secret="${SSO_NS_CLIENT_SECRET:-}" \
     --set secrets.labelstudio.token="$NEREIDFORGE_LABELSTUDIO_TOKEN" \
     --set secrets.cvat.token="$NEREIDFORGE_CVAT_TOKEN" \
+    --set frontend.image.repository="$NF_FRONTEND_REPO" \
+    --set frontend.image.tag="$NF_FRONTEND_TAG" \
+    --set "frontend.ingress.host=$FRONTEND_HOST" \
+    --set "frontend.ingress.paths[0].path=/" \
+    --set "frontend.ingress.paths[0].serviceName=nereidforge-frontend" \
+    --set "frontend.ingress.paths[0].servicePort=80" \
+    --set "frontend.ingress.paths[1].path=/api" \
+    --set "frontend.ingress.paths[1].serviceName=nereidforge-api" \
+    --set "frontend.ingress.paths[1].servicePort=8080" \
+    --set "frontend.ingress.paths[2].path=/auth/ns-callback" \
+    --set "frontend.ingress.paths[2].serviceName=nereidforge-api" \
+    --set "frontend.ingress.paths[2].servicePort=8080" \
+    --set "frontend.ingress.paths[3].path=/v1/integration/ns" \
+    --set "frontend.ingress.paths[3].serviceName=nereidforge-api" \
+    --set "frontend.ingress.paths[3].servicePort=8080" \
+    --set "frontend.ingress.paths[4].path=/notebook-servers" \
+    --set "frontend.ingress.paths[4].serviceName=nereidforge-api" \
+    --set "frontend.ingress.paths[4].servicePort=8080" \
+    --set 'frontend.ingress.tls[0].secretName=nereidforge-frontend-tls' \
+    --set "frontend.ingress.tls[0].hosts[0]=$FRONTEND_HOST" \
+    --set "frontend.env[1].value=https://$FRONTEND_HOST/api" \
+    --set "frontend.env[2].value=wss://$FRONTEND_HOST" \
     --wait --timeout 10m
 
 # Seed the platform super-admin ('admin' in the 'default' tenant) so the
@@ -180,7 +215,7 @@ PYEOF
         ensure_private_dir "$NF_HANDOFF_DIR"
         umask 077
         {
-            echo "# NereidForge platform admin — generated by 40_nereidforge/backend.sh on first seed."
+            echo "# NereidForge platform admin — generated by 40_nereidforge/app.sh on first seed."
             echo "# Save this file securely; it is gitignored and never committed."
             echo "NF_ADMIN_USERNAME=admin"
             echo "NF_ADMIN_PASSWORD=$NF_ADMIN_PASSWORD"
@@ -215,4 +250,4 @@ kubectl exec -n "$TENANT" deployment/nereidforge-api -c api -- \
     KFP_USERID="$DEX_STATIC_EMAIL" \
     python3 /app/kfp-pipelines/upload_pipelines.py
 
-log_ok "Backend deployment complete"
+log_ok "NereidForge application deployment complete"

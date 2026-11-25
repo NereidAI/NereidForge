@@ -19,7 +19,7 @@ VERSION="${RELEASE_TAG:?config.sh failed to provide RELEASE_TAG}"
 
 log_info "========== Deploy ML Backend (YOLO pre-annotation, Helm) =========="
 
-# Use the fixed Label Studio DRF token (same source as backend.sh). The
+# Use the fixed Label Studio DRF token (same source as app.sh). The
 # bootstrap owner writes it below NF_HANDOFF_DIR; development values remain an
 # optional fallback. Never include any part of the token in console/deploy logs.
 LS_TOKEN="${NEREIDFORGE_LABELSTUDIO_TOKEN:-}"

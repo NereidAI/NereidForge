@@ -185,18 +185,24 @@ def build_values(args):
                 "userID": args.dex_email,
             },
         },
-        "ingress": {
-            "enabled": True,
-            "className": "traefik",
-            "host": frontend_host,
-            "paths": frontend_paths(),
-            "tls": [{"secretName": "nereidforge-frontend-tls", "hosts": [frontend_host]}],
+        # Frontend-tier values for the consolidated nereidforge chart. The
+        # standalone frontend chart was merged into that chart, so ingress and
+        # the SPA environment now live under the frontend: block; service and
+        # TLS object names remain nereidforge-frontend*.
+        "frontend": {
+            "ingress": {
+                "enabled": True,
+                "className": "traefik",
+                "host": frontend_host,
+                "paths": frontend_paths(),
+                "tls": [{"secretName": "nereidforge-frontend-tls", "hosts": [frontend_host]}],
+            },
+            "env": [
+                {"name": "NODE_ENV", "value": "production"},
+                {"name": "NEXT_PUBLIC_API_URL", "value": f"https://{frontend_host}/api"},
+                {"name": "NEXT_PUBLIC_WS_URL", "value": f"wss://{frontend_host}"},
+            ],
         },
-        "env": [
-            {"name": "NODE_ENV", "value": "production"},
-            {"name": "NEXT_PUBLIC_API_URL", "value": f"https://{frontend_host}/api"},
-            {"name": "NEXT_PUBLIC_WS_URL", "value": f"wss://{frontend_host}"},
-        ],
         "secret": {
             "name": "ml-backend-ls-token",
             "existingSecret": "nereidforge-service-credentials",

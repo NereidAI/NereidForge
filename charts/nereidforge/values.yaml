@@ -1,12 +1,13 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
-# NereidForge Backend Helm Chart Values
-# Shared configuration for both API and Worker deployments
+# NereidForge consolidated Helm Chart Values
+# Shared configuration for the API, Worker and frontend deployments of the
+# single NereidForge release.
 
 enabled: true
 
-# Whether this release owns the tenant namespace. Only the backend release
-# creates it (shared by backend + frontend) to avoid Helm ownership conflicts.
+# Whether this release owns the tenant namespace. The consolidated release is
+# the only application release, so it creates the namespace.
 namespace:
   create: true
 
@@ -38,8 +39,8 @@ imagePullSecrets: []
 
 # Internal CA bundle for outbound TLS to suite services (SSO/Keycloak).
 # Copied from cert-manager/nereid-internal-ca-tls into the tenant ns as
-# "nereid-internal-ca" by backend.sh; set to "nereid-internal-ca" to enable
-# the mount + SSL_CERT_FILE in the api pod.
+# "nereid-internal-ca" by 40_nereidforge/app.sh; set to "nereid-internal-ca"
+# to enable the mount + SSL_CERT_FILE in the api pod.
 caBundleSecret: "nereid-internal-ca"
 
 # Optional retained application Secret. When set, the chart does not render its
@@ -353,3 +354,104 @@ registry:
   username: ""
   password: ""
   email: ""
+
+# Frontend tier (nginx-served embedded SPA). It uses a distinct image but the
+# shared ServiceAccount, pull secrets, namespace and registry secret. The
+# ingress is the single same-origin entry point and path-routes /api,
+# /v1/integration/ns and /notebook-servers to the API service.
+frontend:
+  enabled: true
+  # Pinned nameOverride keeps the Deployment/Service/Ingress object names
+  # identical to the former standalone frontend release.
+  nameOverride: "nereidforge-frontend"
+  replicaCount: 2
+
+  image:
+    repository: ghcr.io/nereidai/nereidforge-frontend
+    # Empty selects Chart.AppVersion: rolling dev in source, or the matching
+    # release/commit-qualified version in a packaged chart. Deploy scripts may
+    # still override it with the explicitly resolved RELEASE_TAG.
+    pullPolicy: Always
+    tag: ""
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    fsGroup: 101
+
+  securityContext:
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    allowPrivilegeEscalation: false
+    runAsUser: 101
+    runAsGroup: 101
+    runAsNonRoot: true
+
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+
+  ingress:
+    enabled: true
+    className: "traefik"
+    annotations:
+      cert-manager.io/cluster-issuer: "internal-ca"
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+    host: ""  # required; set with --set frontend.ingress.host=<public-hostname>
+    paths:
+      - path: /
+        pathType: Prefix
+        serviceName: nereidforge-frontend
+        servicePort: 80
+      - path: /api
+        pathType: Prefix
+        serviceName: nereidforge-api
+        servicePort: 8080
+      # NS suite console tenant picker; the API secret-authenticates it.
+      - path: /v1/integration/ns
+        pathType: Prefix
+        serviceName: nereidforge-api
+        servicePort: 8080
+      # Bare-prefix Jupyter proxy (== notebook base_url), incl. websockets.
+      - path: /notebook-servers
+        pathType: Prefix
+        serviceName: nereidforge-api
+        servicePort: 8080
+    tls:
+      - secretName: nereidforge-frontend-tls
+        hosts:
+          - ""  # set to the same operator-supplied host as ingress.host
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 8
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  env:
+    - name: NODE_ENV
+      value: "production"
+    # Deployment scripts derive both same-origin URLs from frontend.ingress.host.
+    - name: NEXT_PUBLIC_API_URL
+      value: ""
+    - name: NEXT_PUBLIC_WS_URL
+      value: ""

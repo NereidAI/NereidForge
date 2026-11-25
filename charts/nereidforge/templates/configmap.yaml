@@ -17,10 +17,10 @@ embedded YAML.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-config
+  name: {{ include "nereidforge.fullname" . }}-config
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
 data:
   {{- $baseConfig := fromYaml (.Files.Get "config.rendered.yaml") }}
   {{- $mergedConfig := mergeOverwrite (deepCopy $baseConfig) (.Values.config | default dict) }}
@@ -34,10 +34,10 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-secrets
+  name: {{ include "nereidforge.fullname" . }}-secrets
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   {{- $secrets := .Values.secrets }}

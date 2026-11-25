@@ -4,8 +4,8 @@
 # Scoped NereidForge development publication (root treaty §19.5). An explicit
 # manual dispatch on main selects one image profile:
 # - backend-frontend publishes only the two application images and no charts;
-# - cpu-xpu publishes 18 core/CPU/Intel-XPU images and exactly four NF charts;
-# - full publishes all 23 NF-owned images and exactly four NF charts.
+# - cpu-xpu publishes 18 core/CPU/Intel-XPU images and exactly three NF charts;
+# - full publishes all 23 NF-owned images and exactly three NF charts.
 # Every image uses an immutable 0.0.0-dev-<short-sha> identity. The floating
 # 0.0.0-dev tags are aliases of those verified manifests; no GitHub Release or
 # formal version is created. The independent pre-nereidforge-publish-dev
@@ -663,12 +663,9 @@ jobs:
           - name: nereidforge-ml-backend
             path: charts/ml-backend
             set-values: ''
-          - name: nereidforge-backend
-            path: charts/nereidforge-backend
-            set-values: ''
-          - name: nereidforge-frontend
-            path: charts/nereidforge-frontend
-            set-values: ingress.host=forge.example.test
+          - name: nereidforge
+            path: charts/nereidforge
+            set-values: frontend.ingress.host=forge.example.test
           - name: nereidforge-tenant-check
             path: charts/tenant-check
             set-values: ''

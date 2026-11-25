@@ -15,10 +15,10 @@ server-side), but CRUD routes carry the normal NF auth dependency.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  name: {{ include "nereidforge.fullname" . }}-notebooks
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["kubeflow.org"]
     resources: ["notebooks"]
@@ -38,15 +38,15 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  name: {{ include "nereidforge.fullname" . }}-notebooks
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "nereidforge-backend.serviceAccountName" . }}
+    name: {{ include "nereidforge.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 roleRef:
   kind: Role
-  name: {{ include "nereidforge-backend.fullname" . }}-notebooks
+  name: {{ include "nereidforge.fullname" . }}-notebooks
   apiGroup: rbac.authorization.k8s.io

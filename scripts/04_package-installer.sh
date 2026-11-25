@@ -5,9 +5,10 @@
 # Deprecated local-only compatibility path: build a repository-shaped online
 # installer from tracked source files. NF release workflows never call this
 # script and NF GitHub Releases do not attach its archive. New installations use
-# the four NF OCI Helm charts against a separately published pre-NereidForge
-# release. Generated release.env metadata still supports existing local users.
-# No cluster or registry is contacted.
+# the three NF OCI Helm charts (the consolidated nereidforge chart deploys API,
+# worker and frontend in one release) against a separately published
+# pre-NereidForge release. Generated release.env metadata still supports
+# existing local users. No cluster or registry is contacted.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -52,8 +53,7 @@ mkdir -p "$TREE" "$OUTPUT_DIR"
 # Third-party wrappers retain their independent Chart.yaml metadata.
 PRODUCT_CHARTS=(
     charts/ml-backend
-    charts/nereidforge-backend
-    charts/nereidforge-frontend
+    charts/nereidforge
     charts/tenant-check
 )
 for chart in "${PRODUCT_CHARTS[@]}"; do
@@ -152,7 +152,7 @@ for required in \
     scripts/03_package-charts.sh \
     deploy/pre-nereidforge/platform/kubeflow-manifests \
     deploy/pre-nereidforge/charts/cvat/Chart.lock \
-    charts/nereidforge-backend/Chart.yaml \
+    charts/nereidforge/Chart.yaml \
     secrets.yaml.template \
     LICENSE \
     NOTICE; do
@@ -183,10 +183,13 @@ test "$resolved" = "$VERSION" || {
     exit 1
 }
 verify_product_versions "$STAGING/verify/$PREFIX"
-helm template nereidforge-backend \
-    "$STAGING/verify/$PREFIX/charts/nereidforge-backend" \
-    > "$STAGING/verified-backend.yaml"
-python3 - "$STAGING/verified-backend.yaml" "$VERSION" <<'PY'
+# The frontend ingress host is the only chart value without a tracked default;
+# the consolidated chart renders fully offline once that host is supplied.
+helm template nereidforge \
+    "$STAGING/verify/$PREFIX/charts/nereidforge" \
+    --set frontend.ingress.host=forge.example.test \
+    > "$STAGING/verified-application.yaml"
+python3 - "$STAGING/verified-application.yaml" "$VERSION" <<'PY'
 import pathlib
 import re
 import sys
@@ -213,8 +216,8 @@ expected = {
 missing = sorted(expected - references)
 mismatched = sorted(ref for ref in references if not ref.endswith(":" + version))
 if missing or mismatched:
-    raise SystemExit(f"archived backend image mismatch; missing={missing}, mismatched={mismatched}")
-print("Archived backend inline and split suite-image references verified")
+    raise SystemExit(f"archived application image mismatch; missing={missing}, mismatched={mismatched}")
+print("Archived application inline and split suite-image references verified")
 PY
 
 printf 'Installer archive: %s\n' "$ARCHIVE"
