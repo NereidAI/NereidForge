@@ -323,7 +323,7 @@ test-scripts:
 # install dependencies, build images, contact registries, or publish artifacts.
 nf-verify:
 	@echo "=== Application and suite delivery verification ==="
-	python3 -m unittest scripts.tests.test_nf_delivery scripts.tests.test_nf_publication scripts.tests.test_nf_legacy_compatibility -v
+	python3 -m unittest scripts.tests.test_nf_delivery scripts.tests.test_nf_publication scripts.tests.test_nf_legacy_compatibility scripts.tests.test_online_installer_verification -v
 	bash -n scripts/lib/nf_publication.sh
 
 test: test-scripts
