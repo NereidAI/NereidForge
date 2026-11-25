@@ -109,7 +109,11 @@ class ChartPackagingTests(unittest.TestCase):
         with tarfile.open(archive, "r:gz") as bundle:
             names = bundle.getnames()
             self.assertEqual(len([name for name in names if name.endswith(".tgz")]), 5)
-            self.assertFalse(any("nereidforge-backend" in name for name in names))
+            # Pre packages never carry NF application charts, including the
+            # two standalone releases retired by the consolidated nereidforge
+            # chart.
+            for retired in ("nereidforge-backend", "nereidforge-frontend"):
+                self.assertFalse(any(retired in name for name in names))
 
     def test_pre_development_packages_override_only_chart_version(self):
         output, _ = self.package_pre("pre-development", "0.0.0-dev-abcdef1")

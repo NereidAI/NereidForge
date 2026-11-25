@@ -102,4 +102,4 @@ esac
 require_secret_keys "$TENANT" nereidforge-service-credentials "${RUNTIME_KEYS[@]}"
 
 log_ok "NF Helm preflight passed; no cluster resources were changed"
-log_info "Install backend, then frontend, then ml-backend with both validated values files"
+log_info "Install the consolidated nereidforge release, then ml-backend, with both validated values files"

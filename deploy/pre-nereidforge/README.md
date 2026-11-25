@@ -74,7 +74,7 @@ under `dist/` by default. Package tar/gzip metadata is normalized so repeated
 packaging of one checkout produces byte-identical charts for safe reruns. It
 never uploads. This command can contact public
 chart dependency repositories; unlike `make verify`, it is not a disconnected
-check. The root `make helm-package` separately owns exactly four NF charts.
+check. The root `make helm-package` separately owns exactly three NF charts.
 
 ## Publication contract
 
@@ -202,7 +202,8 @@ After the infrastructure and Kubeflow stages both succeed, the Kubeflow entry
 point finalizes `PRE_HANDOFF_DIR/values.generated.yaml`. This deterministic
 `pre-nereidforge-handoff/v1` file contains only non-secret endpoints, Secret
 names/keys, namespace ownership, ingress, and post-install settings. The same
-file is valid for the NF backend, frontend, and ML backend charts. The finalizer
+file is valid for the consolidated NF nereidforge chart and the ML backend
+chart. The finalizer
 also retains exactly `NEREIDFORGE_LABELSTUDIO_TOKEN` and
 `NEREIDFORGE_CVAT_TOKEN` in `nereidforge/nereidforge-service-credentials` with
 server-side apply, preserving independently managed NF keys, and copies only
@@ -221,13 +222,9 @@ extracted pre installer:
 export NF_OPERATOR_VALUES_FILE="$PRE_HANDOFF_DIR/operator-values.yaml"
 bash scripts/40_check-nf-handoff.sh
 export NEREIDFORGE_VERSION=<verified-formal-version>
-helm upgrade --install nereidforge-backend \
-  oci://ghcr.io/nereidai/charts/nereidforge-backend \
-  --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
-  -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
-  --wait --timeout 10m
-helm upgrade --install nereidforge-frontend \
-  oci://ghcr.io/nereidai/charts/nereidforge-frontend \
+# Consolidated application release: API, worker and the embedded SPA frontend.
+helm upgrade --install nereidforge \
+  oci://ghcr.io/nereidai/charts/nereidforge \
   --version "$NEREIDFORGE_VERSION" --namespace nereidforge \
   -f "$PRE_HANDOFF_DIR/values.generated.yaml" -f "$NF_OPERATOR_VALUES_FILE" \
   --wait --timeout 10m
@@ -238,13 +235,17 @@ helm upgrade --install ml-backend \
   --wait --timeout 10m
 ```
 
-The explicit production runbook uses three separate commands so a failure stops
-the sequence. Backend Helm hooks seed the administrator without implicit
-password rotation and synchronize KFP pipelines. They are enabled by the
-handoff, fail the Helm operation on error, and replace only their own previous
-hook resources. `nereidforge-tenant-check` remains the fourth, verification-only
-NF chart. The preflight performs no writes and supports only the initial
-namespace-fixed tenant `nereidforge`.
+The explicit production runbook uses two separate commands so a failure stops
+the sequence. Existing sites that ran the retired `nereidforge-backend` and
+`nereidforge-frontend` releases follow
+[`docs/deployment/consolidated-helm-release-cutover.md`](../../docs/deployment/consolidated-helm-release-cutover.md)
+for the same-namespace adoption or reinstall procedure. The nereidforge chart's
+Helm hooks seed the administrator without
+implicit password rotation and synchronize KFP pipelines. They are enabled by
+the handoff, fail the Helm operation on error, and replace only their own
+previous hook resources. `nereidforge-tenant-check` remains the third,
+verification-only NF chart. The preflight performs no writes and supports only
+the initial namespace-fixed tenant `nereidforge`.
 
 An extracted installer is entered directly, for example:
 

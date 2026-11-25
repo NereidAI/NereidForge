@@ -24,32 +24,25 @@ global:
   tls:
     clusterIssuer: internal-ca
     enabled: true
-nereidforge-backend:
+# Consolidated NereidForge application chart (single Helm release
+# "nereidforge": API + worker + embedded SPA frontend). These keys mirror
+# charts/nereidforge/values.yaml 1:1; source-based installs apply the same
+# settings through scripts/40_nereidforge/app.sh, and OCI installs can lift
+# this whole section into an operator overlay at the values root.
+nereidforge:
+  enabled: true
+  image:
+    repository: ghcr.io/nereidai/nereidforge-backend
+    tag: ""  # default to the packaged chart's appVersion
   api:
+    enabled: true
+    replicas: 2
     autoscaling:
       enabled: true
       maxReplicas: 10
       minReplicas: 2
       targetCPUUtilizationPercentage: 70
       targetMemoryUtilizationPercentage: 80
-    enabled: true
-    ingress:
-      annotations:
-        cert-manager.io/cluster-issuer: internal-ca
-        traefik.ingress.kubernetes.io/router.entrypoints: websecure
-        traefik.ingress.kubernetes.io/router.tls: 'true'
-      className: traefik
-      enabled: true
-      hosts:
-      - host: ""
-        paths:
-        - path: /
-          pathType: Prefix
-      tls:
-      - hosts:
-        - ""
-        secretName: nereidforge-api-tls
-    replicas: 2
     resources:
       limits:
         cpu: 2000m
@@ -57,10 +50,6 @@ nereidforge-backend:
       requests:
         cpu: 500m
         memory: 1Gi
-  enabled: true
-  image:
-    repository: ghcr.io/nereidai/nereidforge-backend
-    tag: ""  # default to the packaged chart's appVersion
   worker:
     enabled: true
     replicas: 1
@@ -71,161 +60,183 @@ nereidforge-backend:
       requests:
         cpu: 500m
         memory: 1Gi
-nereidforge-backend-config:
-  auth:
-    access_ttl: 12h
-    enabled: true
-    issuer: nereidforge
-    refresh_ttl: 168h
-  cvat:
-    host: http://cvat-backend-service.nereidforge.svc.cluster.local:8080
-    public_host: ""  # set to the operator's CVAT ingress URL
-    timeout: 30s
-  database:
-    conn_max_lifetime: 5m
-    host: nereidforge-postgresql-rw.nereidforge.svc.cluster.local
-    max_idle_conns: 5
-    max_open_conns: 25
-    name: nereidforge
-    port: 5432
-    ssl_mode: disable
-    user: nereidforge
-  hub:
-    host: http://model-registry-service.nereidforge:8080
-    timeout: 30s
-  kfp:
-    host: http://ml-pipeline.kubeflow:8888
-    namespace: kubeflow
-    object_store_access_key: ""  # production pods use seaweedfs-s3-credentials
-    object_store_bucket: mlpipeline
-    object_store_endpoint: http://seaweedfs.nereidforge:9000
-    object_store_namespace: nereidforge
-    object_store_secret_key: ""  # production pods use seaweedfs-s3-credentials
-    poll_interval: 10
-    service_account: pipeline-runner
-    timeout: 5m
-  labelstudio:
-    host: http://labelstudio.nereidforge.svc.cluster.local:8080
-    ml_backend_cluster_url: http://ml-backend.nereidforge:9090
-    ml_backend_url: http://ml-backend.nereidforge:9090
-    public_host: ""  # set to the operator's Label Studio ingress URL
-    timeout: 30s
-  logging:
-    format: json
-    level: info
-  sso:
-    mode: ns
-    jit_tenant: default
-    ns:
-      base_url: ""  # required in ns mode; inject the suite SSO URL
-      callback_path: /auth/ns-callback
-      product_id: forge
-      reconcile_memberships: true
-      client_secret: ""  # set via NEREIDFORGE_SSO_NS_CLIENT_SECRET (ns mode only)
-    oidc:
-      client_id: nereidforge
-      frontend_base_url: ""  # set to the operator's frontend origin
-      issuer: ""  # required in oidc mode; inject the operator's issuer URL
-      redirect_url: ""  # set to the operator's OIDC callback URL
-      roles_claim: realm_access.roles
-      role_map:
-        admin:
-        - admin
+  config:
+    auth:
+      access_ttl: 12h
+      enabled: true
+      issuer: nereidforge
+      refresh_ttl: 168h
+    cvat:
+      host: http://cvat-backend-service.nereidforge.svc.cluster.local:8080
+      public_host: ""  # set to the operator's CVAT ingress URL
+      timeout: 30s
+    database:
+      conn_max_lifetime: 5m
+      host: nereidforge-postgresql-rw.nereidforge.svc.cluster.local
+      max_idle_conns: 5
+      max_open_conns: 25
+      name: nereidforge
+      port: 5432
+      ssl_mode: disable
+      user: nereidforge
+    hub:
+      host: http://model-registry-service.nereidforge:8080
+      timeout: 30s
+    kfp:
+      host: http://ml-pipeline.kubeflow:8888
+      namespace: kubeflow
+      object_store_access_key: ""  # production pods use seaweedfs-s3-credentials
+      object_store_bucket: mlpipeline
+      object_store_endpoint: http://seaweedfs.nereidforge:9000
+      object_store_namespace: nereidforge
+      object_store_secret_key: ""  # production pods use seaweedfs-s3-credentials
+      poll_interval: 10
+      service_account: pipeline-runner
+      timeout: 5m
+    labelstudio:
+      host: http://labelstudio.nereidforge.svc.cluster.local:8080
+      ml_backend_cluster_url: http://ml-backend.nereidforge:9090
+      ml_backend_url: http://ml-backend.nereidforge:9090
+      public_host: ""  # set to the operator's Label Studio ingress URL
+      timeout: 30s
+    logging:
+      format: json
+      level: info
+    sso:
+      mode: ns
+      jit_tenant: default
+      ns:
+        base_url: ""  # required in ns mode; inject the suite SSO URL
+        callback_path: /auth/ns-callback
+        product_id: forge
+        reconcile_memberships: true
+        client_secret: ""  # set via NEREIDFORGE_SSO_NS_CLIENT_SECRET (ns mode only)
+      oidc:
+        client_id: nereidforge
+        frontend_base_url: ""  # set to the operator's frontend origin
+        issuer: ""  # required in oidc mode; inject the operator's issuer URL
+        redirect_url: ""  # set to the operator's OIDC callback URL
+        roles_claim: realm_access.roles
+        role_map:
+          admin:
+          - admin
+          - user
+          operator:
+          - admin
+          - user
+          user:
+          - user
+        default_roles:
         - user
-        operator:
-        - admin
-        - user
-        user:
-        - user
-      default_roles:
-      - user
-      reject_unknown_roles: false
-      state_ttl: 600
-      frontchannel_logout: true
-  server:
-    host: 0.0.0.0
-    idle_timeout: 120s
-    port: 8080
-    read_timeout: 30s
-    write_timeout: 30s
-  serving:
-    domain_suffix: inference
-    download_url_base: http://seaweedfs.nereidforge.svc.cluster.local:8333
-    ingress_class: traefik
-    namespace: nereidforge
-    runtime_images:
-      huggingface: docker.io/huggingface/text-generation-inference:latest
-      openvino: openvino/model_server:latest
-      torch: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
-      triton: nvcr.io/nvidia/tritonserver:26.01-py3
-    serving_port: 8080
-    triton_config_pbtxt: 'name: "model"
-
-      platform: "onnxruntime_onnx"
-
-      max_batch_size: 0
-
-      default_model_filename: "model.onnx"
-
-      '
-  storage:
-    backend: seaweedfs
-    bucket: nereidforge
-    endpoint: http://seaweedfs.nereidforge:8888
-    s3_endpoint: http://seaweedfs.nereidforge:8333
-  tracing:
-    enabled: false
-  trainer:
-    host: http://nereidforge-trainer.nereidforge:8890
-    timeout: 30s
-  worker:
-    concurrency: 5
+        reject_unknown_roles: false
+        state_ttl: 600
+        frontchannel_logout: true
+    server:
+      host: 0.0.0.0
+      idle_timeout: 120s
+      port: 8080
+      read_timeout: 30s
+      write_timeout: 30s
+    serving:
+      domain_suffix: inference
+      download_url_base: http://seaweedfs.nereidforge.svc.cluster.local:8333
+      ingress_class: traefik
+      namespace: nereidforge
+      runtime_images:
+        huggingface: docker.io/huggingface/text-generation-inference:latest
+        openvino: openvino/model_server:latest
+        torch: pytorch/pytorch:2.1.0-cuda12.1-cudnn8-runtime
+        triton: nvcr.io/nvidia/tritonserver:26.01-py3
+      serving_port: 8080
+      triton_config_pbtxt: 'name: "model"
+  
+        platform: "onnxruntime_onnx"
+  
+        max_batch_size: 0
+  
+        default_model_filename: "model.onnx"
+  
+        '
+    storage:
+      backend: seaweedfs
+      bucket: nereidforge
+      endpoint: http://seaweedfs.nereidforge:8888
+      s3_endpoint: http://seaweedfs.nereidforge:8333
+    tracing:
+      enabled: false
+    trainer:
+      host: http://nereidforge-trainer.nereidforge:8890
+      timeout: 30s
+    worker:
+      concurrency: 5
+      enabled: true
+      event_publish_retry: 5s
+      kfp_completion_ttl: 24h
+      poll_interval: 3
+  # Frontend tier of the same release; nameOverride keeps the live object
+  # names (Deployment/Service/Ingress nereidforge-frontend).
+  frontend:
     enabled: true
-    event_publish_retry: 5s
-    kfp_completion_ttl: 24h
-    poll_interval: 3
-nereidforge-frontend:
-  autoscaling:
-    enabled: true
-    maxReplicas: 8
-    minReplicas: 2
-    targetCPUUtilizationPercentage: 70
-    targetMemoryUtilizationPercentage: 80
-  enabled: true
-  env:
-  - name: NODE_ENV
-    value: production
-  - name: NEXT_PUBLIC_API_URL
-    value: ""  # derive from the operator's frontend origin
-  - name: NEXT_PUBLIC_WS_URL
-    value: ""  # derive from the operator's frontend origin
-  image:
-    repository: ghcr.io/nereidai/nereidforge-frontend
-    tag: ""  # default to the packaged chart's appVersion
-  ingress:
-    annotations:
-      cert-manager.io/cluster-issuer: internal-ca
-      traefik.ingress.kubernetes.io/router.entrypoints: websecure
-      traefik.ingress.kubernetes.io/router.tls: 'true'
-    className: traefik
-    enabled: true
-    hosts:
-    - host: ""
+    nameOverride: nereidforge-frontend
+    replicaCount: 2
+    image:
+      repository: ghcr.io/nereidai/nereidforge-frontend
+      tag: ""  # default to the packaged chart's appVersion
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    autoscaling:
+      enabled: true
+      maxReplicas: 8
+      minReplicas: 2
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: 80
+    ingress:
+      enabled: true
+      className: traefik
+      annotations:
+        cert-manager.io/cluster-issuer: internal-ca
+        traefik.ingress.kubernetes.io/router.entrypoints: websecure
+        traefik.ingress.kubernetes.io/router.tls: 'true'
+      # Required operator-supplied public hostname; deploy scripts pass it
+      # through --set frontend.ingress.host instead of tracking a domain.
+      host: ""
       paths:
-      - path: /
-        pathType: Prefix
-    tls:
-    - hosts:
-      - ""
-      secretName: nereidforge-frontend-tls
-  replicaCount: 2
-  resources:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
+        - path: /
+          pathType: Prefix
+          serviceName: nereidforge-frontend
+          servicePort: 80
+        - path: /api
+          pathType: Prefix
+          serviceName: nereidforge-api
+          servicePort: 8080
+        - path: /auth/ns-callback
+          pathType: Prefix
+          serviceName: nereidforge-api
+          servicePort: 8080
+        - path: /v1/integration/ns
+          pathType: Prefix
+          serviceName: nereidforge-api
+          servicePort: 8080
+        - path: /notebook-servers
+          pathType: Prefix
+          serviceName: nereidforge-api
+          servicePort: 8080
+      tls:
+        - secretName: nereidforge-frontend-tls
+          hosts:
+            - ""  # set to the same hostname as frontend.ingress.host
+    env:
+      - name: NODE_ENV
+        value: production
+      - name: NEXT_PUBLIC_API_URL
+        value: ""  # derive from the operator's frontend origin
+      - name: NEXT_PUBLIC_WS_URL
+        value: ""  # derive from the operator's frontend origin
 nfs:
   csi:
     replicaCount: 2

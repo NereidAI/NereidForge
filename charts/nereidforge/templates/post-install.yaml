@@ -7,10 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-post-install
+  name: {{ include "nereidforge.fullname" . }}-post-install
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
   annotations:
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "-10"
@@ -25,10 +25,10 @@ data:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-admin-seed
+  name: {{ include "nereidforge.fullname" . }}-admin-seed
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
     component: admin-seed
   annotations:
     "helm.sh/hook": post-install,post-upgrade
@@ -40,11 +40,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        {{- include "nereidforge.selectorLabels" . | nindent 8 }}
         component: admin-seed
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      serviceAccountName: {{ include "nereidforge.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -103,7 +103,7 @@ spec:
             {{- end }}
           envFrom:
             - secretRef:
-                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+                name: {{ include "nereidforge.runtimeSecretName" . }}
           volumeMounts:
             - name: post-install-scripts
               mountPath: /opt/nereidforge-post-install
@@ -121,10 +121,10 @@ spec:
       volumes:
         - name: post-install-scripts
           configMap:
-            name: {{ include "nereidforge-backend.fullname" . }}-post-install
+            name: {{ include "nereidforge.fullname" . }}-post-install
         - name: config
           configMap:
-            name: {{ include "nereidforge-backend.fullname" . }}-config
+            name: {{ include "nereidforge.fullname" . }}-config
         {{- if .Values.caBundleSecret }}
         - name: ca-bundle
           secret:
@@ -140,10 +140,10 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ include "nereidforge-backend.fullname" . }}-pipeline-upload
+  name: {{ include "nereidforge.fullname" . }}-pipeline-upload
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    {{- include "nereidforge.labels" . | nindent 4 }}
     component: pipeline-upload
   annotations:
     "helm.sh/hook": post-install,post-upgrade
@@ -155,11 +155,11 @@ spec:
   template:
     metadata:
       labels:
-        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        {{- include "nereidforge.selectorLabels" . | nindent 8 }}
         component: pipeline-upload
     spec:
       restartPolicy: Never
-      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      serviceAccountName: {{ include "nereidforge.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -216,7 +216,7 @@ spec:
             {{- end }}
           envFrom:
             - secretRef:
-                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+                name: {{ include "nereidforge.runtimeSecretName" . }}
           volumeMounts:
             - name: config
               mountPath: /etc/nereidforge/config.yaml
@@ -231,7 +231,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: {{ include "nereidforge-backend.fullname" . }}-config
+            name: {{ include "nereidforge.fullname" . }}-config
         {{- if .Values.caBundleSecret }}
         - name: ca-bundle
           secret:

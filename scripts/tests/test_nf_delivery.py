@@ -63,8 +63,7 @@ CPU_XPU_IMAGES = FULL_IMAGES - AMD_NVIDIA_IMAGES
 DEV_HARDWARE_IMAGES = BUILDER_IMAGES - AMD_NVIDIA_IMAGES
 DEV_FULL_IMAGES = BUILDER_IMAGES
 NF_CHARTS = {
-    "nereidforge-backend": "charts/nereidforge-backend",
-    "nereidforge-frontend": "charts/nereidforge-frontend",
+    "nereidforge": "charts/nereidforge",
     "nereidforge-ml-backend": "charts/ml-backend",
     "nereidforge-tenant-check": "charts/tenant-check",
 }
@@ -226,10 +225,11 @@ class ApplicationInventoryTests(unittest.TestCase):
         self.assertIn("platforms: linux/amd64,linux/arm64", applications)
         self.assertIn("ghcr.io/nereidai/nereidforge-${{ matrix.component }}", applications)
 
-    def test_backend_and_frontend_chart_coordinates_remain_stable(self):
+    def test_backend_and_frontend_image_coordinates_remain_stable_in_the_single_chart(self):
+        # Both application containers keep their public image names; only the
+        # Helm chart/release structure was merged into charts/nereidforge.
+        values = (ROOT / NF_CHARTS["nereidforge"] / "values.yaml").read_text(encoding="utf-8")
         for name in APPLICATION_IMAGES:
-            chart_path = ROOT / NF_CHARTS[name]
-            values = (chart_path / "values.yaml").read_text(encoding="utf-8")
             dockerfile_text = (ROOT / APPLICATION_DEFINITIONS[name]["file"]).read_text(encoding="utf-8")
             with self.subTest(image=name):
                 self.assertIn(f"repository: ghcr.io/nereidai/{name}", values)
@@ -387,18 +387,18 @@ class FormalReleaseTests(unittest.TestCase):
     def setUpClass(cls):
         cls.text = PUBLISH_IMAGES.read_text(encoding="utf-8")
 
-    def test_release_matrix_has_exactly_four_nf_charts(self):
+    def test_release_matrix_has_exactly_three_nf_charts(self):
         charts = job_block(self.text, "publish-charts")
         names = matrix_names(self.text, "publish-charts")
         self.assertEqual(set(names), NF_CHARTS.keys())
-        self.assertEqual(len(names), 4)
-        self.assertEqual(charts.count("path: charts/"), 4)
+        self.assertEqual(len(names), 3)
+        self.assertEqual(charts.count("path: charts/"), 3)
         self.assertNotIn("deploy/pre-nereidforge", charts)
         self.assertNotIn("version_mode: upstream", charts)
 
         release = job_block(self.text, "release-assets")
-        self.assertIn('test "${#charts[@]}" -eq 4', release)
-        self.assertIn("grep -c '^oci://' \"$manifest\")\" -eq 4", release)
+        self.assertIn('test "${#charts[@]}" -eq 3', release)
+        self.assertIn("grep -c '^oci://' \"$manifest\")\" -eq 3", release)
 
     def test_release_has_no_pre_or_source_installer_assets(self):
         release = job_block(self.text, "release-assets")
@@ -561,20 +561,20 @@ class DevelopmentGateTests(unittest.TestCase):
         charts = job_block(self.text, "publish-charts")
         self.assertIn("if: inputs.image_profile != 'backend-frontend'", charts)
         names = matrix_names(self.text, "publish-charts")
-        self.assertEqual(len(names), 4)
+        self.assertEqual(len(names), 3)
         self.assertEqual(set(names), NF_CHARTS.keys())
         self.assertIn("needs: alias-images", charts)
         self.assertNotIn("deploy/pre-nereidforge", charts)
         package = PACKAGE_CHARTS.read_text(encoding="utf-8")
         entries = re.findall(
-            r'^    "(charts/[^:]+):(nereidforge-[^:]+):version"$', package, re.MULTILINE,
+            r'^    "(charts/[^:]+):(nereidforge[^:]*):version"$', package, re.MULTILINE,
         )
-        self.assertEqual(len(entries), 4)
+        self.assertEqual(len(entries), 3)
         self.assertEqual({name for _, name in entries}, NF_CHARTS.keys())
         self.assertEqual({path for path, _ in entries}, set(NF_CHARTS.values()))
         self.assertNotIn("deploy/pre-nereidforge/charts", package)
-        self.assertIn('[[ "${#CHARTS[@]}" -eq 4 ]]', package)
-        self.assertIn('[[ "${#package_files[@]}" -eq 4 ]]', package)
+        self.assertIn('[[ "${#CHARTS[@]}" -eq 3 ]]', package)
+        self.assertIn('[[ "${#package_files[@]}" -eq 3 ]]', package)
 
     def test_nf_delivery_has_no_pre_source_dependency(self):
         self.assertNotIn("deploy/pre-nereidforge/scripts", self.text)
@@ -678,9 +678,11 @@ class OfflineChartTests(unittest.TestCase):
         cls.temporary.cleanup()
 
     def values_args(self, chart_name):
-        return ["--set", "ingress.host=forge.example.test"] if chart_name == "nereidforge-frontend" else []
+        # The consolidated chart requires the frontend ingress host; the
+        # required value now lives under the frontend: block.
+        return ["--set", "frontend.ingress.host=forge.example.test"] if chart_name == "nereidforge" else []
 
-    def test_packager_produces_exactly_four_nf_charts_with_immutable_metadata(self):
+    def test_packager_produces_exactly_three_nf_charts_with_immutable_metadata(self):
         expected = {f"{name}-{self.version}.tgz" for name in NF_CHARTS}
         self.assertEqual(self.packages.keys(), expected)
         for name in NF_CHARTS:
@@ -724,7 +726,7 @@ class OfflineChartTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
             packages = sorted(output.glob("*.tgz"))
-            self.assertEqual(len(packages), 4)
+            self.assertEqual(len(packages), 3)
             self.assertEqual(
                 {path.name for path in packages},
                 {f"{name}-1.2.3.tgz" for name in NF_CHARTS},
@@ -744,7 +746,7 @@ class OfflineChartTests(unittest.TestCase):
                 self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), digest)
             with tarfile.open(archive, "r:gz") as bundle:
                 names = bundle.getnames()
-                self.assertEqual(len([name for name in names if name.endswith(".tgz")]), 4)
+                self.assertEqual(len([name for name in names if name.endswith(".tgz")]), 3)
                 self.assertFalse(any(name.startswith("deploy/") for name in names))
 
     def test_lint_and_template_are_offline_and_suite_image_tags_align(self):

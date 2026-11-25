@@ -101,7 +101,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         for name in ("publish-base", "publish-dependent"):
             self.assertNotIn("path-scope", job_block(self.text, name))
 
-    def test_complete_image_snapshot_is_published_before_the_four_charts(self):
+    def test_complete_image_snapshot_is_published_before_the_three_charts(self):
         self.assertEqual(len(EXPECTED_IMAGES), 23)
         applications = matrix_names(self.text, "publish-applications")
         hardware = matrix_names(self.text, "publish-base") | matrix_names(self.text, "publish-dependent")
@@ -114,8 +114,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertEqual(
             matrix_names(self.text, "publish-charts"),
             {
-                "nereidforge-backend",
-                "nereidforge-frontend",
+                "nereidforge",
                 "nereidforge-ml-backend",
                 "nereidforge-tenant-check",
             },
@@ -513,7 +512,7 @@ class ReproducibleChartPackagingTest(unittest.TestCase):
             first = self.package(Path(first_dir))
             time.sleep(2)
             second = self.package(Path(second_dir))
-        self.assertEqual(len(first), 4)
+        self.assertEqual(len(first), 3)
         self.assertEqual(first, second)
 
 

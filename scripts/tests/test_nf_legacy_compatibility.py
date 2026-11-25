@@ -90,7 +90,7 @@ class LegacyChartCompatibilityTests(unittest.TestCase):
             and name.count("/") == 4
             and name.endswith("/Chart.yaml")
         ]
-        self.assertEqual(len(nf_definitions), 4)
+        self.assertEqual(len(nf_definitions), 3)
         self.assertEqual(len(pre_definitions), 5)
         self.assertEqual({name.split("/")[3] for name in pre_definitions}, set(PRE_VERSIONS))
         self.assertFalse(any(name.startswith("infra/charts/kubeflow") for name in names))

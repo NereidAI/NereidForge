@@ -47,7 +47,7 @@ class NFChartRenderingTest(unittest.TestCase):
         cases = (
             ("charts/ml-backend", ("S3_ACCESS_KEY", "S3_SECRET_KEY")),
             (
-                "charts/nereidforge-backend",
+                "charts/nereidforge",
                 (
                     "NEREIDFORGE_STORAGE_S3_ACCESS_KEY",
                     "NEREIDFORGE_STORAGE_S3_SECRET_KEY",
@@ -60,7 +60,10 @@ class NFChartRenderingTest(unittest.TestCase):
             with self.subTest(chart=chart):
                 rendered = self.render(
                     ROOT / chart,
-                    values={"s3": {"existingSecret": SECRET_NAME}},
+                    values={
+                        "s3": {"existingSecret": SECRET_NAME},
+                        "frontend": {"ingress": {"host": "forge.example.test"}},
+                    },
                 )
                 self.assertIn(f"name: {SECRET_NAME}", rendered)
                 self.assertIn("secretKeyRef:", rendered)
@@ -69,12 +72,21 @@ class NFChartRenderingTest(unittest.TestCase):
                 self.assertNotIn("accessKey: nereidforge", rendered)
                 self.assertNotIn("secretKey: nereidforge", rendered)
                 with self.assertRaises(subprocess.CalledProcessError):
-                    self.render(ROOT / chart, values={"s3": {"existingSecret": ""}})
+                    self.render(
+                        ROOT / chart,
+                        values={
+                            "s3": {"existingSecret": ""},
+                            "frontend": {"ingress": {"host": "forge.example.test"}},
+                        },
+                    )
 
     def test_backend_api_and_worker_both_receive_all_s3_references(self):
         rendered = self.render(
-            ROOT / "charts/nereidforge-backend",
-            values={"s3": {"existingSecret": SECRET_NAME}},
+            ROOT / "charts/nereidforge",
+            values={
+                "s3": {"existingSecret": SECRET_NAME},
+                "frontend": {"ingress": {"host": "forge.example.test"}},
+            },
         )
         for name in (
             "NEREIDFORGE_STORAGE_S3_ACCESS_KEY",
@@ -86,8 +98,8 @@ class NFChartRenderingTest(unittest.TestCase):
         self.assertEqual(rendered.count("checksum/s3-credentials:"), 2)
 
     def test_backend_secret_template_has_no_literal_s3_fallback(self):
-        template = (ROOT / "charts/nereidforge-backend/templates/configmap.yaml").read_text()
-        values = (ROOT / "charts/nereidforge-backend/values.yaml").read_text()
+        template = (ROOT / "charts/nereidforge/templates/configmap.yaml").read_text()
+        values = (ROOT / "charts/nereidforge/values.yaml").read_text()
         self.assertNotIn("$secrets.kfp", template)
         self.assertNotIn("$secrets.storage", template)
         self.assertNotIn("object_store_access_key: \"\"  # required at install time", values)
@@ -99,7 +111,7 @@ class CombinedInstallerStaticTest(unittest.TestCase):
         for relative in (
             "values-prod.yaml",
             "charts/ml-backend/values.yaml",
-            "charts/nereidforge-backend/config.rendered.yaml",
+            "charts/nereidforge/config.rendered.yaml",
             "configs/unified/config.rendered.yaml",
             "configs/unified/config.yaml.j2",
         ):
@@ -111,7 +123,7 @@ class CombinedInstallerStaticTest(unittest.TestCase):
                 self.assertNotIn('secretKey: "nereidforge"', text)
 
     def test_nf_scripts_do_not_pass_s3_secrets_through_helm_set(self):
-        backend = (ROOT / "scripts/40_nereidforge/backend.sh").read_text()
+        backend = (ROOT / "scripts/40_nereidforge/app.sh").read_text()
         ml_backend = (ROOT / "scripts/40_nereidforge/ml-backend.sh").read_text()
         for line in (backend + ml_backend).splitlines():
             if "--set" in line:

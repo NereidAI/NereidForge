@@ -25,7 +25,7 @@
 # - Chart jobs start only after every image job succeeds. Product charts inject
 #   the bare release version into version/appVersion. Packaged charts are
 #   rendered and checked for development-image leaks before pull verification.
-# - The release job verifies all 23 NF-owned image references and exactly four
+# - The release job verifies all 23 NF-owned image references and exactly three
 #   NF charts, then attaches only their two manifests. Existing published
 #   Releases are never modified and assets are never clobbered.
 # - The local Makefile stays an independent build-only interface and is never
@@ -940,24 +940,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NF owns exactly these four charts. pre-NereidForge charts are never
-        # part of this matrix or its release assets.
+        # NF owns exactly these three charts. The consolidated nereidforge
+        # chart deploys API, worker and frontend in one release.
+        # pre-NereidForge charts are never part of this matrix or its assets.
         include:
           - name: nereidforge-ml-backend
             path: charts/ml-backend
             version_mode: product
             values_files: ''
             set_values: ''
-          - name: nereidforge-backend
-            path: charts/nereidforge-backend
+          - name: nereidforge
+            path: charts/nereidforge
             version_mode: product
             values_files: ''
-            set_values: ''
-          - name: nereidforge-frontend
-            path: charts/nereidforge-frontend
-            version_mode: product
-            values_files: ''
-            set_values: ingress.host=forge.example.test
+            set_values: frontend.ingress.host=forge.example.test
           - name: nereidforge-tenant-check
             path: charts/tenant-check
             version_mode: product
@@ -1031,11 +1027,10 @@ jobs:
           mkdir -p "$pull_dir"
           charts=(
             "charts/ml-backend:nereidforge-ml-backend:product"
-            "charts/nereidforge-backend:nereidforge-backend:product"
-            "charts/nereidforge-frontend:nereidforge-frontend:product"
+            "charts/nereidforge:nereidforge:product"
             "charts/tenant-check:nereidforge-tenant-check:product"
           )
-          test "${#charts[@]}" -eq 4
+          test "${#charts[@]}" -eq 3
           for entry in "${charts[@]}"; do
             IFS=':' read -r path name mode <<< "$entry"
             [[ "$path" == charts/* && "$path" != deploy/* ]]
@@ -1063,7 +1058,7 @@ jobs:
             digest="$(sha256sum "$package" | awk '{print $1}')"
             printf '%s %s %s\n' "$reference" "$digest" "$app_version" >> "$manifest"
           done
-          test "$(grep -c '^oci://' "$manifest")" -eq 4
+          test "$(grep -c '^oci://' "$manifest")" -eq 3
 
       - name: Export NF image manifest and verify both release assets
         env:
@@ -1108,7 +1103,7 @@ jobs:
               assert tag == expected_tag, (repository, tag, expected_tag)
           print("Verified exactly 23 NF-owned release image references")
           PY
-          test "$(grep -c '^oci://ghcr.io/nereidai/charts/nereidforge-' "$charts")" -eq 4
+          test "$(grep -c '^oci://ghcr.io/nereidai/charts/nereidforge-' "$charts")" -eq 3
           ! grep -E 'charts/(postgresql|valkey|seaweedfs|labelstudio|cvat):' "$charts"
 
       - name: Publish the GitHub Release without replacing existing assets
@@ -1123,7 +1118,7 @@ jobs:
             "${release_dir}/nereidforge-charts-${VERSION}.txt"
           )
           test "${#assets[@]}" -eq 2
-          notes="NereidForge ${VERSION} publishes 23 NF-owned images and four OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. The pre installer generates the non-secret runtime handoff and read-only preflight consumed by these charts."
+          notes="NereidForge ${VERSION} publishes 23 NF-owned images and three OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. The pre installer generates the non-secret runtime handoff and read-only preflight consumed by these charts."
           prerelease_flags=(--prerelease=false)
           if [[ "$VERSION" == *-* ]]; then
             prerelease_flags=(--prerelease)

@@ -17,33 +17,55 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class FrontendRoutingTest(unittest.TestCase):
-    """Exercise the installer with a recording Helm stub."""
+    """Exercise the consolidated deploy script with a recording Helm stub."""
 
-    def test_frontend_preserves_chart_notebook_proxy_route(self):
-        """The explicit path list retains every API route, including WebSockets."""
+    def test_app_release_preserves_chart_notebook_proxy_route(self):
+        """The explicit frontend path list retains every API route, incl. WebSockets."""
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             script_dir = root / "scripts/40_nereidforge"
             lib_dir = root / "scripts/lib"
-            chart_dir = root / "charts/nereidforge-frontend"
+            chart_dir = root / "charts/nereidforge"
+            handoff_dir = root / "handoff"
             fake_bin = root / "bin"
             script_dir.mkdir(parents=True)
             lib_dir.mkdir(parents=True)
             chart_dir.mkdir(parents=True)
+            handoff_dir.mkdir(parents=True)
             fake_bin.mkdir()
-            script = script_dir / "frontend.sh"
-            shutil.copy2(ROOT / "scripts/40_nereidforge/frontend.sh", script)
+            script = script_dir / "app.sh"
+            shutil.copy2(ROOT / "scripts/40_nereidforge/app.sh", script)
             (lib_dir / "common.sh").write_text(
                 "log_info() { :; }\n"
                 "log_ok() { :; }\n"
-                "validate_required() { return 0; }\n",
+                "log_warn() { :; }\n"
+                "log_err() { :; }\n"
+                "validate_required() { return 0; }\n"
+                "ensure_private_dir() { mkdir -p \"$1\"; }\n",
                 encoding="utf-8",
             )
             (lib_dir / "config.sh").write_text(
                 ": \"${FRONTEND_HOST:=forge.example.test}\"\n"
-                ": \"${NF_FRONTEND_IMAGE:=ghcr.io/nereidai/nereidforge-frontend:test}\"\n",
+                ": \"${BASE_DOMAIN:=example.test}\"\n"
+                ": \"${NF_BACKEND_IMAGE:=ghcr.io/nereidai/nereidforge-backend:test}\"\n"
+                ": \"${NF_FRONTEND_IMAGE:=ghcr.io/nereidai/nereidforge-frontend:test}\"\n"
+                ": \"${NF_HANDOFF_DIR:=" + str(handoff_dir) + "}\"\n",
                 encoding="utf-8",
             )
+            # The routing assertions only need the Helm invocation; make every
+            # pre-Helm cluster probe report "absent/not ready" so namespace
+            # adoption, CA replication and the admin seed are skipped cleanly.
+            kubectl = fake_bin / "kubectl"
+            kubectl.write_text(
+                "#!/bin/bash\n"
+                'case "$*" in\n'
+                '  *"get secret"*) exit 1 ;;\n'
+                '  *"rollout status"*) exit 1 ;;\n'
+                '  *) exit 0 ;;\n'
+                "esac\n",
+                encoding="utf-8",
+            )
+            kubectl.chmod(0o755)
             args_file = root / "helm-args"
             helm = fake_bin / "helm"
             helm.write_text(
@@ -52,7 +74,16 @@ class FrontendRoutingTest(unittest.TestCase):
             )
             helm.chmod(0o755)
             env = os.environ.copy()
-            env.update(PATH=f"{fake_bin}:{env['PATH']}", HELM_ARGS_FILE=str(args_file))
+            env.update(
+                PATH=f"{fake_bin}:{env['PATH']}",
+                HELM_ARGS_FILE=str(args_file),
+                SSO_MODE="local",
+                DEX_STATIC_EMAIL="admin@example.test",
+                PG_ADMIN_PASSWORD="unused",
+                JWT_SECRET="unused",
+                NEREIDFORGE_LABELSTUDIO_TOKEN="unused",
+                NEREIDFORGE_CVAT_TOKEN="unused",
+            )
 
             result = subprocess.run(
                 ["bash", str(script)],
@@ -68,7 +99,8 @@ class FrontendRoutingTest(unittest.TestCase):
             routes = {}
             for setting in settings:
                 match = re.fullmatch(
-                    r"ingress\.paths\[(\d+)]\.(path|serviceName|servicePort)=(.*)", setting
+                    r"frontend\.ingress\.paths\[(\d+)]\.(path|serviceName|servicePort)=(.*)",
+                    setting,
                 )
                 if match:
                     index, field, value = match.groups()
@@ -96,9 +128,17 @@ class FrontendRoutingTest(unittest.TestCase):
                 ],
                 actual,
             )
-            self.assertIn("ingress.host=forge.example.test", settings)
-            self.assertIn("env[1].value=https://forge.example.test/api", settings)
-            self.assertIn("env[2].value=wss://forge.example.test", settings)
+            self.assertIn("frontend.ingress.host=forge.example.test", settings)
+            self.assertIn("frontend.env[1].value=https://forge.example.test/api", settings)
+            self.assertIn("frontend.env[2].value=wss://forge.example.test", settings)
+            # The single release still drives both independently named images.
+            self.assertIn(
+                "image.repository=ghcr.io/nereidai/nereidforge-backend", settings
+            )
+            self.assertIn(
+                "frontend.image.repository=ghcr.io/nereidai/nereidforge-frontend",
+                settings,
+            )
 
 
 class NereidForgeVerificationTest(unittest.TestCase):

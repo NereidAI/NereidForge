@@ -41,7 +41,7 @@ FE_URL="http://nereidforge-frontend.$TENANT:80"
 # probes. The requests still traverse the API Service, while kubectl exec
 # avoids the attach/log fallback and deletion-message races of kubectl run --rm.
 API_POD=""
-if ! API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge-backend,component=api \
+if ! API_POD=$(kubectl get pods -n "$TENANT" -l app.kubernetes.io/name=nereidforge,component=api \
     -o jsonpath='{.items[0].metadata.name}' 2>/dev/null); then
     API_POD=""
 fi

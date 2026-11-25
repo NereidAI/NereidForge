@@ -1,9 +1,9 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Grant the NereidForge backend read-only access to cluster nodes, so the
-# GET /gpu-capacity endpoint can report per-vendor GPU/vGPU capacity
-# from node allocatable extended resources (incl. shared-dev-num).
+# Grant the consolidated NereidForge release read-only access to cluster
+# nodes, so the GET /gpu-capacity endpoint can report per-vendor GPU/vGPU
+# capacity from node allocatable extended resources (incl. shared-dev-num).
 # Apply once per cluster:
 #   kubectl apply -f gpu-capacity-rbac.yaml
 apiVersion: rbac.authorization.k8s.io/v1
@@ -25,7 +25,7 @@ metadata:
     app.kubernetes.io/name: nereidforge
 subjects:
   - kind: ServiceAccount
-    name: nereidforge-backend
+    name: nereidforge
     namespace: nereidforge
 roleRef:
   kind: ClusterRole
