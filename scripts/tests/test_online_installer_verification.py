@@ -160,10 +160,29 @@ class NereidForgeVerificationTest(unittest.TestCase):
                             fi
                             ;;
                         exec)
-                            if [[ "${NF_TEST_LOGIN_EXIT:-0}" != 0 ]]; then
-                                exit "$NF_TEST_LOGIN_EXIT"
+                            if [[ "$*" == *"curl -s -o /dev/null -w %{http_code}"* ]]; then
+                                case "$*" in
+                                    *"/api/v1/training/jobs"*) probe=JOBS ;;
+                                    *"/v1/integration/ns/tenants"*) probe=INT ;;
+                                    *) exit 66 ;;
+                                esac
+                                exit_var="NF_TEST_${probe}_EXIT"
+                                out_var="NF_TEST_${probe}_OUT"
+                                exec_out_var="NF_TEST_EXEC_${probe}_OUT"
+                                out="${!out_var-}"
+                                if [[ -v $exec_out_var ]]; then
+                                    out="${!exec_out_var}"
+                                fi
+                                if [[ "${!exit_var:-0}" != 0 ]]; then
+                                    exit "${!exit_var}"
+                                fi
+                                printf '%s\\n' "$out"
+                            else
+                                if [[ "${NF_TEST_LOGIN_EXIT:-0}" != 0 ]]; then
+                                    exit "$NF_TEST_LOGIN_EXIT"
+                                fi
+                                printf '%s\\n' "${NF_TEST_LOGIN_OUT-LOGIN_OK}"
                             fi
-                            printf '%s\\n' "${NF_TEST_LOGIN_OUT-LOGIN_OK}"
                             ;;
                         run)
                             case "${4:-}" in
@@ -177,10 +196,15 @@ class NereidForgeVerificationTest(unittest.TestCase):
                             esac
                             exit_var="NF_TEST_${probe}_EXIT"
                             out_var="NF_TEST_${probe}_OUT"
+                            run_out_var="NF_TEST_RUN_${probe}_OUT"
+                            out="${!out_var-}"
+                            if [[ -v $run_out_var ]]; then
+                                out="${!run_out_var}"
+                            fi
                             if [[ "${!exit_var:-0}" != 0 ]]; then
                                 exit "${!exit_var}"
                             fi
-                            printf '%s\\n' "${!out_var-}"
+                            printf '%s\\n' "$out"
                             ;;
                         *) exit 65 ;;
                     esac
@@ -237,6 +261,29 @@ class NereidForgeVerificationTest(unittest.TestCase):
                 self.assertEqual(0, result.returncode, output)
                 self.assertIn("Training jobs endpoint", output)
                 self.assertIn("verification done", output)
+
+    def test_http_contracts_ignore_obsolete_kubectl_run_cleanup_output(self):
+        """Captured run --rm output must not hide otherwise healthy HTTP 401s."""
+        result = self.run_check(
+            {
+                # k3s v1.36.2+k3s1 returned both of these real probe outputs:
+                # one lost curl's status entirely, and one appended deletion text.
+                "NF_TEST_RUN_JOBS_OUT": (
+                    'pod "train-verify-1358715" deleted from nereidforge namespace'
+                ),
+                "NF_TEST_RUN_INT_OUT": (
+                    '401401pod "int-verify-1358715" deleted from nereidforge namespace'
+                ),
+                # The stable kubectl exec transport returns only curl's status.
+                "NF_TEST_JOBS_OUT": "401",
+                "NF_TEST_INT_OUT": "401",
+            }
+        )
+        output = result.stdout + result.stderr
+        self.assertEqual(0, result.returncode, output)
+        self.assertIn("Training jobs endpoint reachable", output)
+        self.assertIn("NS integration tenant-list secret-gated", output)
+        self.assertIn("verification done", output)
 
     def test_dependency_and_resource_failures_return_nonzero(self):
         scenarios = {
