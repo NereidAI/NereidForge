@@ -109,28 +109,70 @@ if [ $# -ge 3 ]; then
     [ "$op" = "x" ] && op="*"
     ans=$(( $1 $op $3 ))
 fi
-RESP=$(curl -s -w '\n%{http_code}' -X POST http://127.0.0.1:8080/api/v1/auth/login \
+RESP=$(curl -s -w '"'"'\n%{http_code}'"'"' -X POST http://127.0.0.1:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d "{\"captcha_id\":\"${CID}\",\"captcha_answer\":${ans},\"username\":\"admin\",\"password\":\"${NF_ADMIN_PASSWORD}\"}")
+CURL_EXIT=$?
 HTTP_CODE=$(printf "%s\n" "$RESP" | tail -n 1)
 RESP_BODY=$(printf "%s\n" "$RESP" | sed "\$d")
-# Require both a successful HTTP response and a non-empty token. Return only an
-# exit status; neither response output nor bearer credentials cross the exec
-# stream, and acceptance does not depend on a short-lived stdout marker.
 if [ "$HTTP_CODE" = 200 ] && printf "%s\n" "$RESP_BODY" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
-    exit 0
+    REMOTE_RESULT=0
 else
-    exit 1
+    REMOTE_RESULT=1
 fi
+printf '"'"'DIAG_REMOTE_RESULT=%s\n'"'"' "$REMOTE_RESULT" >&2
+printf '"'"'DIAG_CURL_EXIT=%s\n'"'"' "$CURL_EXIT" >&2
+printf '"'"'DIAG_HTTP_CODE=%s\n'"'"' "$HTTP_CODE" >&2
+printf '"'"'DIAG_RESP_BODY_BYTES=%s\n'"'"' "$(printf '"'"'%s'"'"' "$RESP_BODY" | wc -c | tr -d '"'"'[:space:]'"'"')" >&2
+if printf "%s\n" "$RESP_BODY" | grep -Eq "\"access_token\"[[:space:]]*:[[:space:]]*\"[^\"]+\""; then
+    echo DIAG_TOKEN_REGEX=MATCH >&2
+else
+    echo DIAG_TOKEN_REGEX=NO_MATCH >&2
+fi
+printf '"'"'%s'"'"' "$RESP_BODY" | python3 -c '"'"'
+import json
+import sys
+try:
+    value = json.load(sys.stdin)
+except Exception:
+    print("DIAG_JSON_VALID=no", file=sys.stderr)
+else:
+    print("DIAG_JSON_VALID=yes", file=sys.stderr)
+    if isinstance(value, dict):
+        print("DIAG_JSON_KEYS=" + ",".join(sorted(map(str, value.keys()))), file=sys.stderr)
+        for key in ("access_token", "refresh_token"):
+            token = value.get(key)
+            present = isinstance(token, str) and bool(token)
+            print("DIAG_" + key.upper() + "_PRESENT=" + ("yes" if present else "no"), file=sys.stderr)
+            print("DIAG_" + key.upper() + "_LENGTH=" + str(len(token) if isinstance(token, str) else 0), file=sys.stderr)
+    else:
+        print("DIAG_JSON_TYPE=non_object", file=sys.stderr)
+'"'"'
+exit "$REMOTE_RESULT"
 '
+report_login_diagnostics() {
+    local output="$1" line
+    while IFS= read -r line; do
+        # Response bodies and kubectl errors are deliberately not relayed. Only
+        # the fixed, non-secret fields emitted by LOGIN_SCRIPT are reportable.
+        if [[ "$line" =~ ^DIAG_(REMOTE_RESULT|CURL_EXIT|HTTP_CODE|RESP_BODY_BYTES|TOKEN_REGEX)=[A-Za-z0-9_,.-]+$ ]]; then
+            printf '%s\n' "$line"
+        fi
+    done <<< "$output"
+}
 if [[ -z "$NF_ADMIN_PW" ]]; then
     fail_check "admin login credential unavailable: set NF_ADMIN_PASSWORD, provide $CRED_FILE, or retain $TENANT/nereidforge-admin-credentials [password]"
 elif [[ -z "$API_POD" ]]; then
     fail_check "admin login failed: no API pod is available for the login probe"
-elif kubectl exec -n "$TENANT" "$API_POD" -c api -- \
-    env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" >/dev/null 2>&1; then
+elif LOGIN_DIAG=$(kubectl exec -n "$TENANT" "$API_POD" -c api -- \
+    env NF_ADMIN_PASSWORD="$NF_ADMIN_PW" sh -c "$LOGIN_SCRIPT" 2>&1); then
+    report_login_diagnostics "$LOGIN_DIAG"
+    echo DIAG_KUBECTL_EXIT=0
     log_ok "admin login OK (got access_token)"
 else
+    login_exit=$?
+    report_login_diagnostics "$LOGIN_DIAG"
+    echo DIAG_KUBECTL_EXIT="$login_exit"
     fail_check "admin login probe failed or did not return a non-empty access token"
 fi
 
