@@ -56,12 +56,15 @@ or become a versioned Interface.
 The application Module composes suite releases without taking ownership of
 builder implementations:
 
+- `backend-frontend`: only the 2 application images, with no builder or chart
+  publication; this development scope is not a complete Suite Release;
 - `full`: 21 builder images plus 2 application images, exactly 23 images;
 - `cpu-xpu`: 16 builder images plus 2 application images, exactly 18 images;
 - exactly five AMD/NVIDIA trainer images are excluded from `cpu-xpu`;
 - every selected immutable image passes inventory, reuse/collision, anonymous
   digest, platform, and source-revision checks before floating aliases move;
-- all four NF charts wait for the complete selected image gate;
+- all four NF charts wait for the complete `full` or `cpu-xpu` image gate and
+  are not scheduled by `backend-frontend`;
 - formal publication continues to require all 23 images;
 - Pre-NereidForge publication remains independent: five charts and its source
   installer, with no NF artifact gate.
