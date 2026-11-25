@@ -1,0 +1,63 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- if .Values.enabled }}
+{{- /*
+Tracked runtime configuration uses the rolling-dev placeholder for suite-owned
+images. Rewrite exact inline references and adjacent repository/tag fields to
+the package appVersion so OCI releases cannot retain development references in
+embedded YAML.
+*/}}
+{{- $suiteImagePattern := `(ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*):0\.0\.0-dev` -}}
+{{- $suiteImageReplacement := printf "${1}:%s" .Chart.AppVersion -}}
+{{- $suiteImageFieldPattern := `(?m)(repository:[^\n]*ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*[^\n]*\n[ \t]*tag:[ \t]*["']?)0\.0\.0-dev` -}}
+{{- $suiteImageFieldReplacement := printf "${1}%s" .Chart.AppVersion -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+data:
+  {{- $baseConfig := fromYaml (.Files.Get "config.rendered.yaml") }}
+  {{- $mergedConfig := mergeOverwrite (deepCopy $baseConfig) (.Values.config | default dict) }}
+  {{- $renderedConfig := toYaml $mergedConfig }}
+  {{- $renderedConfig = regexReplaceAll $suiteImagePattern $renderedConfig $suiteImageReplacement }}
+  {{- $renderedConfig = regexReplaceAll $suiteImageFieldPattern $renderedConfig $suiteImageFieldReplacement }}
+  config.yaml: |
+    {{- $renderedConfig | nindent 4 }}
+{{- if not .Values.runtimeSecret.existingSecret }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-secrets
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  {{- $secrets := .Values.secrets }}
+  {{- if and $secrets.database.password }}
+  NEREIDFORGE_DATABASE_PASSWORD: {{ $secrets.database.password | quote }}
+  {{- end }}
+  {{- if and $secrets.sso $secrets.sso.ns.client_secret }}
+  NEREIDFORGE_SSO_NS_CLIENT_SECRET: {{ $secrets.sso.ns.client_secret | quote }}
+  {{- end }}
+  {{- if and $secrets.sso $secrets.sso.oidc.client_secret }}
+  NEREIDFORGE_SSO_OIDC_CLIENT_SECRET: {{ $secrets.sso.oidc.client_secret | quote }}
+  {{- end }}
+  {{- if $secrets.auth.jwt_secret }}
+  NEREIDFORGE_AUTH_JWT_SECRET: {{ $secrets.auth.jwt_secret | quote }}
+  {{- end }}
+  {{- if $secrets.labelstudio.token }}
+  NEREIDFORGE_LABELSTUDIO_TOKEN: {{ $secrets.labelstudio.token | quote }}
+  {{- end }}
+  {{- if $secrets.cvat.token }}
+  NEREIDFORGE_CVAT_TOKEN: {{ $secrets.cvat.token | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

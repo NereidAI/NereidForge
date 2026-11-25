@@ -14,7 +14,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../../../.." && pwd)"
-VERSION="$(ref=$(git -C "${REPO_ROOT}" describe --tags --exact-match 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)"
+VERSION="$(ref=$(git -C "${REPO_ROOT}" describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && echo "${ref#v}" || echo 0.0.0-dev)"
 BUILD_TS="$(date -u +%Y%m%d-%H%M)"
 GIT_SHA="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 

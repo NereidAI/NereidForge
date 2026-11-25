@@ -60,7 +60,7 @@ nereidforge-backend:
   enabled: true
   image:
     repository: ghcr.io/nereidai/nereidforge-backend
-    tag: v1.3.7
+    tag: ""  # default to the packaged chart's appVersion
   worker:
     enabled: true
     replicas: 1
@@ -96,11 +96,11 @@ nereidforge-backend-config:
   kfp:
     host: http://ml-pipeline.kubeflow:8888
     namespace: kubeflow
-    object_store_access_key: ""  # required operator credential
+    object_store_access_key: ""  # production pods use seaweedfs-s3-credentials
     object_store_bucket: mlpipeline
     object_store_endpoint: http://seaweedfs.nereidforge:9000
     object_store_namespace: nereidforge
-    object_store_secret_key: ""  # required operator credential
+    object_store_secret_key: ""  # production pods use seaweedfs-s3-credentials
     poll_interval: 10
     service_account: pipeline-runner
     timeout: 5m
@@ -201,7 +201,7 @@ nereidforge-frontend:
     value: ""  # derive from the operator's frontend origin
   image:
     repository: ghcr.io/nereidai/nereidforge-frontend
-    tag: v1.3.7
+    tag: ""  # default to the packaged chart's appVersion
   ingress:
     annotations:
       cert-manager.io/cluster-issuer: internal-ca
@@ -270,7 +270,7 @@ postgresql:
       size: 50Gi
       storageClass: nfs-csi
 # Valkey is the standalone cache for Label Studio / CVAT
-# (infra/charts/valkey, release name valkey, service valkey-master:6379);
+# (deploy/pre-nereidforge/charts/valkey, release name valkey, service valkey-master:6379);
 # the NF backend does not use a cache service.
 seaweedfs:
   filer:
@@ -292,10 +292,10 @@ seaweedfs:
         cpu: 100m
         memory: 256Mi
   s3:
-    accessKey: nereidforge
     enabled: true
     replicaCount: 1
-    secretKey: nereidforge
+    existingSecret: seaweedfs-s3-credentials
+    configKey: s3-config.json
   volume:
     persistence:
       size: 200Gi
@@ -318,11 +318,11 @@ serviceEndpoints:
     host: valkey-master.nereidforge.svc.cluster.local
     port: 6379
   seaweedfs:
-    access_key: ""  # required operator credential
+    access_key: ""  # production pods use seaweedfs-s3-credentials
     filer_host: seaweedfs-filer.nereidforge.svc.cluster.local
     filer_port: 8888
     master_host: seaweedfs-master.nereidforge.svc.cluster.local
     master_port: 9333
     s3_host: seaweedfs-s3.nereidforge.svc.cluster.local
     s3_port: 8333
-    secret_key: ""  # required operator credential
+    secret_key: ""  # production pods use seaweedfs-s3-credentials

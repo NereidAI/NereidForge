@@ -1,7 +1,12 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Build and publish NereidForge production images exclusively to GHCR.
+# Build and publish NereidForge production images and exactly four NF-owned
+# Helm charts. The GitHub Release contains only the NF image/chart manifests;
+# installation is Helm-only against a compatible pre-NereidForge release. The
+# five pre charts, Kubeflow platform installer, and pre installer are published
+# independently by pre-nereidforge-publish.yml. The non-secret runtime handoff
+# and read-only NF preflight are owned by that pre installer.
 #
 # Publication model (root treaty §19):
 # - Triggered ONLY by pushing a new git tag matching v*; there is no manual
@@ -17,10 +22,16 @@
 # - Generic product images are linux/amd64 + linux/arm64 indexes. The
 #   hardware-bound CUDA/ROCm/Intel-XPU images are the sole single-arch
 #   (linux/amd64) exceptions alongside the dependency-bound images below.
+# - Chart jobs start only after every image job succeeds. Product charts inject
+#   the bare release version into version/appVersion. Packaged charts are
+#   rendered and checked for development-image leaks before pull verification.
+# - The release job verifies all 23 NF-owned image references and exactly four
+#   NF charts, then attaches only their two manifests. Existing published
+#   Releases are never modified and assets are never clobbered.
 # - The local Makefile stays an independent build-only interface and is never
 #   called by this workflow. Local/air-gapped hub copies are the operator's
 #   own decision, performed with NereidOverview harbor-sync.sh.
-# The jobs stay inline instead of calling the organization reusable workflow
+# The image jobs stay inline instead of calling the organization reusable workflow
 # because NF needs specialized wheel-index variables and (for the applications)
 # per-architecture rootfs/runtime verification that the reusable call cannot
 # express; the action chain and tag scheme are otherwise identical.
@@ -63,12 +74,12 @@ jobs:
         include:
           - component: backend
             context: .
-            file: app/python-backend/Dockerfile
+            file: python-backend/Dockerfile
             build-args: |
               VERSION
           - component: frontend
-            context: app/frontend
-            file: app/frontend/Dockerfile
+            context: frontend
+            file: frontend/Dockerfile
             build-args: |
               VERSION
               VITE_APP_VERSION
@@ -79,7 +90,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - id: stamp
         name: Derive traceability tags
@@ -206,7 +229,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - id: stamp
         name: Derive traceability tags
@@ -230,8 +265,8 @@ jobs:
       - name: Build and publish runtime base
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.runtime
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.runtime
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -253,8 +288,8 @@ jobs:
       - name: Build and publish CPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile
+          context: builders
+          file: builders/trainer-torch/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -277,8 +312,8 @@ jobs:
       - name: Build and publish CPU paddle trainer (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile
+          context: builders
+          file: builders/trainer-paddle/Dockerfile
           # paddlepaddle 3.0.0 publishes no arm64 PyPI wheel; keep this image amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -302,8 +337,8 @@ jobs:
       - name: Build and publish torch converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -327,8 +362,8 @@ jobs:
       - name: Build and publish TensorFlow converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-tf
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-tf
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -351,8 +386,8 @@ jobs:
       - name: Build and publish Paddle converter (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-pp
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-pp
           # Pins paddlepaddle==3.0.0, which has no arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -376,8 +411,8 @@ jobs:
       - name: Build and publish optimizer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/optimizer/Dockerfile
+          context: builders
+          file: builders/optimizer/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -400,8 +435,8 @@ jobs:
       - name: Build and publish evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator/Dockerfile
+          context: builders
+          file: builders/evaluator/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             GIT_SHA=${{ github.sha }}
@@ -424,8 +459,8 @@ jobs:
       - name: Build and publish Intel GPU OVMS (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/inference-model-server-openvino-xpu
-          file: app/builders/inference-model-server-openvino-xpu/Dockerfile
+          context: builders/inference-model-server-openvino-xpu
+          file: builders/inference-model-server-openvino-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -448,8 +483,8 @@ jobs:
       - name: Build and publish ml-backend (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend
-          file: app/builders/ml-backend/Dockerfile
+          context: builders/ml-backend
+          file: builders/ml-backend/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -473,8 +508,8 @@ jobs:
       - name: Build and publish ml-backend-custom (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend-custom
-          file: app/builders/ml-backend-custom/Dockerfile
+          context: builders/ml-backend-custom
+          file: builders/ml-backend-custom/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -498,8 +533,8 @@ jobs:
       - name: Build and publish notebook workbench (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/notebook-base
-          file: app/builders/notebook-base/Dockerfile
+          context: builders/notebook-base
+          file: builders/notebook-base/Dockerfile
           # Installs paddlepaddle, unavailable as an arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -532,7 +567,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify Intel XPU wheel index configuration
         run: |
@@ -562,8 +609,8 @@ jobs:
       - name: Build and publish XPU vendor base
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/trainer-xpu
-          file: app/builders/trainer-xpu/Dockerfile
+          context: builders/trainer-xpu
+          file: builders/trainer-xpu/Dockerfile
           platforms: linux/amd64
           # PYPI_INDEX and the generic mirror args keep their empty Dockerfile
           # defaults on hosted runners (treaty §17); only the specialized XPU
@@ -589,8 +636,8 @@ jobs:
       - name: Build and publish XPU packaging evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator-xpu/Dockerfile
+          context: builders
+          file: builders/evaluator-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -613,8 +660,8 @@ jobs:
       - name: Build and publish XPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.xpu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.xpu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -638,8 +685,8 @@ jobs:
       - name: Build and publish XPU LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-xpu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -671,7 +718,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify Paddle CUDA wheel index configuration
         run: |
@@ -701,8 +760,8 @@ jobs:
       - name: Build and publish CUDA torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.cu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -725,8 +784,8 @@ jobs:
       - name: Build and publish CUDA paddle trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile.cu
+          context: builders
+          file: builders/trainer-paddle/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -750,8 +809,8 @@ jobs:
       - name: Build and publish CUDA LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-cu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-cu/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -782,7 +841,19 @@ jobs:
         name: Validate tag and derive bare version
         run: |
           tag="${GITHUB_REF_NAME}"
-          echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "::error::tag $tag is not v-prefixed SemVer"; exit 1; }
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
           echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
       - name: Verify ROCm wheel index configuration
         run: |
@@ -816,8 +887,8 @@ jobs:
       - name: Build and publish ROCm torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.rocm
+          context: builders
+          file: builders/trainer-torch/Dockerfile.rocm
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -841,8 +912,8 @@ jobs:
       - name: Build and publish ROCm LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-rocm/Dockerfile
+          context: builders
+          file: builders/trainer-llm-rocm/Dockerfile
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.ver.outputs.version }}
@@ -862,3 +933,212 @@ jobs:
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.sha }}
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}-${{ steps.stamp.outputs.ts }}
             ghcr.io/nereidai/trainer-llm-rocm:${{ steps.ver.outputs.version }}
+
+  publish-charts:
+    name: Publish ${{ matrix.name }} OCI chart
+    needs: [applications, core, vendor-xpu, vendor-cu, vendor-rocm]
+    strategy:
+      fail-fast: false
+      matrix:
+        # NF owns exactly these four charts. pre-NereidForge charts are never
+        # part of this matrix or its release assets.
+        include:
+          - name: nereidforge-ml-backend
+            path: charts/ml-backend
+            version_mode: product
+            values_files: ''
+            set_values: ''
+          - name: nereidforge-backend
+            path: charts/nereidforge-backend
+            version_mode: product
+            values_files: ''
+            set_values: ''
+          - name: nereidforge-frontend
+            path: charts/nereidforge-frontend
+            version_mode: product
+            values_files: ''
+            set_values: ingress.host=forge.example.test
+          - name: nereidforge-tenant-check
+            path: charts/tenant-check
+            version_mode: product
+            values_files: ''
+            set_values: ''
+    uses: NereidAI/.github/.github/workflows/publish-chart.yml@v1
+    with:
+      chart-path: ${{ matrix.path }}
+      chart-name: ${{ matrix.name }}
+      channel: release
+      version-mode: ${{ matrix.version_mode }}
+      values-files: ${{ matrix.values_files }}
+      set-values: ${{ matrix.set_values }}
+
+  release-assets:
+    name: Attach NF image and chart manifests
+    needs: publish-charts
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Validate tag and derive bare version
+        id: ver
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if ! [[ "$tag" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "::error::tag $tag is not v-prefixed SemVer without build metadata"
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            IFS='.' read -ra prerelease_identifiers <<< "${tag#*-}"
+            for identifier in "${prerelease_identifiers[@]}"; do
+              if [[ "$identifier" =~ ^[0-9]+$ && "${#identifier}" -gt 1 && "$identifier" == 0* ]]; then
+                echo "::error::numeric SemVer pre-release identifiers must not contain leading zeroes"
+                exit 1
+              fi
+            done
+          fi
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create release asset directory
+        run: mkdir -p "${RUNNER_TEMP}/release"
+
+      - name: Log in to GHCR with Helm for chart manifest verification
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${GHCR_TOKEN}" | helm registry login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+
+      - name: Pull charts and record package digests
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          pull_dir="${RUNNER_TEMP}/release-chart-pull"
+          manifest="${release_dir}/nereidforge-charts-${VERSION}.txt"
+          mkdir -p "$pull_dir"
+          charts=(
+            "charts/ml-backend:nereidforge-ml-backend:product"
+            "charts/nereidforge-backend:nereidforge-backend:product"
+            "charts/nereidforge-frontend:nereidforge-frontend:product"
+            "charts/tenant-check:nereidforge-tenant-check:product"
+          )
+          test "${#charts[@]}" -eq 4
+          for entry in "${charts[@]}"; do
+            IFS=':' read -r path name mode <<< "$entry"
+            [[ "$path" == charts/* && "$path" != deploy/* ]]
+            [[ "$name" == nereidforge-* && "$mode" == product ]]
+          done
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# OCI reference | chart archive SHA-256 | appVersion'
+          } > "$manifest"
+          for entry in "${charts[@]}"; do
+            IFS=':' read -r path name mode <<< "$entry"
+            chart_version="$VERSION"
+            reference="oci://ghcr.io/nereidai/charts/${name}:${chart_version}"
+            helm pull "oci://ghcr.io/nereidai/charts/${name}" \
+              --version "$chart_version" --destination "$pull_dir"
+            package="${pull_dir}/${name}-${chart_version}.tgz"
+            test -f "$package"
+            actual_metadata="$(helm show chart "$package")"
+            actual_version="$(awk '/^version:/ {print $2; exit}' <<< "$actual_metadata")"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$actual_metadata" | tr -d '"')"
+            test "$actual_version" = "$chart_version"
+            test "$actual_version" = "$VERSION"
+            test "$app_version" = "$VERSION"
+            digest="$(sha256sum "$package" | awk '{print $1}')"
+            printf '%s %s %s\n' "$reference" "$digest" "$app_version" >> "$manifest"
+          done
+          test "$(grep -c '^oci://' "$manifest")" -eq 4
+
+      - name: Export NF image manifest and verify both release assets
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          full_manifest="${RUNNER_TEMP}/all-source-images.txt"
+          images="${release_dir}/nereidforge-images-${VERSION}.txt"
+          charts="${release_dir}/nereidforge-charts-${VERSION}.txt"
+          RELEASE_TAG="$VERSION" JWT_SECRET=manifest-generation-unused \
+            bash scripts/05_export-images.sh --manifest "$full_manifest"
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# Exactly 23 NF-owned image references; pre/upstream images are excluded.'
+            grep '^ghcr.io/nereidai/' "$full_manifest"
+          } > "$images"
+          python3 - "$images" "$VERSION" <<'PY'
+          import pathlib
+          import sys
+
+          references = {}
+          for line in pathlib.Path(sys.argv[1]).read_text().splitlines():
+              if line.startswith("ghcr.io/nereidai/"):
+                  repository, tag = line.rsplit(":", 1)
+                  references[repository.removeprefix("ghcr.io/nereidai/")] = tag
+          expected = {
+              "inference-model-server-openvino-xpu", "ml-backend", "ml-backend-custom",
+              "nereidforge-backend", "nereidforge-frontend", "nf-runtime",
+              "prediction-jupyter-base", "train-evaluator", "train-evaluator-xpu",
+              "train-optimizer", "trainer-convert", "trainer-convert-pp",
+              "trainer-convert-tf", "trainer-llm-cu", "trainer-llm-rocm",
+              "trainer-llm-xpu", "trainer-paddle-cpu", "trainer-paddle-cu",
+              "trainer-torch-cpu", "trainer-torch-cu", "trainer-torch-rocm",
+              "trainer-torch-xpu", "trainer-xpu-base",
+          }
+          assert len(expected) == 23
+          assert references.keys() == expected, (references.keys() - expected, expected - references.keys())
+          for repository, tag in references.items():
+              expected_tag = "py3.12" if repository == "prediction-jupyter-base" else sys.argv[2]
+              assert tag == expected_tag, (repository, tag, expected_tag)
+          print("Verified exactly 23 NF-owned release image references")
+          PY
+          test "$(grep -c '^oci://ghcr.io/nereidai/charts/nereidforge-' "$charts")" -eq 4
+          ! grep -E 'charts/(postgresql|valkey|seaweedfs|labelstudio|cvat):' "$charts"
+
+      - name: Publish the GitHub Release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -euo pipefail
+          release_dir="${RUNNER_TEMP}/release"
+          assets=(
+            "${release_dir}/nereidforge-images-${VERSION}.txt"
+            "${release_dir}/nereidforge-charts-${VERSION}.txt"
+          )
+          test "${#assets[@]}" -eq 2
+          notes="NereidForge ${VERSION} publishes 23 NF-owned images and four OCI Helm charts. Install only through those Helm charts against a compatible pre-NereidForge release; no full-stack source installer is attached. The pre installer generates the non-secret runtime handoff and read-only preflight consumed by these charts."
+          prerelease_flags=(--prerelease=false)
+          if [[ "$VERSION" == *-* ]]; then
+            prerelease_flags=(--prerelease)
+          fi
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq '.isDraft')"
+            if [[ "$is_draft" != true ]]; then
+              echo "::error::Release ${GITHUB_REF_NAME} is already published; refusing to replace or append assets"
+              exit 1
+            fi
+            # No --clobber: a conflict leaves the draft and all existing assets intact.
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}"
+            gh release edit "$GITHUB_REF_NAME" --draft=false --notes "$notes" "${prerelease_flags[@]}"
+          else
+            # gh creates a draft, uploads every asset, and only then publishes it.
+            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+              --verify-tag --generate-notes --notes "$notes" "${prerelease_flags[@]}"
+          fi

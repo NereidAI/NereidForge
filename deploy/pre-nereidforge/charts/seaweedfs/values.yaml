@@ -1,0 +1,63 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+image: chrislusf/seaweedfs:4.34
+imagePullPolicy: IfNotPresent
+storageClass: nfs-csi
+
+master:
+  replicaCount: 1
+  serviceIP: ""
+  persistence:
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+volume:
+  replicaCount: 1
+  persistence:
+    size: 200Gi
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+filer:
+  replicaCount: 1
+  persistence:
+    size: 10Gi
+  resources:
+    limits:
+      cpu: 500m
+      memory: 1Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+s3:
+  enabled: true
+  replicaCount: 1
+  # The pre installer retains this operator-managed Secret. It contains the
+  # accessKey/secretKey pair and s3-config.json; no credentials are chart values.
+  # Anonymous access in that config is limited to nereidforge/models/* and
+  # nereidforge/optimized/* for the serving images that cannot authenticate.
+  existingSecret: seaweedfs-s3-credentials
+  configKey: s3-config.json
+  resources:
+    limits:
+      cpu: "1"
+      memory: 4Gi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+rack: "rack1"
+dataCenter: "dc1"

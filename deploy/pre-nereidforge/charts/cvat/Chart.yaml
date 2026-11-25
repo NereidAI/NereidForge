@@ -1,0 +1,35 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: v2
+appVersion: 2.73.0
+dependencies:
+- condition: postgresql.enabled
+  name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 16.3.0
+- condition: nuclio.enabled
+  name: nuclio
+  repository: https://nuclio.github.io/nuclio/charts
+  version: 0.22.*
+- condition: analytics.enabled
+  name: vector
+  repository: https://helm.vector.dev
+  version: 0.19.*
+- condition: clickhouse.enabled
+  name: clickhouse
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 4.1.16
+- condition: traefik.enabled
+  name: traefik
+  repository: https://helm.traefik.io/traefik
+  version: 37.3.*
+- condition: redis.enabled
+  name: redis
+  repository: https://charts.bitnami.com/bitnami
+  version: 19.6.4
+description: A Helm chart for Kubernetes
+kubeVersion: '>= 1.23.0-0'
+name: cvat
+type: application
+version: 2.73.0

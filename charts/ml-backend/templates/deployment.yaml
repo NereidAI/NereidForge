@@ -1,0 +1,116 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ml-backend.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ml-backend.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "ml-backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "ml-backend.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.securityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: LABEL_STUDIO_HOST
+              value: {{ .Values.backend.labelStudioHost | quote }}
+            - name: LABEL_STUDIO_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.existingSecret | default .Values.secret.name }}
+                  key: {{ .Values.secret.lsTokenKey }}
+                  optional: false
+            - name: MODEL_ROOT
+              value: {{ .Values.backend.modelRoot | quote }}
+            - name: MODEL_PATH
+              value: {{ .Values.backend.modelPath | quote }}
+            - name: MEDIA_CACHE_DIR
+              value: {{ .Values.backend.mediaCacheDir | quote }}
+            - name: MEDIA_CACHE_MAX_BYTES
+              value: {{ .Values.backend.mediaCacheMaxBytes | quote }}
+            - name: S3_ENDPOINT
+              value: {{ .Values.s3.endpoint | quote }}
+            - name: S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+                  optional: false
+            - name: S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+                  optional: false
+            - name: MODEL_SCORE_THRESHOLD
+              value: {{ .Values.backend.modelScoreThreshold | quote }}
+            - name: ALLOW_CUSTOM_MODEL_PATH
+              value: {{ .Values.backend.allowCustomModelPath | quote }}
+            - name: WORKERS
+              value: {{ .Values.backend.workers | quote }}
+            - name: THREADS
+              value: {{ .Values.backend.threads | quote }}
+            - name: NEREID_TRITON_URL
+              value: {{ .Values.external.tritonUrl | quote }}
+            - name: NEREID_VLLM_URL
+              value: {{ .Values.external.vllmUrl | quote }}
+            - name: NEREID_MODEL_REGISTRY_URL
+              value: {{ .Values.external.modelRegistryUrl | quote }}
+            - name: NEREID_DEFAULT_CONFIDENCE
+              value: {{ .Values.backend.defaultConfidence | quote }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,68 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-s3
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "seaweedfs.labels" . | nindent 4 }}
+    component: s3
+spec:
+  replicas: {{ .Values.s3.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "seaweedfs.selectorLabels" . | nindent 6 }}
+      component: s3
+  template:
+    metadata:
+      annotations:
+        checksum/s3-credentials: {{ (lookup "v1" "Secret" .Release.Namespace (required "s3.existingSecret is required" .Values.s3.existingSecret)).data | toJson | sha256sum }}
+      labels:
+        {{- include "seaweedfs.selectorLabels" . | nindent 8 }}
+        component: s3
+    spec:
+      containers:
+        - name: s3
+          image: "{{ .Values.image }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          args:
+            - "s3"
+            - '-filer={{ include "seaweedfs.fullname" . }}-filer:8888'
+            - "-port=8333"
+            - "-config=/etc/seaweedfs/s3-config.json"
+          ports:
+            - name: s3
+              containerPort: 8333
+          resources:
+            {{- toYaml .Values.s3.resources | nindent 12 }}
+          volumeMounts:
+            - name: s3-config
+              mountPath: /etc/seaweedfs
+      volumes:
+        - name: s3-config
+          secret:
+            secretName: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+            items:
+              - key: {{ .Values.s3.configKey | default "s3-config.json" }}
+                path: s3-config.json
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "seaweedfs.fullname" . }}-s3
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - port: 8333
+      name: s3
+      targetPort: 8333
+    - port: 9000
+      name: s3-compat
+      targetPort: 8333
+  selector:
+    app.kubernetes.io/name: {{ include "seaweedfs.name" . }}
+    component: s3

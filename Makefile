@@ -18,10 +18,10 @@
         build-api build-frontend build-ml-backend \
         build-trainer build-trainer-paddle build-trainer-timm build-trainer-llm \
         build-optimizer build-evaluator build-evaluator-xpu build-ovms-xpu \
-        plugin-build plugin-validate images-build helm-package \
+        plugin-build plugin-validate images-build helm-package installer-package \
         build-runtime build-xpu-base build-trainer-vendor \
         build-ml-backend-custom build-jupyter-base \
-        test lint fmt license-check license-report scaffold-plugin
+        test test-scripts nf-verify lint fmt license-check license-report scaffold-plugin
 
 # help prints the local-only development, build, and verification interface.
 help:
@@ -54,18 +54,27 @@ help:
 	@echo "Plugins, packaging, and verification:"
 	@echo "  make plugin-build name=tensorrt  Build the local opt-tensorrt plugin image"
 	@echo "  make plugin-validate name=tensorrt out=/tmp/out"
-	@echo "  make helm-package       Archive all infrastructure/product charts (no upload)"
+	@echo "  make helm-package       Archive exactly four NF charts (no upload)"
+	@echo "  make installer-package  Deprecated local-only legacy full-stack archive"
+	@echo "  make -C deploy/pre-nereidforge helm-package  Archive five pre charts"
 	@echo "  make test / lint / fmt / license-check"
+	@echo "  make test-scripts    Run stdlib script integration tests without dev dependencies"
+	@echo "  make nf-verify       Verify application/suite delivery and NF charts offline"
 	@echo ""
 	@echo "Every image build carries three tags (VERSION, VERSION-<utc-ts>, VERSION-<git-sha>);"
 	@echo "no target publishes an artifact or deploys to a cluster."
 
 # Shared local build variables. Node tools resolve from PATH on every host.
-# No VERSION file: the signed git tag is the single version source (treaty
-# §19.5). On an exact v* tag checkout use its bare SemVer (v0.0.1 -> 0.0.1);
-# any other checkout builds the rolling dev channel 0.0.0-dev. ?= lets CI
-# inject VERSION explicitly.
-VERSION ?= $(shell ref=$$(git describe --tags --exact-match 2>/dev/null) && echo "$${ref#v}" || echo 0.0.0-dev)
+# No tracked VERSION file: an explicit RELEASE_TAG, generated installer
+# release.env, or exact Git tag supplies the version (treaty §19.5). GitHub's
+# automatic source archives have neither Git metadata nor release.env and fail
+# closed instead of silently building the rolling development channel.
+ifeq ($(wildcard .git),)
+ifeq ($(wildcard release.env),)
+$(error Unsupported unversioned source archive; use nereidforge-installer-<version>.tar.gz or a Git checkout)
+endif
+endif
+VERSION ?= $(shell if [ -n "$${RELEASE_TAG:-}" ]; then printf '%s\n' "$$RELEASE_TAG"; elif [ -f release.env ]; then . ./release.env; printf '%s\n' "$$RELEASE_TAG"; else ref=$$(git describe --tags --exact-match --exclude 'pre-nereidforge/v*' 2>/dev/null) && printf '%s\n' "$${ref#v}" || printf '%s\n' 0.0.0-dev; fi)
 # Three-tag scheme (treaty §19.2): every local image build tags the moving
 # VERSION coordinate plus UTC-timestamp and git-short-SHA traceability tags.
 # Local builds stay native/single-arch; multi-arch indexes are a publication-
@@ -108,25 +117,25 @@ MIRROR_ARGS := \
 	--build-arg PADDLE_GPU_INDEX=$(PADDLE_GPU_INDEX)
 # Explicit VERSION keeps every image reference aligned with its OCI version
 # when a caller overrides the default; the notebook retains its py3.12 tag.
-BACKEND_IMG := $(shell bash infra/scripts/image-ref.sh nereidforge-backend $(VERSION))
-FRONTEND_IMG := $(shell bash infra/scripts/image-ref.sh nereidforge-frontend $(VERSION))
-MLBACKEND_IMG := $(shell bash infra/scripts/image-ref.sh ml-backend/ml-backend $(VERSION))
-TRAINER_IMG := $(shell bash infra/scripts/image-ref.sh trainer/torch-cpu $(VERSION))
-TRAINER_PADDLE_IMG := $(shell bash infra/scripts/image-ref.sh trainer/paddle-cpu $(VERSION))
+BACKEND_IMG := $(shell bash scripts/image-ref.sh nereidforge-backend $(VERSION))
+FRONTEND_IMG := $(shell bash scripts/image-ref.sh nereidforge-frontend $(VERSION))
+MLBACKEND_IMG := $(shell bash scripts/image-ref.sh ml-backend/ml-backend $(VERSION))
+TRAINER_IMG := $(shell bash scripts/image-ref.sh trainer/torch-cpu $(VERSION))
+TRAINER_PADDLE_IMG := $(shell bash scripts/image-ref.sh trainer/paddle-cpu $(VERSION))
 TRAINER_TIMM_IMG := $(TRAINER_IMG)
-TRAINER_LLM_IMG := $(shell bash infra/scripts/image-ref.sh trainer-llm $(VERSION))
-OPTIMIZER_IMG := $(shell bash infra/scripts/image-ref.sh train/optimizer $(VERSION))
-EVALUATOR_IMG := $(shell bash infra/scripts/image-ref.sh train/evaluator $(VERSION))
-EVALUATOR_XPU_IMG := $(shell bash infra/scripts/image-ref.sh train/evaluator-xpu $(VERSION))
-RUNTIME_IMG := $(shell bash infra/scripts/image-ref.sh runtime $(VERSION))
-XPU_BASE_IMG := $(shell bash infra/scripts/image-ref.sh trainer/xpu-base $(VERSION))
-MLBACKEND_CUSTOM_IMG := $(shell bash infra/scripts/image-ref.sh ml-backend/ml-backend-custom $(VERSION))
-JUPYTER_BASE_IMG := $(shell bash infra/scripts/image-ref.sh prediction/jupyter-base py3.12)
-JUPYTER_BASE_UPSTREAM := $(shell bash infra/scripts/image-ref.sh --env IMG_JUPYTER_BASE)
+TRAINER_LLM_IMG := $(shell bash scripts/image-ref.sh trainer-llm $(VERSION))
+OPTIMIZER_IMG := $(shell bash scripts/image-ref.sh train/optimizer $(VERSION))
+EVALUATOR_IMG := $(shell bash scripts/image-ref.sh train/evaluator $(VERSION))
+EVALUATOR_XPU_IMG := $(shell bash scripts/image-ref.sh train/evaluator-xpu $(VERSION))
+RUNTIME_IMG := $(shell bash scripts/image-ref.sh runtime $(VERSION))
+XPU_BASE_IMG := $(shell bash scripts/image-ref.sh trainer/xpu-base $(VERSION))
+MLBACKEND_CUSTOM_IMG := $(shell bash scripts/image-ref.sh ml-backend/ml-backend-custom $(VERSION))
+JUPYTER_BASE_IMG := $(shell bash scripts/image-ref.sh prediction/jupyter-base py3.12)
+JUPYTER_BASE_UPSTREAM := $(shell bash scripts/image-ref.sh --env IMG_JUPYTER_BASE)
 # OVMS + Intel NEO userspace for Arc GPU serving (class-A self-built image;
 # base is the mirrored/pinned upstream OVMS). CI uses the Dockerfile default;
 # local/offline builds pass OVMS_BASE_IMG=<mirror>/inference/model-server-openvino:0.0.1
-OVMS_XPU_IMG := $(shell bash infra/scripts/image-ref.sh inference/model-server-openvino-xpu $(VERSION))
+OVMS_XPU_IMG := $(shell bash scripts/image-ref.sh inference/model-server-openvino-xpu $(VERSION))
 OVMS_BASE_IMG ?=
 # Optional public-base overrides for local mirrors. Empty-independent defaults
 # match the Dockerfiles; specialized vendor wheel guards remain mandatory.
@@ -138,11 +147,11 @@ VITE_DATASET_UPLOAD_MAX_FILES ?= 200
 VITE_DATASET_UPLOAD_MAX_BYTES ?= 1073741824
 FE_UPLOAD_ARGS := --build-arg VITE_DATASET_UPLOAD_MAX_FILES=$(VITE_DATASET_UPLOAD_MAX_FILES) --build-arg VITE_DATASET_UPLOAD_MAX_BYTES=$(VITE_DATASET_UPLOAD_MAX_BYTES)
 
-PYTHON_BACKEND_DIR := app/python-backend
-FRONTEND_DIR := app/frontend
-ML_BACKEND_DIR := app/builders/ml-backend
-TRAINER_DIR := app/builders/trainer-torch
-PLUGINS_DIR := app/optimizer-plugins
+PYTHON_BACKEND_DIR := python-backend
+FRONTEND_DIR := frontend
+ML_BACKEND_DIR := builders/ml-backend
+TRAINER_DIR := builders/trainer-torch
+PLUGINS_DIR := optimizer-plugins
 
 # === Development environment ===
 VENV_DIR := .venv
@@ -155,7 +164,7 @@ DEV_FRONTEND_PORT := 5173
 # dev-build prepares the shared repository venv and frontend dependencies.
 dev-build:
 	@test -d $(VENV_DIR) || python3 -m venv $(VENV_DIR)
-	$(VENV_PIP) install -e ./app/python-backend
+	$(VENV_PIP) install -e ./python-backend
 	$(VENV_PIP) install kfp==2.17.0 kale nbformat
 	$(VENV_PIP) install ruff pytest
 	@cd $(FRONTEND_DIR) && $(NPM) ci --ignore-scripts
@@ -163,7 +172,7 @@ dev-build:
 
 # dev-all starts host-side hot reload against the existing development data services.
 dev-all: dev-build
-	@setsid nohup ./infra/scripts/run-dev.sh > /tmp/nereidforge-api.log 2>&1 < /dev/null &
+	@setsid nohup ./scripts/run-dev.sh > /tmp/nereidforge-api.log 2>&1 < /dev/null &
 	@cd $(FRONTEND_DIR) && setsid nohup $(NPM) run dev > /tmp/nereidforge-frontend.log 2>&1 < /dev/null &
 	@sleep 3
 	@echo "dev-all started in the background:"
@@ -179,17 +188,17 @@ dev-clean:
 
 # === Local image builds ===
 # docker-build builds the backend and frontend without publishing either image.
-# Backend Dockerfile uses repo-root-relative COPY paths (app/python-backend,
-# infra/configs), so the build context must be the repo root, not the backend dir.
+# Backend Dockerfile uses repo-root-relative COPY paths (python-backend,
+# configs), so the build context must be the repo root, not the backend dir.
 docker-build:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) -f app/python-backend/Dockerfile $(call three_tags,$(BACKEND_IMG)) .
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) -f python-backend/Dockerfile $(call three_tags,$(BACKEND_IMG)) .
 	docker build $(IMAGE_METADATA_ARGS) --build-arg VITE_APP_VERSION=$(VERSION) --build-arg VITE_IMAGE_TAG=$(VERSION) $(FE_UPLOAD_ARGS) $(call three_tags,$(FRONTEND_IMG)) $(FRONTEND_DIR)
 	@echo "docker-build complete: backend and frontend images are local only (three tags, nothing pushed)"
 
 # === Python backend environment ===
 build-api:
 	@test -d $(VENV_DIR) || python3 -m venv $(VENV_DIR)
-	$(VENV_PIP) install -e ./app/python-backend
+	$(VENV_PIP) install -e ./python-backend
 	$(VENV_PIP) install kfp==2.17.0 kale nbformat
 
 # === Frontend production bundle ===
@@ -206,12 +215,12 @@ build-ml-backend:
 # trainer/torch-cpu — torchvision + timm + smp, every vision task in one image
 # (per-vendor GPU variants: make build-trainer-vendor kind=torch vendor=cu|rocm|xpu)
 build-trainer:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_IMG)) -f app/builders/trainer-torch/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_IMG)) -f builders/trainer-torch/Dockerfile builders
 
 # trainer/paddle-cpu — PaddleX / PP-YOLOE (second supported framework);
-# context app/builders so the component and the Trainer SDK ship together.
+# context builders so the component and the Trainer SDK ship together.
 build-trainer-paddle:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_PADDLE_IMG)) -f app/builders/trainer-paddle/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_PADDLE_IMG)) -f builders/trainer-paddle/Dockerfile builders
 
 # Legacy alias: classification moved into the torch image (ADR-014 D1).
 build-trainer-timm: build-trainer
@@ -219,61 +228,61 @@ build-trainer-timm: build-trainer
 # Approved legacy trainer-llm definition: local verification only, never a
 # production publication source. Vendor-specific LLM images use the target below.
 build-trainer-llm:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_LLM_IMG)) -f app/kfp-pipelines/docker/Dockerfile.trainer-llm app/kfp-pipelines/docker
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(TRAINER_LLM_IMG)) -f kfp-pipelines/docker/Dockerfile.trainer-llm kfp-pipelines/docker
 
 # optimizer (FROM self-built runtime base -> pass its profile-resolved ref)
 build-optimizer:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OPTIMIZER_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f app/builders/optimizer/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OPTIMIZER_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f builders/optimizer/Dockerfile builders
 
 # evaluator
 build-evaluator:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f app/builders/evaluator/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_IMG)) --build-arg RUNTIME_IMAGE=$(RUNTIME_IMG) -f builders/evaluator/Dockerfile builders
 
 # Intel GPU packaging/verification sidecar (Ubuntu XPU base + OpenVINO). It
 # depends on trainer/xpu-base, the public flat GHCR image trainer-xpu-base.
 build-evaluator-xpu:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_XPU_IMG)) --build-arg XPU_BASE_IMAGE=$(XPU_BASE_IMG) -f app/builders/evaluator-xpu/Dockerfile app/builders
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(EVALUATOR_XPU_IMG)) --build-arg XPU_BASE_IMAGE=$(XPU_BASE_IMG) -f builders/evaluator-xpu/Dockerfile builders
 
 # OVMS with Intel NEO userspace (Arc/Battlemage GPU serving). Base image is an
 # overridable build ARG (public upstream default); offline builds pass a
 # site-mirrored OVMS base via OVMS_BASE_IMG=<registry>/inference/model-server-openvino:0.0.1
 # (the node containerd mirror normally makes this unnecessary).
 build-ovms-xpu:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OVMS_XPU_IMG)) $(if $(OVMS_BASE_IMG),--build-arg BASE_IMAGE=$(OVMS_BASE_IMG)) -f app/builders/inference-model-server-openvino-xpu/Dockerfile app/builders/inference-model-server-openvino-xpu
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(OVMS_XPU_IMG)) $(if $(OVMS_BASE_IMG),--build-arg BASE_IMAGE=$(OVMS_BASE_IMG)) -f builders/inference-model-server-openvino-xpu/Dockerfile builders/inference-model-server-openvino-xpu
 
 # KFP step runtime base (generated Dockerfile.runtime is tracked; builds the
 # python:3.14-slim + kfp closure image that optimizer/evaluator/timm FROM).
 # Local build only: GHCR publication is owned independently by the
 # tag-triggered publish-images workflow, which never calls make.
 build-runtime:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(RUNTIME_IMG)) -f app/kfp-pipelines/docker/Dockerfile.runtime app/kfp-pipelines/docker
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) $(call three_tags,$(RUNTIME_IMG)) -f kfp-pipelines/docker/Dockerfile.runtime kfp-pipelines/docker
 
 # Intel XPU vendor base (Ubuntu + XPU userspace + torch+xpu); prerequisite of
 # the torch-xpu / llm-xpu images. Its specialized wheel index is mandatory.
 build-xpu-base:
 	@test -n "$(TORCH_XPU_INDEX)" || (echo "ERROR: set TORCH_XPU_INDEX for +xpu wheels"; exit 1)
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg BASE_IMAGE=$(UBUNTU_BASE_IMAGE) $(call three_tags,$(XPU_BASE_IMG)) app/builders/trainer-xpu
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg BASE_IMAGE=$(UBUNTU_BASE_IMAGE) $(call three_tags,$(XPU_BASE_IMG)) builders/trainer-xpu
 
 # One per-vendor trainer image: make build-trainer-vendor kind=torch vendor=cu
 build-trainer-vendor:
 	@test -n "$(kind)" -a -n "$(vendor)" || (echo "Usage: make build-trainer-vendor kind=torch|paddle|llm vendor=cu|rocm|xpu"; exit 1)
-	RELEASE_TAG=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash infra/scripts/build-vendor-trainer.sh $(kind) $(vendor)
+	RELEASE_TAG=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash scripts/build-vendor-trainer.sh $(kind) $(vendor)
 
 # ml-backend-custom (custom vLLM/OCR families; FROM python:3.11-slim)
 build-ml-backend-custom:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg PYTHON_BASE_IMAGE=$(ML_PYTHON_BASE) $(call three_tags,$(MLBACKEND_CUSTOM_IMG)) app/builders/ml-backend-custom
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg PYTHON_BASE_IMAGE=$(ML_PYTHON_BASE) $(call three_tags,$(MLBACKEND_CUSTOM_IMG)) builders/ml-backend-custom
 
 # Jupyter workbench (keeps its own py3.12 version component; FROM the
 # quay.io/jupyter upstream base referenced by JUPYTER_BASE_UPSTREAM). The
 # three-tag helper yields py3.12, py3.12-<ts> and py3.12-<sha>.
 build-jupyter-base:
-	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg JUPYTER_BASE_IMAGE=$(JUPYTER_BASE_UPSTREAM) $(call three_tags,$(JUPYTER_BASE_IMG)) app/builders/notebook-base
+	docker build $(IMAGE_METADATA_ARGS) $(MIRROR_ARGS) --build-arg JUPYTER_BASE_IMAGE=$(JUPYTER_BASE_UPSTREAM) $(call three_tags,$(JUPYTER_BASE_IMG)) builders/notebook-base
 
 # === Plugin build/validation (local images only; no push target) ===
 # PLUGIN_IMG resolves the optional developer artifact through the same public
 # flat-name/VERSION scheme as every other local suite image. Plugin tags are not
 # independent release versions and no registry override is accepted.
-PLUGIN_IMG = $(shell bash infra/scripts/image-ref.sh opt-$(name) $(VERSION))
+PLUGIN_IMG = $(shell bash scripts/image-ref.sh opt-$(name) $(VERSION))
 plugin-build:
 	@test -n "$(name)" || (echo "Usage: make plugin-build name=<plugin>"; exit 1)
 	docker build $(IMAGE_METADATA_ARGS) $(call three_tags,$(PLUGIN_IMG)) $(PLUGINS_DIR)/$(name)
@@ -288,24 +297,43 @@ plugin-validate:
 # converters, and the selected vendor matrix remain in the local Docker daemon,
 # each carrying the three §19.2 tags. The script never pushes.
 images-build:
-	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash infra/scripts/02_build-images.sh
+	VERSION=$(VERSION) GIT_SHA=$(GIT_SHA) BUILD_DATE=$(BUILD_DATE) bash scripts/02_build-images.sh
 
-# === Local chart packaging (no push target) ===
-# helm-package archives all infrastructure and product charts under
-# charts-packaged/ for offline use. Any operator-selected chart delivery happens
-# outside this repository's build interface; no upload command is provided here.
+# === Local chart and legacy installer packaging (no push target) ===
+# helm-package archives exactly the four NF product charts under charts-packaged/.
+# Supporting charts are packaged independently by deploy/pre-nereidforge.
+# installer-package remains only for legacy local full-stack source compatibility;
+# NF GitHub Releases no longer build or attach this repository-shaped archive.
 helm-package:
-	bash infra/scripts/03_package-charts.sh
+	bash scripts/03_package-charts.sh
+
+installer-package:
+	@echo "WARNING: deprecated local-only compatibility archive; not an NF release asset" >&2
+	bash scripts/04_package-installer.sh
 
 # === Code quality ===
-test:
+# Standalone stdlib integration tests need neither the repository venv nor npm.
+test-scripts:
+	@echo "=== Script integration tests ==="
+	python3 -m unittest discover -s scripts/tests -p 'test_*.py' -v
+
+# Application-owned first delivery seam. These stdlib tests include backend and
+# frontend coordinate/compatibility checks plus offline Helm lint/render/package
+# checks when Helm is installed. They never run pre or builder unit tests,
+# install dependencies, build images, contact registries, or publish artifacts.
+nf-verify:
+	@echo "=== Application and suite delivery verification ==="
+	python3 -m unittest scripts.tests.test_nf_delivery scripts.tests.test_nf_publication scripts.tests.test_nf_legacy_compatibility scripts.tests.test_online_installer_verification -v
+	bash -n scripts/lib/nf_publication.sh
+
+test: test-scripts
 	@echo "=== Python tests ==="
 	@# Component roots isolate identical top-level module names during collection.
-	cd $(PLUGINS_DIR)/tensorrt && ../../../$(VENV_PY) -m pytest tests -v
-	cd $(ML_BACKEND_DIR) && ../../../$(VENV_PY) -m pytest tests -v
-	cd $(TRAINER_DIR) && ../../../$(VENV_PY) -m pytest tests -v
-	cd app/builders && ../../$(VENV_PY) -m pytest tests -v
-	cd $(PYTHON_BACKEND_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd $(PLUGINS_DIR)/tensorrt && ../../$(VENV_PY) -m pytest tests -v
+	cd $(ML_BACKEND_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd $(TRAINER_DIR) && ../../$(VENV_PY) -m pytest tests -v
+	cd builders && ../$(VENV_PY) -m pytest tests -v
+	cd $(PYTHON_BACKEND_DIR) && ../$(VENV_PY) -m pytest tests -v
 	@echo "=== Frontend tests ==="
 	cd $(FRONTEND_DIR) && npm test
 
@@ -323,11 +351,11 @@ fmt:
 
 # === License compliance (LICENSE-POLICY.md) ===
 license-check:
-	bash infra/scripts/check-license-compliance.sh
-	bash infra/scripts/check-legal-copies.sh
+	bash scripts/check-license-compliance.sh
+	bash scripts/check-legal-copies.sh
 
 license-report:
-	bash infra/scripts/check-license-compliance.sh --env $(VENV_PY)
+	bash scripts/check-license-compliance.sh --env $(VENV_PY)
 
 # === Local plugin scaffold generation ===
 scaffold-plugin:

@@ -1,0 +1,355 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+# NereidForge Backend Helm Chart Values
+# Shared configuration for both API and Worker deployments
+
+enabled: true
+
+# Whether this release owns the tenant namespace. Only the backend release
+# creates it (shared by backend + frontend) to avoid Helm ownership conflicts.
+namespace:
+  create: true
+
+# Global settings
+global:
+  # Self-built images always use public ghcr.io/nereidai flat coordinates
+  # (root treaty §18); air-gapped pulls resolve through the node containerd
+  # mirror, so the chart carries no registry/layout switch.
+  # Required for browser-facing ingress URLs; inject through an operator values file.
+  domain: ""
+  storageClass: nfs-csi
+  tls:
+    enabled: true
+    clusterIssuer: internal-ca
+
+# Image configuration (shared)
+image:
+  repository: ghcr.io/nereidai/nereidforge-backend
+  # Always: live deploys are registry-backed and the tag is mutable (the
+  # tag-sourced bare SemVer, root treaty §19.5); IfNotPresent makes multi-node
+  # clusters reuse stale ctr-imported images (pits 35/109/115). Switch back only
+  # for an offline/air-gapped install. Empty selects Chart.AppVersion in source
+  # and packaged installations; deploy scripts may still inject RELEASE_TAG.
+  pullPolicy: Always
+  tag: ""
+
+# Pull secret for private mirrors; empty for public GHCR images.
+imagePullSecrets: []
+
+# Internal CA bundle for outbound TLS to suite services (SSO/Keycloak).
+# Copied from cert-manager/nereid-internal-ca-tls into the tenant ns as
+# "nereid-internal-ca" by backend.sh; set to "nereid-internal-ca" to enable
+# the mount + SSL_CERT_FILE in the api pod.
+caBundleSecret: "nereid-internal-ca"
+
+# Optional retained application Secret. When set, the chart does not render its
+# literal-value Secret and both API/worker consume this object through envFrom.
+# The pre handoff uses nereidforge-service-credentials; pre owns only LS/CVAT
+# token keys while the operator retains the NF JWT and SSO client keys there.
+runtimeSecret:
+  existingSecret: ""
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+# API Deployment
+api:
+  enabled: true
+  replicas: 2
+  nameOverride: "nereidforge-api"
+
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+
+  # Same-origin install: the frontend ingress serves /api -> this service,
+  # so no standalone API ingress / dedicated API domain is created.
+  ingress:
+    enabled: false
+    className: "traefik"
+    annotations:
+      cert-manager.io/cluster-issuer: "internal-ca"
+      traefik.ingress.kubernetes.io/router.tls: "true"
+      traefik.ingress.kubernetes.io/router.entrypoints: "websecure"
+    hosts: []
+    tls: []
+
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    httpGet:
+      path: /healthz
+      port: 8080
+    initialDelaySeconds: 15
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /ready
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  env:
+    - name: NEREIDFORGE_ENV
+      value: "prod"
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: PYTHONDONTWRITEBYTECODE
+      value: "1"
+
+# Worker Deployment
+worker:
+  enabled: true
+  replicas: 1
+  nameOverride: "nereidforge-worker"
+
+  # Worker doesn't need a service or ingress
+  resources:
+    limits:
+      cpu: "2000m"
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  env:
+    - name: NEREIDFORGE_ENV
+      value: "prod"
+    - name: PYTHONUNBUFFERED
+      value: "1"
+    - name: PYTHONDONTWRITEBYTECODE
+      value: "1"
+
+# Configuration (ConfigMap + Secret)
+config:
+  # These are the non-sensitive defaults; sensitive values come from Secret
+  server:
+    host: "0.0.0.0"
+    port: 8080
+    read_timeout: 30
+    write_timeout: 30
+    idle_timeout: 120
+
+  database:
+    host: "postgres.nereidforge"
+    port: 5432
+    user: "nereidforge"
+    name: "nereidforge"
+    ssl_mode: "disable"
+    max_open_conns: 25
+    max_idle_conns: 5
+    conn_max_lifetime: "5m"
+
+  # Suite SSO (NereidIdentity standard v2). Deploy --set overrides mode and,
+  # in oidc mode, the issuer/client_id/redirect_url.
+  sso:
+    mode: "ns"
+    jit_tenant: "default"
+    ns:
+      base_url: ""
+      product_id: "forge"
+      client_secret: ""  # set via NEREIDFORGE_SSO_NS_CLIENT_SECRET (ns mode only)
+      callback_path: "/auth/ns-callback"
+      reconcile_memberships: true
+    oidc:
+      issuer: ""
+      client_id: "nereidforge"
+      redirect_url: ""
+      frontend_base_url: ""
+      scopes: ["openid", "profile", "email", "roles"]
+      roles_claim: "realm_access.roles"
+      role_map:
+        admin: ["admin", "user"]
+        operator: ["admin", "user"]
+        user: ["user"]
+      default_roles: ["user"]
+      reject_unknown_roles: false
+      state_ttl: 600
+      frontchannel_logout: true
+
+auth:
+  enabled: true
+  jwt_secret: ""  # MUST be set via secret
+  issuer: "nereidforge"
+  access_ttl: 43200
+  refresh_ttl: 604800
+
+kfp:
+  host: "http://ml-pipeline.kubeflow:8888"
+  namespace: "kubeflow"
+  service_account: "pipeline-runner"
+  timeout: 300
+  poll_interval: 10
+  object_store_endpoint: "http://seaweedfs-s3.nereidforge:9000"
+  object_store_bucket: "mlpipeline"
+  object_store_namespace: "nereidforge"
+  object_store_access_key: ""
+  object_store_secret_key: ""
+
+hub:
+  host: "http://model-registry-service.default:8080"
+  timeout: 30
+
+trainer:
+  host: "http://nereidforge-trainer.nereidforge:8890"
+  timeout: 30
+
+labelstudio:
+  host: "http://labelstudio.nereidforge.svc.cluster.local:8080"
+  public_host: ""  # required browser-facing URL; set by the deployment values
+  ml_backend_url: "http://ml-backend.nereidforge:9090"
+  ml_backend_cluster_url: "http://ml-backend.nereidforge:9090"
+  timeout: 30
+
+  cvat:
+    host: "http://cvat-backend-service.nereidforge.svc.cluster.local:8080"
+    public_host: ""  # required browser-facing URL; set by the deployment values
+    timeout: 30
+
+  storage:
+    backend: "seaweedfs"
+    endpoint: "http://seaweedfs-filer.nereidforge:8888"
+    s3_endpoint: "http://seaweedfs-s3.nereidforge:8333"
+    bucket: "nereidforge"
+    # Empty-string placeholders: config.py only applies the NEREIDFORGE_*
+    # env override (NEREIDFORGE_STORAGE_S3_ACCESS_KEY/SECRET_KEY injected from
+    # secrets) to keys present in the rendered yaml, so these must exist here.
+    s3_access_key: ""
+    s3_secret_key: ""
+
+  serving:
+      namespace: "nereidforge"
+      download_url_base: "http://seaweedfs-s3.nereidforge.svc.cluster.local:8333"
+      runtime_images:
+        openvino: "openvino/model_server:latest"
+        openvino_xpu: "ghcr.io/nereidai/inference-model-server-openvino-xpu:0.0.0-dev"
+        triton: "nvcr.io/nvidia/tritonserver:26.01-py3"
+        torch: "pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime"
+        huggingface: "ghcr.io/huggingface/text-generation-inference:latest"
+      triton_config_pbtxt: |
+      name: "model"
+      platform: "onnxruntime_onnx"
+      max_batch_size: 0
+      default_model_filename: "model.onnx"
+      serving_port: 8080
+      ingress_class: "traefik"
+      domain_suffix: "inference"
+
+  worker:
+    enabled: true
+    poll_interval: 3
+    concurrency: 5
+    kfp_completion_ttl: 86400
+    event_publish_retry: 5
+
+  logging:
+    level: "info"
+    format: "json"
+
+  tracing:
+    enabled: false
+
+# Shared SeaweedFS identity for both general storage and KFP object artifacts.
+# The Secret is retained by pre-NereidForge and referenced in each release namespace.
+s3:
+  existingSecret: "seaweedfs-s3-credentials"
+  accessKeyKey: "accessKey"
+  secretKeyKey: "secretKey"
+
+postgresql:
+  # Legacy source installs replicate the CNPG Secret through a lookup. The
+  # direct-Helm handoff sets createSecret=false and references the original
+  # pg-<cluster>-credentials Secret in the same namespace instead.
+  createSecret: true
+  existingSecret: "pg-nereidforge-credentials"
+  existingSecretKey: "password"
+
+# Helm-native initialization. Both jobs run after install/upgrade and are
+# idempotent. Admin passwords are never generated or rotated implicitly.
+postInstall:
+  admin:
+    enabled: false
+    existingSecret: "nereidforge-admin-credentials"
+    passwordKey: "password"
+    username: "admin"
+    email: "admin@nereidforge.local"
+    rotatePassword: false
+  pipelines:
+    enabled: false
+    host: "http://ml-pipeline.kubeflow:8888"
+    namespace: "nereidforge"
+    userID: "admin@nereidforge.local"
+
+# Secret values (sensitive - will be created as Kubernetes Secret)
+# These should be overridden at install time via --set or values file
+secrets:
+  database:
+    password: ""  # required at install time; injected via NEREIDFORGE_DATABASE_PASSWORD
+  sso:
+    ns:
+      client_secret: ""
+    oidc:
+      client_secret: ""
+  auth:
+    jwt_secret: ""  # required at install time; injected via NEREIDFORGE_AUTH_JWT_SECRET
+  labelstudio:
+    token: ""
+  cvat:
+    token: ""
+  serving:
+    # No secrets for serving by default
+    pass: ""
+
+# Optional private-registry pull secret (templates/registry-secret.yaml).
+# Rendered only when host, username and password are all supplied via the
+# operator's untracked -f file; incomplete credentials render no secret.
+# Node-level containerd mirrors are the normal air-gap path and need no secret.
+registry:
+  host: ""
+  username: ""
+  password: ""
+  email: ""

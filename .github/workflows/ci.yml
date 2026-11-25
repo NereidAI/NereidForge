@@ -1,31 +1,29 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Branch/PR cache-warming mirror of publish-images.yml (root treaty §19.1).
+# Optional manual cache-warming mirror of publish-images.yml (root treaty §19.1).
+#
+# These builds are expensive and are not CI acceptance gates. Never trigger this
+# workflow from a push, pull request, or schedule. An operator may run it
+# deliberately before a release; ordinary validation stays in the lightweight
+# DCO and license-compliance workflows, while publish-dev.yml and
+# publish-images.yml perform the actual artifact builds.
 #
 # Every docker/build-push-action invocation of the tag workflow is reproduced
-# here with push: false and no registry login, so the shared GitHub Actions
-# buildx cache (type=gha) is warmed on every commit and the tag-triggered
-# release reuses these layers. Keep the build matrix below — contexts, files,
-# platforms, build arguments — in sync with publish-images.yml.
+# here with push: false and no registry login, so a manual run can warm the
+# shared GitHub Actions buildx cache (type=gha). Keep the build matrix below —
+# contexts, files, platforms, build arguments — in sync with publish-images.yml.
+# Publication-only mechanics deliberately remain in publish-images.yml.
 #
-# Deliberately absent (publication-only mechanics that stay in
-# publish-images.yml): the SemVer tag guard, the traceability stamp, registry
-# logins, the three-tag inputs, and the post-push per-architecture rootfs/
-# runtime verification. No secret or package-write permission is needed: all
-# referenced base images are public. Warm builds bake the rolling 0.0.0-dev
-# version (root treaty §19.5), matching the publish-dev.yml dev channel.
-#
-# The hardware-bound vendor jobs additionally skip on forks (and any context
-# missing the specialized wheel-index repository variables), instead of
-# hard-failing like the tag workflow does.
-name: ci
+# A manual run classifies HEAD against its parent and builds only scopes whose
+# real image inputs changed. Documentation-only changes complete without an
+# image build. The self-contained pre module and pre-only workflows select no NF
+# image scope. Any unrecognized path fails safe and selects every scope. Vendor
+# jobs skip when their specialized wheel-index variables are not configured.
+name: cache-warm
 
 on:
-  push:
-    branches: [v2, main]
-  pull_request:
-    branches: [v2, main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -42,8 +40,78 @@ env:
   HF_ENDPOINT: ${{ vars.HF_ENDPOINT }}
 
 jobs:
+  # path-scope classifies the changed files with plain git and emits one
+  # boolean output per cache-warm job. Patterns mirror the Dockerfile COPY
+  # inputs, not directory conventions: the backend image copies python-backend,
+  # kfp-pipelines, two trainer profiles, configs and root license files,
+  # while the frontend image takes everything under frontend except the
+  # help corpus, which is documentation shipped as static assets but excluded
+  # from cache-warm triggers to keep documentation-only manual runs cheap.
+  path-scope:
+    name: Determine changed-path build scope
+    runs-on: ubuntu-latest
+    outputs:
+      applications: ${{ steps.scope.outputs.applications }}
+      core: ${{ steps.scope.outputs.core }}
+      vendor: ${{ steps.scope.outputs.vendor }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: scope
+        run: |
+          set -euo pipefail
+          # workflow_dispatch supplies no push base; compare the selected HEAD
+          # with its first parent for this optional, on-demand warm run.
+          base="HEAD~1"
+          mapfile -t changed < <(git diff --name-only "$base" HEAD)
+          echo "Changed ${#changed[@]} path(s) against $base:"
+          printf '  %s\n' "${changed[@]}"
+          apps=false; core=false; vendor=false; broad=false; docs=0; pre=0
+          for f in "${changed[@]}"; do
+            case "$f" in
+              # The self-contained pre module and its workflows are not COPY
+              # inputs for any NF application image.
+              deploy/pre-nereidforge/*|.github/workflows/pre-*.yml)
+                pre=$((pre + 1)) ;;
+              # Build system, image references and root legal files can affect
+              # every image: run the full matrix.
+              .github/workflows/*|scripts/*|\
+              configs/monitoring/*|images-manifest.txt|Makefile|\
+              LICENSE|NOTICE|THIRD_PARTY_NOTICES.md)
+                broad=true ;;
+              python-backend/*|configs/*)
+                apps=true ;;
+              kfp-pipelines/*)
+                apps=true; core=true ;;
+              builders/*)
+                # Backend image copies two trainer profiles from this tree.
+                apps=true; core=true; vendor=true ;;
+              frontend/*)
+                # The help corpus is bilingual documentation only; everything
+                # else under frontend is a real frontend image input.
+                case "$f" in frontend/public/help/*) docs=$((docs + 1)) ;; *) apps=true ;; esac ;;
+              docs/*|*.md)
+                docs=$((docs + 1)) ;;
+              # Unknown paths fail safe: warm every scope rather than skip a
+              # build whose inputs were not catalogued here.
+              *)
+                echo "Uncatalogued path '$f': failing safe to full scope"
+                broad=true ;;
+            esac
+          done
+          if "$broad"; then apps=true; core=true; vendor=true; fi
+          {
+            echo "applications=$apps"
+            echo "core=$core"
+            echo "vendor=$vendor"
+          } >> "$GITHUB_OUTPUT"
+          echo "Scope decision -> applications=$apps core=$core vendor=$vendor (documentation-only files: $docs; pre-only files: $pre)"
+
   applications:
     name: backend/frontend multi-arch cache warm
+    needs: path-scope
+    if: needs.path-scope.outputs.applications == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -56,7 +124,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: app/python-backend/Dockerfile
+          file: python-backend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -68,8 +136,8 @@ jobs:
       - name: Warm frontend multi-architecture image (no push)
         uses: docker/build-push-action@v6
         with:
-          context: app/frontend
-          file: app/frontend/Dockerfile
+          context: frontend
+          file: frontend/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VITE_APP_VERSION=0.0.0-dev
@@ -82,6 +150,8 @@ jobs:
 
   core:
     name: core runtime, converters, optimizer, and evaluator cache warm
+    needs: path-scope
+    if: needs.path-scope.outputs.core == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -97,8 +167,8 @@ jobs:
         id: runtime-base
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.runtime
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.runtime
           platforms: linux/amd64,linux/arm64
           # Export the exact new multi-arch index locally. Dependent builds
           # consume its digest through an OCI named context, never an old GHCR tag.
@@ -117,8 +187,8 @@ jobs:
       - name: Warm CPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile
+          context: builders
+          file: builders/trainer-torch/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             TORCH_CPU_INDEX=${{ env.TORCH_CPU_INDEX }}
@@ -130,8 +200,8 @@ jobs:
       - name: Warm CPU paddle trainer (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile
+          context: builders
+          file: builders/trainer-paddle/Dockerfile
           # paddlepaddle 3.0.0 publishes no arm64 PyPI wheel; arm64 builds fail
           # at metadata generation, so this image is intentionally amd64-only.
           platforms: linux/amd64
@@ -145,8 +215,8 @@ jobs:
       - name: Warm torch converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert
           platforms: linux/amd64,linux/arm64
           build-args: |
             PYTHON_BASE_IMAGE=python:3.14-slim
@@ -159,8 +229,8 @@ jobs:
       - name: Warm TensorFlow converter
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-tf
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-tf
           platforms: linux/amd64,linux/arm64
           build-args: |
             PYTHON_BASE_IMAGE=python:3.11-slim
@@ -172,8 +242,8 @@ jobs:
       - name: Warm Paddle converter (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/kfp-pipelines/docker
-          file: app/kfp-pipelines/docker/Dockerfile.convert-pp
+          context: kfp-pipelines/docker
+          file: kfp-pipelines/docker/Dockerfile.convert-pp
           # Pins paddlepaddle==3.0.0, which has no arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -186,8 +256,8 @@ jobs:
       - name: Warm optimizer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/optimizer/Dockerfile
+          context: builders
+          file: builders/optimizer/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -202,8 +272,8 @@ jobs:
       - name: Warm evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator/Dockerfile
+          context: builders
+          file: builders/evaluator/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             VERSION=0.0.0-dev
@@ -218,8 +288,8 @@ jobs:
       - name: Warm Intel GPU OVMS (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/inference-model-server-openvino-xpu
-          file: app/builders/inference-model-server-openvino-xpu/Dockerfile
+          context: builders/inference-model-server-openvino-xpu
+          file: builders/inference-model-server-openvino-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=openvino/model_server:2025.1
@@ -231,8 +301,8 @@ jobs:
       - name: Warm ml-backend (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend
-          file: app/builders/ml-backend/Dockerfile
+          context: builders/ml-backend
+          file: builders/ml-backend/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -245,8 +315,8 @@ jobs:
       - name: Warm ml-backend-custom (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/ml-backend-custom
-          file: app/builders/ml-backend-custom/Dockerfile
+          context: builders/ml-backend-custom
+          file: builders/ml-backend-custom/Dockerfile
           # Installs paddlepaddle/paddleocr, unavailable as arm64 PyPI wheels; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -259,8 +329,8 @@ jobs:
       - name: Warm notebook workbench (single-arch exception, treaty §19.2.1)
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/notebook-base
-          file: app/builders/notebook-base/Dockerfile
+          context: builders/notebook-base
+          file: builders/notebook-base/Dockerfile
           # Installs paddlepaddle, unavailable as an arm64 PyPI wheel; keep amd64-only.
           platforms: linux/amd64
           build-args: |
@@ -274,12 +344,12 @@ jobs:
 
   vendor-xpu:
     name: vendor trainers - Intel XPU cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the specialized wheel index; the tag
-    # workflow hard-fails instead, because publication cannot proceed.
+    needs: path-scope
+    # Skip contexts without the specialized wheel index and changes outside
+    # the trainer builder tree; the tag workflow hard-fails instead.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.TORCH_XPU_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           vars.TORCH_XPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -295,8 +365,8 @@ jobs:
         id: xpu-base
         uses: docker/build-push-action@v6
         with:
-          context: app/builders/trainer-xpu
-          file: app/builders/trainer-xpu/Dockerfile
+          context: builders/trainer-xpu
+          file: builders/trainer-xpu/Dockerfile
           platforms: linux/amd64
           # PYPI_INDEX and the generic mirror args keep their empty Dockerfile
           # defaults on hosted runners (treaty §17); only the specialized XPU
@@ -319,8 +389,8 @@ jobs:
       - name: Warm XPU packaging evaluator
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/evaluator-xpu/Dockerfile
+          context: builders
+          file: builders/evaluator-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             XPU_BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -334,8 +404,8 @@ jobs:
       - name: Warm XPU torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.xpu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.xpu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -350,8 +420,8 @@ jobs:
       - name: Warm XPU LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-xpu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-xpu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=ghcr.io/nereidai/trainer-xpu-base:0.0.0-dev
@@ -366,11 +436,12 @@ jobs:
 
   vendor-cu:
     name: vendor trainers - NVIDIA CUDA cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the Paddle GPU wheel index.
+    needs: path-scope
+    # Skip contexts without the Paddle GPU wheel index and changes outside
+    # the trainer builder tree.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.PADDLE_GPU_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           vars.PADDLE_GPU_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     steps:
@@ -385,8 +456,8 @@ jobs:
       - name: Warm CUDA torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.cu
+          context: builders
+          file: builders/trainer-torch/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -398,8 +469,8 @@ jobs:
       - name: Warm CUDA paddle trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-paddle/Dockerfile.cu
+          context: builders
+          file: builders/trainer-paddle/Dockerfile.cu
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -412,8 +483,8 @@ jobs:
       - name: Warm CUDA LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-cu/Dockerfile
+          context: builders
+          file: builders/trainer-llm-cu/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
@@ -425,11 +496,12 @@ jobs:
 
   vendor-rocm:
     name: vendor trainers - AMD ROCm cache warm (single-arch, treaty §19.2.1)
-    # Skip fork PRs and contexts without the ROCm wheel index.
+    needs: path-scope
+    # Skip contexts without the ROCm wheel index and changes outside the
+    # trainer builder tree.
     if: >-
-      ${{ (github.event_name != 'pull_request' ||
-           github.event.pull_request.head.repo.full_name == github.repository) &&
-          vars.TORCH_ROCM_INDEX != '' }}
+      ${{ needs.path-scope.outputs.vendor == 'true' &&
+           vars.TORCH_ROCM_INDEX != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 240
     steps:
@@ -447,8 +519,8 @@ jobs:
       - name: Warm ROCm torch trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-torch/Dockerfile.rocm
+          context: builders
+          file: builders/trainer-torch/Dockerfile.rocm
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0
@@ -461,8 +533,8 @@ jobs:
       - name: Warm ROCm LLM trainer
         uses: docker/build-push-action@v6
         with:
-          context: app/builders
-          file: app/builders/trainer-llm-rocm/Dockerfile
+          context: builders
+          file: builders/trainer-llm-rocm/Dockerfile
           platforms: linux/amd64
           build-args: |
             BASE_IMAGE=rocm/pytorch:rocm6.3_ubuntu24.04_py3.12_pytorch_release_2.4.0

@@ -1,0 +1,58 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+image:
+  registry: docker.io
+  repository: heartexlabs/label-studio
+  tag: 1.23.0
+imagePullSecret: 
+
+storageClass: nfs-csi
+
+postgresql:
+  host: nereidforge-postgresql-rw.nereidforge.svc.cluster.local
+  port: 5432
+  database: labelstudio
+  user: nereidforge
+  existingSecret: pg-nereidforge-postgresql-credentials
+  existingSecretKey: password
+
+valkey:
+  host: valkey-master.nereidforge.svc.cluster.local
+  port: 6379
+
+s3:
+    existingSecret: seaweedfs-s3-credentials
+    accessKeyKey: accessKey
+    secretKeyKey: secretKey
+    bucket: labelstudio
+    endpoint: http://seaweedfs-s3.nereidforge.svc.cluster.local:8333
+    useSSL: false
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    cert-manager.io/cluster-issuer: internal-ca
+  host: ""  # required public hostname supplied by the operator
+  tls: true
+
+persistence:
+  size: 20Gi
+
+resources:
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+  requests:
+    cpu: "500m"
+    memory: "1Gi"
+
+token: "test-label-studio-token"
+
+# Extra env for the LS container: trust the HTTPS origin used behind the TLS
+# terminating ingress, otherwise Django's CSRF origin check rejects login POSTs
+# with "Origin checking failed ... does not match any trusted origins".
+env:
+  - name: CSRF_TRUSTED_ORIGINS
+    value: ""  # derive from the operator-supplied public ingress URL

@@ -1,0 +1,243 @@
+{{/*
+Copyright (C) 2026 YIQISOFT
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- if or .Values.postInstall.admin.enabled .Values.postInstall.pipelines.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-post-install
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "-10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+data:
+  seed_admin.py: |
+    {{- .Files.Get "scripts/seed_admin.py" | nindent 4 }}
+{{- end }}
+
+{{- if .Values.postInstall.admin.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-admin-seed
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    component: admin-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        component: admin-seed
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: admin-seed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["python3", "/opt/nereidforge-post-install/seed_admin.py"]
+          env:
+            - name: NEREIDFORGE_ENV
+              value: prod
+            - name: PYTHONPATH
+              value: /app
+            - name: NF_ADMIN_USERNAME
+              value: {{ .Values.postInstall.admin.username | quote }}
+            - name: NF_ADMIN_EMAIL
+              value: {{ .Values.postInstall.admin.email | quote }}
+            - name: NF_ADMIN_ROTATE
+              value: {{ .Values.postInstall.admin.rotatePassword | quote }}
+            - name: NF_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postInstall.admin.existingSecret is required" .Values.postInstall.admin.existingSecret }}
+                  key: {{ .Values.postInstall.admin.passwordKey | default "password" }}
+                  optional: false
+            - name: NEREIDFORGE_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgresql.existingSecret is required" .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.existingSecretKey | default "password" }}
+                  optional: false
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            {{- if .Values.caBundleSecret }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/certs/nereid-internal-ca.crt
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+          volumeMounts:
+            - name: post-install-scripts
+              mountPath: /opt/nereidforge-post-install
+              readOnly: true
+            - name: config
+              mountPath: /etc/nereidforge/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.caBundleSecret }}
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/nereid-internal-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: post-install-scripts
+          configMap:
+            name: {{ include "nereidforge-backend.fullname" . }}-post-install
+        - name: config
+          configMap:
+            name: {{ include "nereidforge-backend.fullname" . }}-config
+        {{- if .Values.caBundleSecret }}
+        - name: ca-bundle
+          secret:
+            secretName: {{ .Values.caBundleSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+{{- end }}
+
+{{- if .Values.postInstall.pipelines.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nereidforge-backend.fullname" . }}-pipeline-upload
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge-backend.labels" . | nindent 4 }}
+    component: pipeline-upload
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "10"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "nereidforge-backend.selectorLabels" . | nindent 8 }}
+        component: pipeline-upload
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "nereidforge-backend.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: pipeline-upload
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["python3", "/app/kfp-pipelines/upload_pipelines.py"]
+          env:
+            - name: NEREIDFORGE_ENV
+              value: prod
+            - name: PYTHONPATH
+              value: /app
+            - name: HOME
+              value: /tmp
+            - name: KFP_HOST
+              value: {{ .Values.postInstall.pipelines.host | quote }}
+            - name: KFP_CONFIG_HOST
+              value: {{ .Values.postInstall.pipelines.host | quote }}
+            - name: KFP_NAMESPACE
+              value: {{ .Values.postInstall.pipelines.namespace | quote }}
+            - name: KFP_USERID
+              value: {{ .Values.postInstall.pipelines.userID | quote }}
+            - name: NEREIDFORGE_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgresql.existingSecret is required" .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.existingSecretKey | default "password" }}
+                  optional: false
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            {{- if .Values.caBundleSecret }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/certs/nereid-internal-ca.crt
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "nereidforge-backend.runtimeSecretName" . }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nereidforge/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.caBundleSecret }}
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/nereid-internal-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "nereidforge-backend.fullname" . }}-config
+        {{- if .Values.caBundleSecret }}
+        - name: ca-bundle
+          secret:
+            secretName: {{ .Values.caBundleSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+{{- end }}

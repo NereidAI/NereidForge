@@ -1,0 +1,247 @@
+# Copyright (C) 2026 YIQISOFT
+# SPDX-License-Identifier: Apache-2.0
+
+# Pre-NereidForge development publication. The shared chart workflow explicitly
+# rejects version-mode=upstream on its development channel, so this narrow ORAS
+# path packages commit-qualified charts, preserves upstream appVersion values,
+# and aliases the exact immutable manifests to 0.0.0-dev only after byte
+# verification. Existing immutable charts/installers are reused only when all
+# pulled bytes match; collisions and registry errors fail before publication.
+# The installer and all five charts use the same floating/immutable identity
+# contract. No moving GitHub Release and no NF image/chart publication is involved.
+name: pre-nereidforge-publish-dev
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'deploy/pre-nereidforge/**'
+      - '.github/workflows/pre-verify.yml'
+      - '.github/workflows/pre-publish.yml'
+      - '.github/workflows/pre-publish-dev.yml'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: pre-nereidforge-publish-dev-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-development:
+    name: Publish pre development artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v5
+        with:
+          version: v3.18.3
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v2
+        with:
+          version: 1.4.0
+
+      - name: Derive immutable development identity
+        id: ver
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = push
+          test "$GITHUB_REF_TYPE" = branch
+          test "$GITHUB_REF_NAME" = main
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "immutable=0.0.0-dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "floating=0.0.0-dev" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the self-contained pre module
+        run: make -C deploy/pre-nereidforge verify
+
+      - name: Package and reparse the immutable development installer
+        env:
+          PRE_RELEASE_TAG: ${{ steps.ver.outputs.immutable }}
+          PRE_OUTPUT_DIR: ${{ runner.temp }}/release
+        run: make -C deploy/pre-nereidforge package
+
+      - name: Package five development charts while preserving upstream appVersions
+        env:
+          PRE_CHARTS_VERSION: ${{ steps.ver.outputs.immutable }}
+          PRE_CHARTS_OUTPUT_DIR: ${{ runner.temp }}/charts
+          PRE_CHARTS_ARCHIVE: ${{ runner.temp }}/pre-nereidforge-charts.tar.gz
+        run: make -C deploy/pre-nereidforge helm-package
+
+      - name: Log in to GHCR with isolated publisher configuration
+        env:
+          GHCR_USERNAME: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$HELM_REGISTRY_CONFIG")"
+          printf '%s' "$GHCR_TOKEN" | helm registry login ghcr.io \
+            --username "$GHCR_USERNAME" --password-stdin
+          printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
+            --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --username "$GHCR_USERNAME" --password-stdin
+
+      - name: Publish immutable pre charts and ORAS floating aliases
+        env:
+          CHART_DIR: ${{ runner.temp }}/charts
+          IMMUTABLE: ${{ steps.ver.outputs.immutable }}
+          FLOATING: ${{ steps.ver.outputs.floating }}
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          charts=(postgresql valkey seaweedfs labelstudio cvat)
+          test "${#charts[@]}" -eq 5
+          for name in "${charts[@]}"; do
+            source_metadata="$(helm show chart "deploy/pre-nereidforge/charts/$name")"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            package="${CHART_DIR}/${name}-${IMMUTABLE}.tgz"
+            test -s "$package"
+            packaged_metadata="$(helm show chart "$package")"
+            test "$(awk '/^name:/ {print $2; exit}' <<< "$packaged_metadata")" = "$name"
+            test "$(awk '/^version:/ {print $2; exit}' <<< "$packaged_metadata" | tr -d '"')" = "$IMMUTABLE"
+            test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$packaged_metadata" | tr -d '"')" = "$app_version"
+            pre_publish_chart "ghcr.io/nereidai/charts/$name" "$package" \
+              "$IMMUTABLE" "$FLOATING"
+          done
+
+      - name: Anonymously verify both chart identities and record digests
+        env:
+          CHART_DIR: ${{ runner.temp }}/charts
+          RELEASE_DIR: ${{ runner.temp }}/release
+          IMMUTABLE: ${{ steps.ver.outputs.immutable }}
+          FLOATING: ${{ steps.ver.outputs.floating }}
+          HELM_CONFIG_HOME: ${{ runner.temp }}/anonymous/helm/config
+          HELM_CACHE_HOME: ${{ runner.temp }}/anonymous/helm/cache
+          HELM_DATA_HOME: ${{ runner.temp }}/anonymous/helm/data
+          HELM_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/helm/registry-config.json
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+        run: |
+          set -euo pipefail
+          mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME" \
+            "$(dirname "$ORAS_REGISTRY_CONFIG")" "${RUNNER_TEMP}/anonymous/rendered"
+          charts=(postgresql valkey seaweedfs labelstudio cvat)
+          manifest="${RELEASE_DIR}/pre-nereidforge-charts-${IMMUTABLE}.txt"
+          {
+            echo '# Copyright (C) 2026 YIQISOFT'
+            echo '# SPDX-License-Identifier: Apache-2.0'
+            echo '# Immutable OCI reference | floating OCI reference | appVersion | chart archive SHA-256 | shared OCI manifest digest'
+          } > "$manifest"
+          for name in "${charts[@]}"; do
+            source_metadata="$(helm show chart "deploy/pre-nereidforge/charts/$name")"
+            app_version="$(awk '/^appVersion:/ {print $2; exit}' <<< "$source_metadata" | tr -d '"')"
+            immutable_dir="${RUNNER_TEMP}/anonymous/${name}-immutable"
+            floating_dir="${RUNNER_TEMP}/anonymous/${name}-floating"
+            repository="ghcr.io/nereidai/charts/${name}"
+            mkdir -p "$immutable_dir" "$floating_dir"
+            helm pull "oci://ghcr.io/nereidai/charts/$name" \
+              --version "$IMMUTABLE" --destination "$immutable_dir"
+            helm pull "oci://ghcr.io/nereidai/charts/$name" \
+              --version "$FLOATING" --destination "$floating_dir"
+            immutable_package="${immutable_dir}/${name}-${IMMUTABLE}.tgz"
+            floating_package="${floating_dir}/${name}-${FLOATING}.tgz"
+            test -s "$immutable_package"
+            test -s "$floating_package"
+            cmp "${CHART_DIR}/${name}-${IMMUTABLE}.tgz" "$immutable_package"
+            cmp "$immutable_package" "$floating_package"
+            floating_metadata="$(helm show chart "$floating_package")"
+            test "$(awk '/^version:/ {print $2; exit}' <<< "$floating_metadata" | tr -d '"')" = "$IMMUTABLE"
+            test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$floating_metadata" | tr -d '"')" = "$app_version"
+            values_args=()
+            case "$name" in
+              postgresql)
+                values_args=(-f deploy/pre-nereidforge/charts/postgresql/values-prod.yaml)
+                ;;
+              cvat)
+                values_args=(-f deploy/pre-nereidforge/values/cvat.yaml \
+                  --set ingress.hostname=cvat.example.test)
+                ;;
+            esac
+            helm template "$name" "$floating_package" "${values_args[@]}" \
+              > "${RUNNER_TEMP}/anonymous/rendered/${name}.yaml"
+            test -s "${RUNNER_TEMP}/anonymous/rendered/${name}.yaml"
+            immutable_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+              "${repository}:${IMMUTABLE}")"
+            floating_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+              "${repository}:${FLOATING}")"
+            test "$floating_digest" = "$immutable_digest"
+            package_digest="$(sha256sum "$floating_package" | awk '{print $1}')"
+            printf 'oci://%s:%s oci://%s:%s %s %s %s\n' \
+              "$repository" "$IMMUTABLE" "$repository" "$FLOATING" \
+              "$app_version" "$package_digest" "$immutable_digest" >> "$manifest"
+          done
+          test "$(grep -c '^oci://' "$manifest")" -eq 5
+
+      - name: Publish the pre installer artifact with both development tags
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+          IMMUTABLE: ${{ steps.ver.outputs.immutable }}
+          FLOATING: ${{ steps.ver.outputs.floating }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
+        run: |
+          set -euo pipefail
+          source deploy/pre-nereidforge/scripts/lib/publication.sh
+          pre_publish_installer "$RELEASE_DIR" "$IMMUTABLE" "$FLOATING" \
+            "ghcr.io/nereidai/pre-nereidforge-installer" "$GITHUB_SHA"
+
+      - name: Anonymously pull-verify both development installer identities
+        env:
+          RELEASE_DIR: ${{ runner.temp }}/release
+          IMMUTABLE: ${{ steps.ver.outputs.immutable }}
+          FLOATING: ${{ steps.ver.outputs.floating }}
+          ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/anonymous/oras-config.json
+        run: |
+          set -euo pipefail
+          repository="ghcr.io/nereidai/pre-nereidforge-installer"
+          immutable_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+            "${repository}:${IMMUTABLE}")"
+          floating_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
+            "${repository}:${FLOATING}")"
+          test "$floating_digest" = "$immutable_digest"
+          immutable_dir="${RUNNER_TEMP}/anonymous/installer-immutable"
+          floating_dir="${RUNNER_TEMP}/anonymous/installer-floating"
+          mkdir -p "$immutable_dir" "$floating_dir"
+          oras pull --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --output "$immutable_dir" "${repository}:${IMMUTABLE}"
+          oras pull --registry-config "$ORAS_REGISTRY_CONFIG" \
+            --output "$floating_dir" "${repository}:${FLOATING}"
+          archive="pre-nereidforge-installer-${IMMUTABLE}.tar.gz"
+          artifacts=(
+            "$archive"
+            "${archive}.sha256"
+            "pre-nereidforge-installer-${IMMUTABLE}.lock.json"
+            "pre-nereidforge-charts-${IMMUTABLE}.txt"
+          )
+          for artifact in "${artifacts[@]}"; do
+            cmp "${RELEASE_DIR}/$artifact" "${immutable_dir}/$artifact"
+            cmp "${immutable_dir}/$artifact" "${floating_dir}/$artifact"
+          done
+          (cd "$immutable_dir" && sha256sum -c "${archive}.sha256")
+          python3 - "$immutable_dir" "$IMMUTABLE" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1])
+          lock = json.loads((root / f"pre-nereidforge-installer-{sys.argv[2]}.lock.json").read_text())
+          assert lock["version"] == sys.argv[2]
+          assert len(lock["charts"]) == 5
+          manifest = root / f"pre-nereidforge-charts-{sys.argv[2]}.txt"
+          assert sum(line.startswith("oci://") for line in manifest.read_text().splitlines()) == 5
+          PY
+          {
+            echo "Pre development installer: ${repository}@${immutable_digest}"
+            echo "Floating ${FLOATING} and immutable ${IMMUTABLE} aliases are byte-identical."
+            echo "No GitHub Release or NereidForge artifact was published."
+          } >> "$GITHUB_STEP_SUMMARY"
