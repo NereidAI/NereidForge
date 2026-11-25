@@ -181,6 +181,9 @@ class NereidForgeVerificationTest(unittest.TestCase):
                                 if [[ "${NF_TEST_LOGIN_EXIT:-0}" != 0 ]]; then
                                     exit "$NF_TEST_LOGIN_EXIT"
                                 fi
+                                if [[ "${NF_TEST_LOGIN_CONTRACT_EXIT:-0}" != 0 ]]; then
+                                    exit "$NF_TEST_LOGIN_CONTRACT_EXIT"
+                                fi
                                 printf '%s\\n' "${NF_TEST_LOGIN_OUT-LOGIN_OK}"
                             fi
                             ;;
@@ -316,7 +319,7 @@ class NereidForgeVerificationTest(unittest.TestCase):
             "frontend command": {"NF_TEST_FE_EXIT": 1},
             "frontend contract": {"NF_TEST_FE_OUT": "upstream error"},
             "login command": {"NF_TEST_LOGIN_EXIT": 1},
-            "login rejected": {"NF_TEST_LOGIN_OUT": "LOGIN_FAIL"},
+            "login rejected": {"NF_TEST_LOGIN_CONTRACT_EXIT": 1},
         }
         for name, overrides in scenarios.items():
             with self.subTest(name=name):
@@ -338,11 +341,22 @@ class NereidForgeVerificationTest(unittest.TestCase):
         self.assertIn("admin login OK", output)
         self.assertNotIn("test-password", output)
 
+    def test_login_success_does_not_depend_on_stdout_marker(self):
+        """A lost stdout marker cannot reject a successful in-pod validation."""
+        result = self.run_check({"NF_TEST_LOGIN_OUT": ""})
+        output = result.stdout + result.stderr
+        self.assertEqual(0, result.returncode, output)
+        self.assertIn("admin login OK", output)
+        self.assertIn("verification done", output)
+
     def test_login_failure_does_not_leak_sensitive_response(self):
         """Failed login output never exposes tokens or the full response body."""
         token = "do-not-log-access-token"
         output = self.assert_failed_check(
-            {"NF_TEST_LOGIN_OUT": f'{{"access_token":"{token}"}}\nLOGIN_FAIL'}
+            {
+                "NF_TEST_LOGIN_CONTRACT_EXIT": 1,
+                "NF_TEST_LOGIN_OUT": f'{{"access_token":"{token}"}}\nLOGIN_FAIL',
+            }
         )
         self.assertNotIn(token, output)
         self.assertNotIn("access_token", output)
@@ -393,16 +407,17 @@ class LoginScriptContractTest(unittest.TestCase):
     def test_login_requires_http_200_and_nonempty_token_without_leaking_body(self):
         token = "token-shaped-error-body-must-not-pass"
         scenarios = (
-            (200, '{"access_token":"valid-token"}', 0, "LOGIN_OK"),
-            (401, f'{{"access_token":"{token}"}}', 0, "LOGIN_FAIL"),
-            (500, f'{{"access_token":"{token}"}}', 0, "LOGIN_FAIL"),
-            (200, '{"error":"missing token"}', 0, "LOGIN_FAIL"),
-            (0, f'{{"access_token":"{token}"}}', 7, "LOGIN_FAIL"),
+            (200, '{"access_token":"valid-token"}', 0, 0),
+            (401, f'{{"access_token":"{token}"}}', 0, 1),
+            (500, f'{{"access_token":"{token}"}}', 0, 1),
+            (200, '{"error":"missing token"}', 0, 1),
+            (0, f'{{"access_token":"{token}"}}', 7, 1),
         )
-        for status, body, curl_exit, expected in scenarios:
+        for status, body, curl_exit, expected_exit in scenarios:
             with self.subTest(status=status, curl_exit=curl_exit, body=body):
                 result = self.run_login(status, body, curl_exit)
-                self.assertEqual(expected, result.stdout.strip(), result.stdout + result.stderr)
+                self.assertEqual(expected_exit, result.returncode, result.stdout + result.stderr)
+                self.assertEqual("", result.stdout)
                 self.assertNotIn(token, result.stdout + result.stderr)
 
 
