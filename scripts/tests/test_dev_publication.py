@@ -87,6 +87,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn("        default: full\n", trigger.group(1))
         self.assertIn("          - full\n", trigger.group(1))
         self.assertIn("          - cpu-xpu\n", trigger.group(1))
+        self.assertIn("          - backend-frontend\n", trigger.group(1))
         self.assertNotIn("  path-scope:\n", self.text)
         self.assertNotIn("github.event.before", self.text)
 
@@ -155,6 +156,45 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertEqual(shell_names(shell_extra), AMD_NVIDIA_IMAGES)
         self.assertEqual(python_names(python_extra), AMD_NVIDIA_IMAGES)
 
+    def test_backend_frontend_profile_runs_only_two_application_image_builds(self):
+        """The narrow profile skips builder/dependent matrices and all charts."""
+        applications = {"nereidforge-backend", "nereidforge-frontend"}
+        preflight = job_block(self.text, "preflight")
+        self.assertIn("backend-frontend) expected_count=2", preflight)
+        self.assertIn(
+            'if [[ "$IMAGE_PROFILE" == backend-frontend ]]; then\n'
+            "            # Application-only publication must not even inventory builder tags.\n"
+            "            images=(nereidforge-backend nereidforge-frontend)",
+            preflight,
+        )
+
+        application_job = job_block(self.text, "publish-applications")
+        self.assertIn("if: inputs.image_profile == 'backend-frontend'", application_job)
+        self.assertEqual(matrix_names(self.text, "publish-applications"), applications)
+        for name in applications:
+            self.assertEqual(
+                application_job.count(f"- name: {name}\n"),
+                1,
+                "each application must occur once in the narrow matrix",
+            )
+        for job_name in ("publish-base", "publish-dependent"):
+            job = job_block(self.text, job_name)
+            self.assertIn("if: inputs.image_profile != 'backend-frontend'", job)
+
+        alias = job_block(self.text, "alias-images")
+        self.assertIn(
+            "needs: [preflight, publish-applications, publish-base, publish-dependent]",
+            alias,
+        )
+        self.assertIn("needs.publish-applications.result == 'success'", alias)
+        self.assertIn(
+            'if profile == "backend-frontend":\n'
+            '              images = ["nereidforge-backend", "nereidforge-frontend"]',
+            alias,
+        )
+        charts = job_block(self.text, "publish-charts")
+        self.assertIn("if: inputs.image_profile != 'backend-frontend'", charts)
+
     def test_gpu_images_are_not_static_chart_install_dependencies(self):
         chart_text = "\n".join(
             path.read_text(encoding="utf-8")
@@ -172,7 +212,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertLess(self.text.index("  preflight:\n"), self.text.index("  publish-base:\n"))
 
     def test_floating_images_move_only_after_anonymous_immutable_verification(self):
-        for job_name in ("publish-base", "publish-dependent"):
+        for job_name in ("publish-applications", "publish-base", "publish-dependent"):
             job = job_block(self.text, job_name)
             self.assertEqual(job.count("uses: docker/build-push-action@v6"), 1)
             self.assertIn("contains(fromJSON(needs.preflight.outputs.existing)", job)
@@ -230,7 +270,7 @@ class DevelopmentPublicationTest(unittest.TestCase):
                 for line in output_block(multiple, "annotations")
             )
         )
-        for job_name in ("publish-base", "publish-dependent"):
+        for job_name in ("publish-applications", "publish-base", "publish-dependent"):
             job = job_block(self.text, job_name)
             self.assertIn("run: bash scripts/stamp-dev-image.sh", job)
             self.assertIn("annotations: ${{ steps.stamp.outputs.annotations }}", job)

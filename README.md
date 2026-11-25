@@ -98,36 +98,42 @@ configuration; no shared development secret is supplied.
 
 ### Development OCI publication
 
-A complete NF development snapshot contains exactly four OCI Helm charts and
-one of two explicitly selected image profiles. `full` contains all 23 images.
-`cpu-xpu` contains 18 core/CPU/Intel-XPU images and excludes only the five
-AMD/NVIDIA trainer images (`trainer-torch-cu`, `trainer-paddle-cu`,
-`trainer-llm-cu`, `trainer-torch-rocm`, and `trainer-llm-rocm`). Intel XPU
-images remain required in that profile. Publication occurs only by explicitly
-dispatching `publish-dev` on `main`; pushes, merges, and pull requests never
-start this workflow. The publication matrix is never a pull-request check.
-Dispatch a run only when a complete selected-profile snapshot is intended:
+An NF development publication explicitly selects one of three image profiles.
+`backend-frontend` builds and publishes only `nereidforge-backend` and
+`nereidforge-frontend`; it schedules no builder, dependent-image, or chart jobs.
+A complete suite snapshot instead uses `full` (all 23 images and exactly four
+OCI Helm charts) or `cpu-xpu` (18 core/CPU/Intel-XPU images and the same four
+charts). `cpu-xpu` excludes only the five AMD/NVIDIA trainer images
+(`trainer-torch-cu`, `trainer-paddle-cu`, `trainer-llm-cu`,
+`trainer-torch-rocm`, and `trainer-llm-rocm`); Intel XPU images remain required.
+Publication occurs only by explicitly dispatching `publish-dev` on `main`;
+pushes, merges, and pull requests never start this workflow. The publication
+matrix is never a pull-request check. Select only the intended scope:
 
 ```bash
-# Full 23-image snapshot (the default).
+# Two application images only; no builder images or charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
-  -f image_profile=full
+  -f image_profile=backend-frontend
 
-# 18-image core/CPU/Intel-XPU snapshot without AMD/NVIDIA trainers.
+# 18-image core/CPU/Intel-XPU snapshot plus four charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=cpu-xpu
+
+# Full 23-image snapshot plus four charts (the default).
+gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
+  -f image_profile=full
 ```
 
 Each run uses immutable `0.0.0-dev-<short-sha>` identities and floating
 `0.0.0-dev` aliases. Same-commit immutable artifacts are anonymously verified
 and reused without overwrite. Every image selected by the run's profile must
-pass anonymous revision verification before any selected floating alias moves
-or chart publication starts. The run summary records the profile and all 23 or
-18 verified digests. Excluded AMD/NVIDIA aliases are not part of a `cpu-xpu`
-snapshot and must not be treated as evidence for that snapshot. Registry
-failures and source-revision collisions fail closed. Repeating a manual dispatch
-for the same commit and profile resumes missing artifacts without rewriting
-existing ones; no formal release is created.
+pass anonymous revision verification before any selected floating alias moves.
+For `full` and `cpu-xpu`, chart publication starts only after that image gate;
+`backend-frontend` publishes no charts. The run summary records the profile and
+all 2, 18, or 23 verified digests. Excluded aliases are not evidence for the
+selected snapshot. Registry failures and source-revision collisions fail closed.
+Repeating a manual dispatch for the same commit and profile resumes missing
+artifacts without rewriting existing ones; no formal release is created.
 
 ## Deployment
 
@@ -186,14 +192,15 @@ publishes an OCI installer artifact and all five charts with floating
 `0.0.0-dev` and immutable `0.0.0-dev-<short-sha>` identities. Floating tags are
 aliases of the immutable manifests; no moving GitHub Release is created.
 
-The separate NF development workflow publishes one complete selected-profile
-snapshot of 23 `full` images or 18 `cpu-xpu` images and exactly four charts with
-the same floating/immutable identity contract. Image builds never overwrite an
-existing immutable tag and push no floating tag. Every selected immutable
-manifest must pass anonymous source-revision verification before its floating
-alias moves; chart publication starts only after that gate. Same-commit reruns
-reuse verified artifacts, and repackaged charts are byte-identical. No formal NF
-release is required.
+The separate NF development workflow publishes either the two-image
+`backend-frontend` application scope without charts, or a complete suite
+snapshot of 23 `full` images or 18 `cpu-xpu` images with exactly four charts.
+All profiles use the same floating/immutable identity contract. Image builds
+never overwrite an existing immutable tag and push no floating tag. Every
+selected immutable manifest must pass anonymous source-revision verification
+before its floating alias moves; suite chart publication starts only after that
+gate. Same-commit reruns reuse verified artifacts, and repackaged charts are
+byte-identical. No formal NF release is required.
 
 `make installer-package` and `scripts/04_package-installer.sh` remain as a
 **deprecated local-only compatibility interface** for existing full-stack

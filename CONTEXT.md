@@ -35,9 +35,11 @@ handoff.
 
 ### Image Profile
 
-A named, explicit inventory of builder and application images that must be
-built and verified together. `full` and `cpu-xpu` are separate publication
-profiles; one must not silently substitute for the other.
+A named, explicit inventory of images that must be built and verified together.
+`backend-frontend` contains only the two application images and publishes no
+charts; `full` and `cpu-xpu` are complete suite publication profiles with their
+four charts. One profile must not silently substitute for another, and the
+application-only profile does not satisfy a Suite Release gate.
 
 ### Builder Manifest
 

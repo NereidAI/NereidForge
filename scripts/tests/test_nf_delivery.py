@@ -191,17 +191,18 @@ class ApplicationInventoryTests(unittest.TestCase):
                 self.assertTrue((ROOT / expected["file"]).is_file())
                 self.assertNotIn("opt-tensorrt", entry)
 
-    def test_development_application_matrix_uses_inventory_coordinates(self):
-        for name, expected in APPLICATION_DEFINITIONS.items():
-            with self.subTest(image=name):
-                entry = matrix_entry(self.dev, "publish-base", name)
-                self.assertIn(f"context: {expected['context']}\n", entry)
-                self.assertIn(f"file: {expected['file']}\n", entry)
-                self.assertIn("platforms: " + ",".join(expected["platforms"]) + "\n", entry)
-                self.assertIn(
-                    "ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}",
-                    job_block(self.dev, "publish-base"),
-                )
+    def test_development_application_matrices_use_inventory_coordinates(self):
+        for job_name in ("publish-applications", "publish-base"):
+            for name, expected in APPLICATION_DEFINITIONS.items():
+                with self.subTest(job=job_name, image=name):
+                    entry = matrix_entry(self.dev, job_name, name)
+                    self.assertIn(f"context: {expected['context']}\n", entry)
+                    self.assertIn(f"file: {expected['file']}\n", entry)
+                    self.assertIn("platforms: " + ",".join(expected["platforms"]) + "\n", entry)
+                    self.assertIn(
+                        "ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}",
+                        job_block(self.dev, job_name),
+                    )
 
     def test_formal_application_matrix_retains_sources_and_multi_architecture_indexes(self):
         applications = job_block(self.formal, "applications")
@@ -323,6 +324,7 @@ class ImageCompositionTests(unittest.TestCase):
         preflight = job_block(self.dev, "preflight")
         self.assertIn("full) expected_count=23", preflight)
         self.assertIn("cpu-xpu) expected_count=18", preflight)
+        self.assertIn("backend-frontend) expected_count=2", preflight)
         self.assertIn('test "${#images[@]}" -eq "$EXPECTED_COUNT"', preflight)
         self.assertNotIn("opt-tensorrt", self.dev)
 
@@ -418,6 +420,7 @@ class DevelopmentGateTests(unittest.TestCase):
         self.assertIn("      image_profile:\n", trigger.group(1))
         self.assertIn("        default: full\n", trigger.group(1))
         self.assertIn("          - cpu-xpu\n", trigger.group(1))
+        self.assertIn("          - backend-frontend\n", trigger.group(1))
         for forbidden in ("  push:\n", "  pull_request:\n", "  merge_group:\n"):
             self.assertNotIn(forbidden, trigger.group(1))
         self.assertNotIn("path-scope:", self.text)
@@ -464,6 +467,18 @@ class DevelopmentGateTests(unittest.TestCase):
             cpu_values = dict(line.split("=", 1) for line in cpu_output.read_text().splitlines())
             self.assertEqual(cpu_values["image_profile"], "cpu-xpu")
             self.assertEqual(cpu_values["expected_count"], "18")
+
+            application_output = Path(directory) / "application-output"
+            env.update(IMAGE_PROFILE="backend-frontend", GITHUB_OUTPUT=str(application_output))
+            result = subprocess.run(
+                ["bash", "-c", script], env=env, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            application_values = dict(
+                line.split("=", 1) for line in application_output.read_text().splitlines()
+            )
+            self.assertEqual(application_values["image_profile"], "backend-frontend")
+            self.assertEqual(application_values["expected_count"], "2")
             env["IMAGE_PROFILE"] = "full"
 
             invalid = (
@@ -498,7 +513,14 @@ class DevelopmentGateTests(unittest.TestCase):
 
     def test_anonymous_verification_precedes_every_selected_floating_alias(self):
         alias = job_block(self.text, "alias-images")
-        self.assertIn("needs: [preflight, publish-base, publish-dependent]", alias)
+        self.assertIn(
+            "needs: [preflight, publish-applications, publish-base, publish-dependent]",
+            alias,
+        )
+        self.assertIn("always()", alias)
+        self.assertIn("needs.publish-applications.result == 'success'", alias)
+        self.assertIn("needs.publish-base.result == 'success'", alias)
+        self.assertIn("needs.publish-dependent.result == 'success'", alias)
         immutable_marker = "- name: Anonymously verify every immutable image and record its digest"
         alias_marker = "- name: Alias floating tags only to anonymously verified immutable digests"
         floating_marker = "- name: Anonymously verify selected floating aliases against immutable digests"
@@ -527,8 +549,9 @@ class DevelopmentGateTests(unittest.TestCase):
         for forbidden in ("GHCR_TOKEN", "secrets.", "oras login", "registry login"):
             self.assertNotIn(forbidden, floating)
 
-    def test_exactly_four_charts_wait_for_the_complete_selected_image_gate(self):
+    def test_suite_charts_wait_for_suite_images_and_application_profile_excludes_them(self):
         charts = job_block(self.text, "publish-charts")
+        self.assertIn("if: inputs.image_profile != 'backend-frontend'", charts)
         names = matrix_names(self.text, "publish-charts")
         self.assertEqual(len(names), 4)
         self.assertEqual(set(names), NF_CHARTS.keys())

@@ -1,37 +1,40 @@
 # Copyright (C) 2026 YIQISOFT
 # SPDX-License-Identifier: Apache-2.0
 
-# Complete NereidForge development snapshot (root treaty §19.5). An explicit
-# manual dispatch on main publishes exactly four NF charts and either all 23
-# NF-owned images (full) or 18 core/CPU/Intel-XPU images without AMD/NVIDIA
-# trainers (cpu-xpu), using
-# immutable 0.0.0-dev-<short-sha> identities. The floating 0.0.0-dev
-# tags are aliases of those verified manifests; no GitHub Release or formal
-# version is created. The independent pre-nereidforge-publish-dev workflow owns
-# the five supporting charts and the pre installer.
+# Scoped NereidForge development publication (root treaty §19.5). An explicit
+# manual dispatch on main selects one image profile:
+# - backend-frontend publishes only the two application images and no charts;
+# - cpu-xpu publishes 18 core/CPU/Intel-XPU images and exactly four NF charts;
+# - full publishes all 23 NF-owned images and exactly four NF charts.
+# Every image uses an immutable 0.0.0-dev-<short-sha> identity. The floating
+# 0.0.0-dev tags are aliases of those verified manifests; no GitHub Release or
+# formal version is created. The independent pre-nereidforge-publish-dev
+# workflow owns the five supporting charts and the pre installer.
 #
 # Image builds push only immutable tags. An existing immutable tag is reused,
 # never overwritten, and its source revision is checked before any build starts.
 # Final anonymous verification rechecks every image before any floating alias
-# moves. Dependent images start only after their base
-# images exist. All immutable images are anonymously verified before the
-# floating aliases move, and charts start only after that image gate succeeds.
+# moves. Dependent images start only after their base images exist. All selected
+# immutable images are anonymously verified before their floating aliases move.
+# The full and cpu-xpu chart gate runs only after that verification succeeds;
+# backend-frontend never schedules builder, dependent-image, or chart jobs.
 # Re-running an interrupted publication therefore resumes missing artifacts
 # without rewriting existing ones. Registry errors and revision collisions fail
-# closed. Pushes, merges, and pull requests never trigger this complete build.
+# closed. Pushes, merges, and pull requests never trigger publication.
 name: publish-dev
 
 on:
   workflow_dispatch:
     inputs:
       image_profile:
-        description: Image set to publish and anonymously verify before charts
+        description: Image set to publish and anonymously verify; backend-frontend excludes charts
         required: true
         default: full
         type: choice
         options:
           - full
           - cpu-xpu
+          - backend-frontend
 
 permissions:
   contents: read
@@ -71,6 +74,7 @@ jobs:
           case "$IMAGE_PROFILE" in
             full) expected_count=23 ;;
             cpu-xpu) expected_count=18 ;;
+            backend-frontend) expected_count=2 ;;
             *) echo "::error::Unsupported image profile: $IMAGE_PROFILE"; exit 2 ;;
           esac
           echo "immutable=0.0.0-dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
@@ -106,7 +110,10 @@ jobs:
             trainer-convert-pp trainer-convert-tf trainer-llm-xpu trainer-paddle-cpu
             trainer-torch-cpu trainer-torch-xpu trainer-xpu-base
           )
-          if [[ "$IMAGE_PROFILE" == full ]]; then
+          if [[ "$IMAGE_PROFILE" == backend-frontend ]]; then
+            # Application-only publication must not even inventory builder tags.
+            images=(nereidforge-backend nereidforge-frontend)
+          elif [[ "$IMAGE_PROFILE" == full ]]; then
             images+=(
               trainer-llm-cu trainer-llm-rocm trainer-paddle-cu
               trainer-torch-cu trainer-torch-rocm
@@ -161,11 +168,78 @@ jobs:
           PY
           )"
           echo "selected=$selected_json" >> "$GITHUB_OUTPUT"
-          echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); charts remain gated on every selected image"
+          if [[ "$IMAGE_PROFILE" == backend-frontend ]]; then
+            echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); chart publication is excluded"
+          else
+            echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); charts remain gated on every selected image"
+          fi
+
+  publish-applications:
+    # Keep application-only dispatch narrow: the full base/dependent matrices
+    # below are skipped before matrix expansion when this job is selected.
+    name: Publish ${{ matrix.name }} immutable dev image
+    needs: preflight
+    if: inputs.image_profile == 'backend-frontend'
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: nereidforge-backend
+            context: .
+            file: python-backend/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: ''
+          - name: nereidforge-frontend
+            context: frontend
+            file: frontend/Dockerfile
+            platforms: linux/amd64,linux/arm64
+            build-args: |
+              VITE_APP_VERSION=@IMMUTABLE@
+              VITE_IMAGE_TAG=@IMMUTABLE@
+    steps:
+      - uses: actions/checkout@v7
+      - id: stamp
+        name: Derive immutable build arguments and valid annotation levels
+        env:
+          IMMUTABLE: ${{ needs.preflight.outputs.immutable }}
+          EXTRA_BUILD_ARGS: ${{ matrix.build-args }}
+          PLATFORMS: ${{ matrix.platforms }}
+        run: bash scripts/stamp-dev-image.sh
+      - name: Free runner disk
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /opt/hostedtoolcache/CodeQL /usr/local/.ghcup || true
+          df -h / /mnt
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build missing immutable image without moving the floating alias
+        if: ${{ !contains(fromJSON(needs.preflight.outputs.existing), matrix.name) }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.file }}
+          platforms: ${{ matrix.platforms }}
+          build-args: ${{ steps.stamp.outputs.build_args }}
+          annotations: ${{ steps.stamp.outputs.annotations }}
+          push: true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          tags: ghcr.io/nereidai/${{ matrix.name }}:${{ needs.preflight.outputs.immutable }}
 
   publish-base:
     name: Publish ${{ matrix.name }} immutable dev image
     needs: preflight
+    if: inputs.image_profile != 'backend-frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 240
     strategy:
@@ -330,6 +404,7 @@ jobs:
   publish-dependent:
     name: Publish ${{ matrix.name }} immutable dev image
     needs: [preflight, publish-base]
+    if: inputs.image_profile != 'backend-frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
@@ -411,7 +486,16 @@ jobs:
 
   alias-images:
     name: Anonymously verify selected images and move floating aliases
-    needs: [preflight, publish-base, publish-dependent]
+    needs: [preflight, publish-applications, publish-base, publish-dependent]
+    # A deliberately unselected matrix is skipped, not failed. Check only the
+    # selected publication path so every other result still fails closed.
+    if: >-
+      ${{ always() && needs.preflight.result == 'success' &&
+          ((inputs.image_profile == 'backend-frontend' &&
+            needs.publish-applications.result == 'success') ||
+           (inputs.image_profile != 'backend-frontend' &&
+            needs.publish-base.result == 'success' &&
+            needs.publish-dependent.result == 'success')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
@@ -448,7 +532,9 @@ jobs:
               "trainer-convert-tf", "trainer-llm-xpu", "trainer-paddle-cpu",
               "trainer-torch-cpu", "trainer-torch-xpu", "trainer-xpu-base",
           ]
-          if profile == "full":
+          if profile == "backend-frontend":
+              images = ["nereidforge-backend", "nereidforge-frontend"]
+          elif profile == "full":
               images += [
                   "trainer-llm-cu", "trainer-llm-rocm", "trainer-paddle-cu",
                   "trainer-torch-cu", "trainer-torch-rocm",
@@ -567,6 +653,7 @@ jobs:
   publish-charts:
     name: Publish ${{ matrix.name }} development OCI chart
     needs: alias-images
+    if: inputs.image_profile != 'backend-frontend'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
