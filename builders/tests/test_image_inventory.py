@@ -203,13 +203,24 @@ def test_notebook_is_the_only_fixed_version_exception(images: dict) -> None:
 
 
 def test_development_build_matrices_match_inventory(images: dict) -> None:
+    # Hardware dev profiles publish builder images only; the two application
+    # images are exclusive to the backend-frontend profile matrix.
     entries = _development_entries()
-    assert set(entries) == EXPECTED_IMAGES | APPLICATION_IMAGES
+    assert set(entries) == EXPECTED_IMAGES
+    assert set(entries).isdisjoint(APPLICATION_IMAGES)
     for name, image in images.items():
         definition = entries[name]
         _assert_build_definition(image, definition)
         dependencies = set(DEPENDENCY_PATTERN.findall(definition.get("build-args") or ""))
         assert dependencies == set(image["dependencies"]), name
+
+
+def test_development_application_matrix_owns_only_the_application_images() -> None:
+    document = _workflow("publish-dev.yml")
+    matrix = document["jobs"]["publish-applications"]["strategy"]["matrix"]["include"]
+    names = {entry["name"] for entry in matrix}
+    assert names == set(APPLICATION_IMAGES)
+    assert names.isdisjoint(EXPECTED_IMAGES)
 
 
 def test_production_build_steps_match_inventory_and_dependencies(images: dict) -> None:
