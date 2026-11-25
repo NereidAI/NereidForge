@@ -94,6 +94,45 @@ pre_oras_resolve_required() {
     fi
 }
 
+# Read-after-write on a brand-new GHCR package can briefly answer not-found
+# while the registry propagates its first artifact. Retry only the absence
+# result (status 10) with bounded backoff; every other resolution error fails
+# closed immediately. The bounds are environment-overridable so offline tests
+# run without sleeping.
+pre_oras_wait_for_artifact() {
+    local reference="$1"
+    local attempts="${PRE_ORAS_READBACK_ATTEMPTS:-6}"
+    local delay="${PRE_ORAS_READBACK_DELAY_SECONDS:-5}"
+    local attempt=1 status
+    [[ "$attempts" =~ ^[1-9][0-9]*$ ]] || {
+        printf 'Invalid PRE_ORAS_READBACK_ATTEMPTS: %s\n' "$attempts" >&2
+        return 2
+    }
+    [[ "$delay" =~ ^[0-9]+$ ]] || {
+        printf 'Invalid PRE_ORAS_READBACK_DELAY_SECONDS: %s\n' "$delay" >&2
+        return 2
+    }
+    while (( attempt <= attempts )); do
+        if pre_oras_resolve "$reference"; then
+            return 0
+        else
+            status=$?
+        fi
+        if [[ "$status" -ne 10 ]]; then
+            return 1
+        fi
+        if (( attempt == attempts )); then
+            printf 'Expected published OCI artifact is absent after %s read-back attempts: %s\n' \
+                "$attempts" "$reference" >&2
+            return 1
+        fi
+        printf 'Artifact %s not yet propagated; read-back attempt %s/%s in %ss\n' \
+            "$reference" "$attempt" "$attempts" "$delay" >&2
+        sleep "$delay"
+        attempt=$((attempt + 1))
+    done
+}
+
 # Helm names an OCI download after the requested tag, even when the archive's
 # embedded Chart.yaml has a different (immutable) version.
 pre_helm_pull_chart() {
@@ -202,7 +241,7 @@ pre_publish_chart() {
             printf 'Helm push failed for immutable chart %s:%s\n' "$repository" "$immutable" >&2
             return 1
         fi
-        if ! pre_oras_resolve_required "${repository}:${immutable}"; then
+        if ! pre_oras_wait_for_artifact "${repository}:${immutable}"; then
             return 1
         fi
         immutable_digest="$PRE_ORAS_DIGEST"
