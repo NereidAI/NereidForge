@@ -81,10 +81,12 @@ make nf-verify
 ```
 
 The builders gate includes its SDK, Paddle, XPU, inventory, and Dockerfile
-contracts. The NF gate composes the builder-owned 21/16-image inventories with
-the two application images and preserves the complete 23/18-image suite gates.
-The pre gate verifies only infrastructure, its five charts, installer, and
-handoff. The legacy aggregate `make test` remains as compatibility coverage
+contracts. The NF gate composes the builder-owned 21/16-image hardware
+inventories with the two application images: hardware dev profiles publish 21
+(`full`) or 16 (`cpu-xpu`) builder images, `backend-frontend` publishes only
+the two application images, and the formal release gate still requires all 23
+images. The pre gate verifies only infrastructure, its five charts, installer,
+and handoff. The legacy aggregate `make test` remains as compatibility coverage
 while assertions move to their owning Modules.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for Module-specific checks, DCO
@@ -101,9 +103,11 @@ configuration; no shared development secret is supplied.
 An NF development publication explicitly selects one of three image profiles.
 `backend-frontend` builds and publishes only `nereidforge-backend` and
 `nereidforge-frontend`; it schedules no builder, dependent-image, or chart jobs.
-A complete suite snapshot instead uses `full` (all 23 images and exactly four
-OCI Helm charts) or `cpu-xpu` (18 core/CPU/Intel-XPU images and the same four
-charts). `cpu-xpu` excludes only the five AMD/NVIDIA trainer images
+The two hardware profiles publish builder images only: `full` covers all 21
+builder images and `cpu-xpu` the 16 core/CPU/Intel-XPU builder images, each
+with the same four OCI Helm charts. Neither hardware profile builds the
+application images; they are exclusive to `backend-frontend`.
+`cpu-xpu` excludes only the five AMD/NVIDIA trainer images
 (`trainer-torch-cu`, `trainer-paddle-cu`, `trainer-llm-cu`,
 `trainer-torch-rocm`, and `trainer-llm-rocm`); Intel XPU images remain required.
 Publication occurs only by explicitly dispatching `publish-dev` on `main`;
@@ -115,11 +119,11 @@ matrix is never a pull-request check. Select only the intended scope:
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=backend-frontend
 
-# 18-image core/CPU/Intel-XPU snapshot plus four charts.
+# 16-image core/CPU/Intel-XPU builder snapshot plus four charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=cpu-xpu
 
-# Full 23-image snapshot plus four charts (the default).
+# Full 21-builder-image snapshot plus four charts (the default).
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=full
 ```
@@ -130,7 +134,7 @@ and reused without overwrite. Every image selected by the run's profile must
 pass anonymous revision verification before any selected floating alias moves.
 For `full` and `cpu-xpu`, chart publication starts only after that image gate;
 `backend-frontend` publishes no charts. The run summary records the profile and
-all 2, 18, or 23 verified digests. Excluded aliases are not evidence for the
+all 2, 16, or 21 verified digests. Excluded aliases are not evidence for the
 selected snapshot. Registry failures and source-revision collisions fail closed.
 Repeating a manual dispatch for the same commit and profile resumes missing
 artifacts without rewriting existing ones; no formal release is created.
@@ -193,8 +197,9 @@ publishes an OCI installer artifact and all five charts with floating
 aliases of the immutable manifests; no moving GitHub Release is created.
 
 The separate NF development workflow publishes either the two-image
-`backend-frontend` application scope without charts, or a complete suite
-snapshot of 23 `full` images or 18 `cpu-xpu` images with exactly four charts.
+`backend-frontend` application scope without charts, or a builder-only
+hardware snapshot of 21 `full` images or 16 `cpu-xpu` images with exactly four
+charts. The application images are never part of a hardware-profile run.
 All profiles use the same floating/immutable identity contract. Image builds
 never overwrite an existing immutable tag and push no floating tag. Every
 selected immutable manifest must pass anonymous source-revision verification

@@ -48,6 +48,10 @@ EXPECTED_IMAGES = {
     "trainer-torch-xpu",
     "trainer-xpu-base",
 }
+# The two application images are exclusive to the backend-frontend profile;
+# hardware profiles select only the 21 builder images.
+APPLICATION_IMAGES = {"nereidforge-backend", "nereidforge-frontend"}
+HARDWARE_IMAGES = EXPECTED_IMAGES - APPLICATION_IMAGES
 
 
 def job_block(text, name):
@@ -99,8 +103,13 @@ class DevelopmentPublicationTest(unittest.TestCase):
 
     def test_complete_image_snapshot_is_published_before_the_four_charts(self):
         self.assertEqual(len(EXPECTED_IMAGES), 23)
-        published = matrix_names(self.text, "publish-base") | matrix_names(self.text, "publish-dependent")
-        self.assertEqual(published, EXPECTED_IMAGES)
+        applications = matrix_names(self.text, "publish-applications")
+        hardware = matrix_names(self.text, "publish-base") | matrix_names(self.text, "publish-dependent")
+        # The application images never enter the hardware matrices.
+        self.assertEqual(applications, APPLICATION_IMAGES)
+        self.assertEqual(hardware, HARDWARE_IMAGES)
+        self.assertTrue(hardware.isdisjoint(APPLICATION_IMAGES))
+        self.assertEqual(applications | hardware, EXPECTED_IMAGES)
         self.assertIn("needs: alias-images", job_block(self.text, "publish-charts"))
         self.assertEqual(
             matrix_names(self.text, "publish-charts"),
@@ -112,12 +121,13 @@ class DevelopmentPublicationTest(unittest.TestCase):
             },
         )
 
-    def test_cpu_xpu_profile_selects_18_images_and_excludes_only_amd_nvidia_variants(self):
-        self.assertEqual(len(EXPECTED_IMAGES - AMD_NVIDIA_IMAGES), 18)
+    def test_cpu_xpu_profile_selects_16_builder_images_and_excludes_apps_and_amd_nvidia_variants(self):
+        expected_selected = HARDWARE_IMAGES - AMD_NVIDIA_IMAGES
+        self.assertEqual(len(expected_selected), 16)
         preflight = job_block(self.text, "preflight")
         self.assertIn('case "$IMAGE_PROFILE" in', preflight)
-        self.assertIn('full) expected_count=23', preflight)
-        self.assertIn('cpu-xpu) expected_count=18', preflight)
+        self.assertIn('full) expected_count=21', preflight)
+        self.assertIn('cpu-xpu) expected_count=16', preflight)
         self.assertIn('if [[ "$IMAGE_PROFILE" == full ]]; then', preflight)
         for name in AMD_NVIDIA_IMAGES:
             self.assertIn(name, preflight)
@@ -138,9 +148,9 @@ class DevelopmentPublicationTest(unittest.TestCase):
         self.assertIn('expected_count = int(os.environ["EXPECTED_COUNT"])', alias)
         self.assertIn('assert len(images) == expected_count', alias)
         self.assertIn('assert len(digests) == int(os.environ["EXPECTED_COUNT"])', alias)
-        self.assertNotIn("assert len(images) == 23", alias)
-        self.assertNotIn("assert len(digests) == 23", alias)
-        self.assertNotIn("All 23 immutable images", alias)
+        self.assertNotIn("assert len(images) == 21", alias)
+        self.assertNotIn("assert len(digests) == 21", alias)
+        self.assertNotIn("All 21 immutable images", alias)
 
         shell_base = re.search(r"(?ms)^          images=\(\n(.*?)^          \)", preflight)
         shell_extra = re.search(r"(?ms)^            images\+=\(\n(.*?)^            \)", preflight)
@@ -150,11 +160,18 @@ class DevelopmentPublicationTest(unittest.TestCase):
             self.assertIsNotNone(match)
         shell_names = lambda match: set(re.findall(r"[a-z0-9]+(?:-[a-z0-9]+)+", match.group(1)))
         python_names = lambda match: set(re.findall(r'"([a-z0-9-]+)"', match.group(1)))
-        expected_selected = EXPECTED_IMAGES - AMD_NVIDIA_IMAGES
         self.assertEqual(shell_names(shell_base), expected_selected)
         self.assertEqual(python_names(python_base), expected_selected)
         self.assertEqual(shell_names(shell_extra), AMD_NVIDIA_IMAGES)
         self.assertEqual(python_names(python_extra), AMD_NVIDIA_IMAGES)
+        # Hardware profiles must never reference the application images.
+        for names in (
+            shell_names(shell_base),
+            shell_names(shell_extra),
+            python_names(python_base),
+            python_names(python_extra),
+        ):
+            self.assertTrue(names.isdisjoint(APPLICATION_IMAGES))
 
     def test_backend_frontend_profile_runs_only_two_application_image_builds(self):
         """The narrow profile skips builder/dependent matrices and all charts."""
