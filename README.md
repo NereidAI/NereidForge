@@ -105,7 +105,7 @@ An NF development publication explicitly selects one of three image profiles.
 `nereidforge-frontend`; it schedules no builder, dependent-image, or chart jobs.
 The two hardware profiles publish builder images only: `full` covers all 21
 builder images and `cpu-xpu` the 16 core/CPU/Intel-XPU builder images, each
-with the same four OCI Helm charts. Neither hardware profile builds the
+with the same three OCI Helm charts. Neither hardware profile builds the
 application images; they are exclusive to `backend-frontend`.
 `cpu-xpu` excludes only the five AMD/NVIDIA trainer images
 (`trainer-torch-cu`, `trainer-paddle-cu`, `trainer-llm-cu`,
@@ -119,11 +119,11 @@ matrix is never a pull-request check. Select only the intended scope:
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=backend-frontend
 
-# 16-image core/CPU/Intel-XPU builder snapshot plus four charts.
+# 16-image core/CPU/Intel-XPU builder snapshot plus three charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=cpu-xpu
 
-# Full 21-builder-image snapshot plus four charts (the default).
+# Full 21-builder-image snapshot plus three charts (the default).
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=full
 ```
@@ -198,8 +198,8 @@ aliases of the immutable manifests; no moving GitHub Release is created.
 
 The separate NF development workflow publishes either the two-image
 `backend-frontend` application scope without charts, or a builder-only
-hardware snapshot of 21 `full` images or 16 `cpu-xpu` images with exactly four
-charts. The application images are never part of a hardware-profile run.
+hardware snapshot of 21 `full` images or 16 `cpu-xpu` images with exactly
+three charts. The application images are never part of a hardware-profile run.
 All profiles use the same floating/immutable identity contract. Image builds
 never overwrite an existing immutable tag and push no floating tag. Every
 selected immutable manifest must pass anonymous source-revision verification

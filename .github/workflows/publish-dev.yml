@@ -5,8 +5,8 @@
 # manual dispatch on main selects one image profile:
 # - backend-frontend publishes only the two application images and no charts;
 # - cpu-xpu publishes the 16 core/CPU/Intel-XPU builder images and exactly
-#   four NF charts;
-# - full publishes all 21 builder images and exactly four NF charts.
+#   three NF charts;
+# - full publishes all 21 builder images and exactly three NF charts.
 # The two application images (nereidforge-backend/nereidforge-frontend) are
 # unrelated to the hardware builder matrices and are published exclusively by
 # the backend-frontend profile; no hardware profile builds or aliases them.
