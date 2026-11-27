@@ -6,7 +6,7 @@
      enablePasswordDB: true
      staticPasswords:
 -    - email: user@example.com
-+    - email: admin@nereidforge.local
++    - email: admin@nereidai.local
        hashFromEnv: DEX_USER_PASSWORD
 -      username: user
 +      username: nereidforge-admin
@@ -22,7 +22,7 @@
      enablePasswordDB: true
      staticPasswords:
 -    - email: user@example.com
-+    - email: admin@nereidforge.local
++    - email: admin@nereidai.local
        hashFromEnv: DEX_USER_PASSWORD
        username: user
        userID: "15841185641784"

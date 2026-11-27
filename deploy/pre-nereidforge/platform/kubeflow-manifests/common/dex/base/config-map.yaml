@@ -18,7 +18,7 @@ data:
       skipApprovalScreen: true
     enablePasswordDB: true
     staticPasswords:
-    - email: admin@nereidforge.local
+    - email: admin@nereidai.local
       hashFromEnv: DEX_USER_PASSWORD
       username: nereidforge-admin
       userID: "15841185641784"

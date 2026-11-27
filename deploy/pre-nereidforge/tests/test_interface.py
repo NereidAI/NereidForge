@@ -64,7 +64,7 @@ class PreInterfaceTests(unittest.TestCase):
             "SEAWEEDFS_S3_ACCESS_KEY": "",
             "SEAWEEDFS_S3_SECRET_KEY": "",
             "LABEL_STUDIO_STORAGE": "20Gi",
-            "DEX_STATIC_EMAIL": "admin@nereidforge.local",
+            "DEX_STATIC_EMAIL": "admin@nereidai.local",
             "DEX_STATIC_PASSWORD": "",
             "DEX_STATIC_PASSWORD_HASH": "",
             "POD_CIDR": "10.42.0.0/16",

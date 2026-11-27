@@ -39,7 +39,7 @@
 #      component; tenant alias Services applied in post-apply section 3)
 #
 # After all manifests applied, this script:
-#   - creates the KF Profile 'nereidforge' owned by admin@nereidforge.local
+#   - creates the KF Profile 'nereidforge' owned by admin@nereidai.local
 #   - applies the auth/RBAC wiring required for the platform SSO identity
 #   - wires the KFP in-cluster ops runner (default & default-editor SA ->
 #     nereidforge-kfp-runner ClusterRole) so cluster ops (isvc / katib) are
@@ -67,8 +67,8 @@ source "$PRE_ROOT/scripts/lib/common.sh"
 source "$PRE_ROOT/scripts/lib/config.sh"
 validate_required POD_CIDR SERVICE_CIDR DEX_STATIC_EMAIL DEX_STATIC_PASSWORD_HASH || exit 1
 check_cmd envsubst python3 || exit 1
-if [[ "$DEX_STATIC_EMAIL" != "admin@nereidforge.local" ]]; then
-    log_err "DEX_STATIC_EMAIL must remain admin@nereidforge.local because the vendored Dex, Profile, and RBAC manifests use that identity"
+if [[ "$DEX_STATIC_EMAIL" != "admin@nereidai.local" ]]; then
+    log_err "DEX_STATIC_EMAIL must remain admin@nereidai.local because the vendored Dex, Profile, and RBAC manifests use that identity"
     exit 1
 fi
 if [[ ! "$DEX_STATIC_PASSWORD_HASH" =~ ^\$2[aby]\$(0[4-9]|[12][0-9]|3[01])\$[./A-Za-z0-9]{53}$ ]]; then
@@ -319,7 +319,7 @@ log_info "Kubeflow kustomize deployment complete: $PASS targets applied"
 
 # ---- post-apply customizations ----
 
-# 1. Apply the tenant Profile CR (owner = admin@nereidforge.local).
+# 1. Apply the tenant Profile CR (owner = admin@nereidai.local).
 #    This creates the KF Profile CR that the profile-controller will reconcile
 #    into the nereidforge namespace (namespace, istio-injection, RBAC, S3 config).
 log_info "Creating KF Profile nereidforge..."
@@ -331,7 +331,7 @@ metadata:
 spec:
   owner:
     kind: User
-    name: admin@nereidforge.local
+    name: admin@nereidai.local
 YAMLEOF
 $KUBECTL apply -f /tmp/nereidforge-profile.yaml 2>/dev/null && log_ok "Profile nereidforge created" || log_ok "Profile nereidforge (already up-to-date)"
 
@@ -373,7 +373,7 @@ roleRef:
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: User
-  name: admin@nereidforge.local
+  name: admin@nereidai.local
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -506,7 +506,7 @@ done
 #        NetworkPolicy namespaceSelector; without it kube-router refuses
 #        cross-ns TCP to ml-pipeline with Connection refused) and
 #        pipelines.kubeflow.org/enabled=true
-#      - owner RoleBinding admin@nereidforge.local -> kubeflow-admin
+#      - owner RoleBinding admin@nereidai.local -> kubeflow-admin
 #      - default-editor -> kubeflow-edit (aggregates kubeflow-pipelines-edit:
 #        workflows/workflowtaskresults + kfp-launcher configmap get),
 #        default-viewer -> kubeflow-view
@@ -543,7 +543,7 @@ roleRef:
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: User
-  name: admin@nereidforge.local
+  name: admin@nereidai.local
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -649,7 +649,7 @@ rm -f /tmp/nereidforge-profile.yaml /tmp/kubeflow-rbac.yaml /tmp/kfp-runner-rbac
 
 log_ok "Kubeflow platform wiring done"
 log_info "Done. All Kubeflow components are deployed via kustomize,"
-log_info "tenant profile='nereidforge', dex static user='admin@nereidforge.local'."
+log_info "tenant profile='nereidforge', dex static user='admin@nereidai.local'."
 
 # The handoff is finalized only after every pre installation stage succeeds.
 # It retains existing service credentials and emits no secret values.

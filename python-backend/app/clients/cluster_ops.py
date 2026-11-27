@@ -95,7 +95,7 @@ def _kfp_client():
     from kfp import Client
 
     # Same default as app/clients/kfp.py: the admin/default tenant's KFP user.
-    userid = "admin@nereidforge.local"
+    userid = "admin@nereidai.local"
     client = Client(host=config.kfp.host, namespace="kubeflow")
     for svc in ("_experiment_api", "_run_api", "_pipelines_api", "_upload_api"):
         api = getattr(client, svc, None)

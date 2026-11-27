@@ -37,7 +37,7 @@ from pipelines.training_pipeline import training_pipeline
 HOST = os.environ.get("KFP_HOST", "http://localhost:18888")
 CONFIG_HOST = os.environ.get("KFP_CONFIG_HOST", "http://ml-pipeline.kubeflow:8888")
 NAMESPACE = os.environ.get("KFP_NAMESPACE", "nereidforge")
-USERID = os.environ.get("KFP_USERID", "admin@nereidforge.local")
+USERID = os.environ.get("KFP_USERID", "admin@nereidai.local")
 EXPERIMENT_NAME = os.environ.get("KFP_EXPERIMENT_NAME", "NereidForge")
 
 PIPELINES = {

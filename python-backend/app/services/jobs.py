@@ -2008,7 +2008,7 @@ class JobService:
         # The platform super-admin owns the default tenant's KF profile
         # (nereidforge); KFP v2 derives the run namespace from this
         # userid's profile.
-        return "admin@nereidforge.local"
+        return "admin@nereidai.local"
 
     def tenant_kfp_experiment(self, tenant_id: str) -> str:
         """Look up the tenant's KFP experiment id."""

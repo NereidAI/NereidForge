@@ -106,7 +106,7 @@ def main() -> None:
         # multi-user KFP requires the user identity header on every call;
         # inject it as a default header on the generated ApiClient.
         # multi-user KFP: identity header via the kfp context file
-        user = os.environ.get("KFP_USERID", "admin@nereidforge.local")
+        user = os.environ.get("KFP_USERID", "admin@nereidai.local")
         ctx_dir = Path.home() / ".config" / "kfp"
         ctx_dir.mkdir(parents=True, exist_ok=True)
         (ctx_dir / "context.json").write_text(json.dumps({

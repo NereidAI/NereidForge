@@ -136,7 +136,7 @@ class KFPClient:
         host = cfg.get("kfp_host") or config.kfp.host
         if not host:
             raise ValueError("kfp host not configured")
-        userid = spec.user_id or cfg.get("kfp_userid") or "admin@nereidforge.local"
+        userid = spec.user_id or cfg.get("kfp_userid") or "admin@nereidai.local"
         experiment = spec.experiment_id or cfg.get("kfp_experiment_id") or ""
 
         pipeline_id = spec.pipeline_id or cfg.get(
@@ -194,7 +194,7 @@ class KFPClient:
         host = cfg.get("kfp_host") or config.kfp.host
         if not host:
             raise ValueError("kfp host not configured")
-        userid = cfg.get("kfp_userid") or "admin@nereidforge.local"
+        userid = cfg.get("kfp_userid") or "admin@nereidai.local"
         url = f"{host.rstrip('/')}/apis/v2beta1/runs/{run_id}"
         resp = httpx.get(
             url,
@@ -223,7 +223,7 @@ class KFPClient:
         host = cfg.get("kfp_host") or config.kfp.host
         if not host:
             raise ValueError("kfp host not configured")
-        userid = cfg.get("kfp_userid") or "admin@nereidforge.local"
+        userid = cfg.get("kfp_userid") or "admin@nereidai.local"
         url = f"{host.rstrip('/')}/apis/v2beta1/runs/{run_id}:terminate"
         resp = httpx.post(
             url,

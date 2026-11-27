@@ -20,7 +20,7 @@ config:
   # -- Enable Dex password database.
   enablePasswordDB: true
   # -- Static user email.
-  staticUserEmail: admin@nereidforge.local
+  staticUserEmail: admin@nereidai.local
   # -- Static user username.
   staticUsername: user
   # -- Static user ID.
