@@ -289,7 +289,7 @@ seaweedfs:
       size: 10Gi
       storageClass: nfs-csi
     replicaCount: 1
-  image: chrislusf/seaweedfs:4.34
+  image: chrislusf/seaweedfs:4.55
   master:
     persistence:
       size: 200Gi
