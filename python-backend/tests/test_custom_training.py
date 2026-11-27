@@ -278,6 +278,59 @@ def test_train_step_rejects_missing_trainer_image(monkeypatch):
     assert not api.created, "an image-less TrainJob must never be submitted"
 
 
+def _node_pod_spec(body: dict) -> dict:
+    """Extract the patched "node" replicated-job PodSpec from a TrainJob body."""
+    patches = body["spec"]["runtimePatches"]
+    assert len(patches) == 1
+    assert patches[0]["manager"] == "nereidforge.io/trainjob"
+    replicated = patches[0]["trainingRuntimeSpec"]["template"]["spec"]["replicatedJobs"]
+    assert [job["name"] for job in replicated] == ["node"]
+    return replicated[0]["template"]["spec"]["template"]["spec"]
+
+
+def test_train_step_always_mounts_memory_backed_shm(monkeypatch):
+    """Every TrainJob gets a >1 GiB tmpfs at /dev/shm so DataLoader workers run.
+
+    The trainer clamps num_workers to 0 when /dev/shm has under 1 GiB free;
+    the runtime's default container only provides Docker's 64 MB tmpfs, so the
+    TrainJob must mount a memory-backed emptyDir even without scheduling
+    overrides.
+    """
+    body = _run_train_step(monkeypatch, {
+        "resourcesPerNode": {"requests": {}, "limits": {}},
+    })
+
+    pod_spec = _node_pod_spec(body)
+    assert pod_spec["volumes"] == [{
+        "name": "shm",
+        "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"},
+    }]
+    assert pod_spec["containers"] == [{
+        "name": "node",
+        "volumeMounts": [{"name": "shm", "mountPath": "/dev/shm"}],
+    }]
+    # Scheduling overrides stay absent when train_config does not request them.
+    assert "nodeSelector" not in pod_spec
+    assert "tolerations" not in pod_spec
+
+
+def test_train_step_shm_patch_combines_with_scheduling_overrides(monkeypatch):
+    """The shm mount and optional nodeSelector/tolerations share one patch."""
+    body = _run_train_step(monkeypatch, {
+        "resourcesPerNode": {"requests": {}, "limits": {}},
+        "node_selector": {"kubernetes.io/hostname": "ultra9"},
+        "tolerations": [{"key": "gpu", "operator": "Exists", "effect": "NoSchedule"}],
+    })
+
+    pod_spec = _node_pod_spec(body)
+    assert pod_spec["volumes"][0]["emptyDir"]["medium"] == "Memory"
+    assert pod_spec["containers"][0]["volumeMounts"][0]["mountPath"] == "/dev/shm"
+    assert pod_spec["nodeSelector"] == {"kubernetes.io/hostname": "ultra9"}
+    assert pod_spec["tolerations"] == [
+        {"key": "gpu", "operator": "Exists", "effect": "NoSchedule"},
+    ]
+
+
 # -- worker artifact discovery ----------------------------------------------
 
 class _FakeS3:
