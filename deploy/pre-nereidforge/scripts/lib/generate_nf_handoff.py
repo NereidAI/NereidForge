@@ -178,6 +178,19 @@ def build_values(args):
                 "email": args.dex_email,
                 "rotatePassword": False,
             },
+            "mlBackend": {
+                # Seed the protected system-preset ml-backend row so the ML
+                # Backend UI page is populated on a fresh database (pit 171/315).
+                # The URL is left empty on purpose: the hook reads
+                # labelstudio.ml_backend_url from the rendered config.yaml.
+                "enabled": True,
+                "name": "system-ml-backend",
+                "modelName": "PP-YOLOE",
+                "modelVersion": "v1",
+                "modelType": "cnn",
+                "confidenceThreshold": 0.6,
+                "url": "",
+            },
             "pipelines": {
                 "enabled": True,
                 "host": "http://ml-pipeline.kubeflow:8888",

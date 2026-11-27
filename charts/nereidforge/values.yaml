@@ -319,6 +319,19 @@ postInstall:
     username: "admin"
     email: "admin@nereidforge.local"
     rotatePassword: false
+  # Idempotently register the system-preset ml-backend in the default tenant
+  # so the ML Backend UI page is populated on a fresh database. The URL comes
+  # from labelstudio.ml_backend_url in the rendered config.yaml unless url is
+  # set here; the worker health loop owns the resulting status column.
+  mlBackend:
+    enabled: false
+    name: "system-ml-backend"
+    modelName: "PP-YOLOE"
+    modelVersion: "v1"
+    modelType: "cnn"
+    confidenceThreshold: 0.6
+    # Empty means "use labelstudio.ml_backend_url from config.yaml".
+    url: ""
   pipelines:
     enabled: false
     host: "http://ml-pipeline.kubeflow:8888"

@@ -3,7 +3,7 @@ Copyright (C) 2026 YIQISOFT
 SPDX-License-Identifier: Apache-2.0
 */}}
 
-{{- if or .Values.postInstall.admin.enabled .Values.postInstall.pipelines.enabled }}
+{{- if or .Values.postInstall.admin.enabled .Values.postInstall.pipelines.enabled .Values.postInstall.mlBackend.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -18,6 +18,10 @@ metadata:
 data:
   seed_admin.py: |
     {{- .Files.Get "scripts/seed_admin.py" | nindent 4 }}
+  {{- if .Values.postInstall.mlBackend.enabled }}
+  seed_ml_backend.py: |
+    {{- .Files.Get "scripts/seed_ml_backend.py" | nindent 4 }}
+  {{- end }}
 {{- end }}
 
 {{- if .Values.postInstall.admin.enabled }}
@@ -97,6 +101,105 @@ spec:
                 secretKeyRef:
                   name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
                   key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            {{- if .Values.caBundleSecret }}
+            - name: SSL_CERT_FILE
+              value: /etc/ssl/certs/nereid-internal-ca.crt
+            {{- end }}
+          envFrom:
+            - secretRef:
+                name: {{ include "nereidforge.runtimeSecretName" . }}
+          volumeMounts:
+            - name: post-install-scripts
+              mountPath: /opt/nereidforge-post-install
+              readOnly: true
+            - name: config
+              mountPath: /etc/nereidforge/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- if .Values.caBundleSecret }}
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/nereid-internal-ca.crt
+              subPath: ca.crt
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: post-install-scripts
+          configMap:
+            name: {{ include "nereidforge.fullname" . }}-post-install
+        - name: config
+          configMap:
+            name: {{ include "nereidforge.fullname" . }}-config
+        {{- if .Values.caBundleSecret }}
+        - name: ca-bundle
+          secret:
+            secretName: {{ .Values.caBundleSecret }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+        {{- end }}
+{{- end }}
+
+{{- if .Values.postInstall.mlBackend.enabled }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "nereidforge.fullname" . }}-mlbackend-seed
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "nereidforge.labels" . | nindent 4 }}
+    component: mlbackend-seed
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "nereidforge.selectorLabels" . | nindent 8 }}
+        component: mlbackend-seed
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "nereidforge.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mlbackend-seed
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          command: ["python3", "/opt/nereidforge-post-install/seed_ml_backend.py"]
+          env:
+            - name: NEREIDFORGE_ENV
+              value: prod
+            - name: PYTHONPATH
+              value: /app
+            - name: NF_MLBACKEND_NAME
+              value: {{ .Values.postInstall.mlBackend.name | quote }}
+            - name: NF_MLBACKEND_MODEL_NAME
+              value: {{ .Values.postInstall.mlBackend.modelName | quote }}
+            - name: NF_MLBACKEND_MODEL_VERSION
+              value: {{ .Values.postInstall.mlBackend.modelVersion | quote }}
+            - name: NF_MLBACKEND_MODEL_TYPE
+              value: {{ .Values.postInstall.mlBackend.modelType | quote }}
+            - name: NF_MLBACKEND_CONFIDENCE
+              value: {{ .Values.postInstall.mlBackend.confidenceThreshold | quote }}
+            # An empty chart value lets the script fall back to
+            # labelstudio.ml_backend_url in the rendered config.yaml.
+            {{- with .Values.postInstall.mlBackend.url }}
+            - name: NF_MLBACKEND_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: NEREIDFORGE_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "postgresql.existingSecret is required" .Values.postgresql.existingSecret }}
+                  key: {{ .Values.postgresql.existingSecretKey | default "password" }}
+                  optional: false
             {{- if .Values.caBundleSecret }}
             - name: SSL_CERT_FILE
               value: /etc/ssl/certs/nereid-internal-ca.crt
