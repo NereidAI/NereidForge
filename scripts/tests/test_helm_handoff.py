@@ -156,6 +156,7 @@ class HelmHandoffRenderingTest(unittest.TestCase):
             base_args + [
                 "--set", "postInstall.mlBackend.enabled=true",
                 "--set", "postgresql.existingSecret=pg-test-credentials",
+                "--set", "s3.existingSecret=seaweedfs-s3-credentials",
             ],
             cwd=ROOT, check=True, text=True, capture_output=True,
         ).stdout
@@ -164,6 +165,46 @@ class HelmHandoffRenderingTest(unittest.TestCase):
         self.assertIn("/opt/nereidforge-post-install/seed_ml_backend.py", enabled_render)
         # The admin hook stays off: only the ml-backend Job is rendered.
         self.assertNotIn("component: admin-seed", enabled_render)
+
+    def test_mlbackend_seed_hook_receives_the_s3_credentials(self):
+        """The hook imports app.core.config, which fail-closed requires S3 keys.
+
+        Regression guard for the post-install Job missing the four storage
+        env entries that admin-seed and pipeline-upload already carry: the
+        rendered Job crashed at config load with
+        "Missing required S3 credential configuration".
+        """
+        chart = str(ROOT / "charts/nereidforge")
+        rendered = subprocess.run(
+            [
+                "helm", "template", "nereidforge", chart,
+                "--namespace", "nereidforge",
+                "--set", "frontend.ingress.host=forge.example.test",
+                "--set", "postInstall.mlBackend.enabled=true",
+                "--set", "postInstall.admin.enabled=true",
+                "--set", "postgresql.existingSecret=pg-test-credentials",
+                "--set", "s3.existingSecret=s3-test-credentials",
+            ],
+            cwd=ROOT, check=True, text=True, capture_output=True,
+        ).stdout
+        documents = [
+            doc for doc in rendered.split("\n---\n")
+            if "component: mlbackend-seed" in doc
+        ]
+        self.assertEqual(1, len(documents), "exactly one mlbackend-seed Job")
+        hook = documents[0]
+        s3_env = (
+            "NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY",
+            "NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY",
+            "NEREIDFORGE_STORAGE_S3_ACCESS_KEY",
+            "NEREIDFORGE_STORAGE_S3_SECRET_KEY",
+        )
+        for name in s3_env:
+            self.assertIn(f"- name: {name}", hook)
+        # Every S3 entry resolves to the retained object-store Secret.
+        self.assertEqual(4, hook.count("name: s3-test-credentials"))
+        self.assertIn("key: accessKey", hook)
+        self.assertIn("key: secretKey", hook)
 
 
 class SeedAdminJobTest(unittest.TestCase):

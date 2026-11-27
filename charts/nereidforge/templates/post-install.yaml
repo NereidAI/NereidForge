@@ -200,6 +200,29 @@ spec:
                   name: {{ required "postgresql.existingSecret is required" .Values.postgresql.existingSecret }}
                   key: {{ .Values.postgresql.existingSecretKey | default "password" }}
                   optional: false
+            # seed_ml_backend.py imports app.core.config, which fail-closed
+            # requires the storage S3 credentials; mirror admin-seed and
+            # pipeline-upload so the hook does not crash at config load.
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_KFP_OBJECT_STORE_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.accessKeyKey | default "accessKey" }}
+            - name: NEREIDFORGE_STORAGE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "s3.existingSecret is required" .Values.s3.existingSecret }}
+                  key: {{ .Values.s3.secretKeyKey | default "secretKey" }}
             {{- if .Values.caBundleSecret }}
             - name: SSL_CERT_FILE
               value: /etc/ssl/certs/nereid-internal-ca.crt
