@@ -94,6 +94,11 @@ class KubeflowApplyTest(unittest.TestCase):
                     log_ok() { printf 'OK %s\\n' "$*" | tee -a "$NF_TEST_DEPLOY_LOG"; }
                     log_warn() { printf 'WARN %s\\n' "$*" | tee -a "$NF_TEST_DEPLOY_LOG"; }
                     log_err() { printf 'ERR %s\\n' "$*" | tee -a "$NF_TEST_DEPLOY_LOG" >&2; }
+                    # The Dex/JWKS readiness gates own their own dedicated
+                    # test module (test_istio_dex_jwks_gate.py); this harness
+                    # exercises only the ordered apply/retry stage.
+                    wait_for_dex_readiness() { :; }
+                    verify_istiod_dex_jwks() { :; }
                     """
                 )
                 + apply_stage,
