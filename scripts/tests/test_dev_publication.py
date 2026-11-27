@@ -173,7 +173,9 @@ class DevelopmentPublicationTest(unittest.TestCase):
             self.assertTrue(names.isdisjoint(APPLICATION_IMAGES))
 
     def test_backend_frontend_profile_runs_only_two_application_image_builds(self):
-        """The narrow profile skips builder/dependent matrices and all charts."""
+        """The narrow profile skips builder/dependent matrices but still
+        publishes the floating charts, whose image references stay on the
+        rolling tag."""
         applications = {"nereidforge-backend", "nereidforge-frontend"}
         preflight = job_block(self.text, "preflight")
         self.assertIn("backend-frontend) expected_count=2", preflight)
@@ -209,20 +211,38 @@ class DevelopmentPublicationTest(unittest.TestCase):
             alias,
         )
         charts = job_block(self.text, "publish-charts")
-        self.assertIn("inputs.image_profile != 'backend-frontend'", charts)
+        self.assertNotIn("inputs.image_profile != 'backend-frontend'", charts)
+        self.assertIn("always()", charts)
 
     def test_publish_charts_escapes_skipped_siblings_but_stays_fail_closed(self):
         """Regression: a skipped profile-excluded job transitively skips a
         plain downstream conditional, so the chart matrix never scheduled on
         hardware profiles. publish-charts must use always() to evaluate its
         own condition while still refusing to publish unless alias verification
-        succeeded on a chart-bearing profile."""
+        succeeded. Every profile publishes the same floating charts."""
         charts = job_block(self.text, "publish-charts")
         self.assertIn("always()", charts)
         self.assertIn("needs.alias-images.result == 'success'", charts)
-        self.assertIn("inputs.image_profile != 'backend-frontend'", charts)
+        # No profile excludes the chart matrix: development charts always float.
+        self.assertNotIn("inputs.image_profile != 'backend-frontend'", charts)
         # A loose result check would publish charts after a failed verification.
         self.assertNotIn("needs.alias-images.result != 'failure'", charts)
+
+    def test_development_charts_keep_the_floating_identity_without_sha_pins(self):
+        """Dev charts package and publish as 0.0.0-dev only. The short-sha
+        identity stays on immutable images, never inside a development chart."""
+        charts = job_block(self.text, "publish-charts")
+        self.assertIn('CHART_VERSION="$FLOATING"', charts)
+        self.assertIn(
+            'package="${RUNNER_TEMP}/charts/${CHART_NAME}-${FLOATING}.tgz"',
+            charts,
+        )
+        self.assertIn('pre_publish_floating_chart', charts)
+        self.assertNotIn('pre_publish_chart ', charts)
+        # The render gate treats any non-floating suite image as a failure.
+        self.assertIn('development chart must reference only floating', charts)
+        # The anonymous step must not pull a short-sha chart identity.
+        self.assertNotIn('helm pull "oci://$repository" --version "$IMMUTABLE"', charts)
 
     def test_gpu_images_are_not_static_chart_install_dependencies(self):
         chart_text = "\n".join(
@@ -527,6 +547,52 @@ class ReproducibleChartPackagingTest(unittest.TestCase):
             second = self.package(Path(second_dir))
         self.assertEqual(len(first), 3)
         self.assertEqual(first, second)
+
+    def test_floating_development_package_renders_only_rolling_image_tags(self):
+        # The dev channel packages 0.0.0-dev inside Chart.yaml: no short-sha
+        # identity may leak into a rendered development chart.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "charts"
+            environment = os.environ.copy()
+            environment.update(
+                CHART_VERSION="0.0.0-dev",
+                CHARTS_OUTPUT_DIR=str(output),
+                CHARTS_ARCHIVE=str(root / "charts.tar.gz"),
+            )
+            subprocess.run(
+                ["bash", "scripts/03_package-charts.sh"],
+                cwd=ROOT,
+                env=environment,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            packages = {path.name: path for path in output.glob("*.tgz")}
+            self.assertEqual(
+                set(packages),
+                {
+                    "nereidforge-0.0.0-dev.tgz",
+                    "nereidforge-ml-backend-0.0.0-dev.tgz",
+                    "nereidforge-tenant-check-0.0.0-dev.tgz",
+                },
+            )
+            rendered = subprocess.run(
+                [
+                    "helm", "template", "nereidforge",
+                    str(packages["nereidforge-0.0.0-dev.tgz"]),
+                    "--set", "frontend.ingress.host=forge.example.test",
+                ],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+        references = set(re.findall(
+            r"ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9_][A-Za-z0-9._-]*",
+            rendered,
+        ))
+        self.assertTrue(references)
+        self.assertTrue(all(ref.endswith(":0.0.0-dev") for ref in references))
 
 
 if __name__ == "__main__":

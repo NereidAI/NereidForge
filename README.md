@@ -46,7 +46,7 @@ remain under `infra/`.
 | **NereidForge Builders** | `builders/` | Trainer, ML-backend, optimizer, evaluator, notebook, and shared SDK build contexts |
 | | `kfp-pipelines/docker/` | Builder-owned runtime and conversion image build contexts |
 | | `optimizer-plugins/` | Optional builder-owned optimization plugin images |
-| **Application charts** | `charts/` | Backend, frontend, ML-backend, and tenant-check Helm charts |
+| **Application charts** | `charts/` | Consolidated NereidForge, ML-backend, and tenant-check Helm charts |
 | **Shared tooling** | `configs/` | Host-neutral runtime configuration, templates, and development monitoring |
 | | `scripts/` | Full-stack compatibility, application, build, verification, and packaging entry points |
 | **Pre-NereidForge deployment** | `deploy/pre-nereidforge/charts/` | Supporting-service Helm charts |
@@ -102,11 +102,13 @@ configuration; no shared development secret is supplied.
 
 An NF development publication explicitly selects one of three image profiles.
 `backend-frontend` builds and publishes only `nereidforge-backend` and
-`nereidforge-frontend`; it schedules no builder, dependent-image, or chart jobs.
-The two hardware profiles publish builder images only: `full` covers all 21
-builder images and `cpu-xpu` the 16 core/CPU/Intel-XPU builder images, each
-with the same three OCI Helm charts. Neither hardware profile builds the
-application images; they are exclusive to `backend-frontend`.
+`nereidforge-frontend` and schedules no builder or dependent-image jobs. The two
+hardware profiles publish builder images only: `full` covers all 21 builder
+images and `cpu-xpu` the 16 core/CPU/Intel-XPU builder images. Neither hardware
+profile builds the application images; they are exclusive to
+`backend-frontend`. Every profile additionally publishes the same three floating
+OCI Helm charts after the image gate succeeds, because development charts
+reference only rolling `0.0.0-dev` images and never bind a short-sha identity.
 `cpu-xpu` excludes only the five AMD/NVIDIA trainer images
 (`trainer-torch-cu`, `trainer-paddle-cu`, `trainer-llm-cu`,
 `trainer-torch-rocm`, and `trainer-llm-rocm`); Intel XPU images remain required.
@@ -115,29 +117,35 @@ pushes, merges, and pull requests never start this workflow. The publication
 matrix is never a pull-request check. Select only the intended scope:
 
 ```bash
-# Two application images only; no builder images or charts.
+# Two application images only; no builder images. The three floating
+# 0.0.0-dev charts publish on every profile after the image gate.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=backend-frontend
 
-# 16-image core/CPU/Intel-XPU builder snapshot plus three charts.
+# 16-image core/CPU/Intel-XPU builder snapshot plus three floating charts.
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=cpu-xpu
 
-# Full 21-builder-image snapshot plus three charts (the default).
+# Full 21-builder-image snapshot plus three floating charts (the default).
 gh workflow run publish-dev.yml --repo NereidAI/NereidForge --ref main \
   -f image_profile=full
 ```
 
-Each run uses immutable `0.0.0-dev-<short-sha>` identities and floating
+Each image run uses immutable `0.0.0-dev-<short-sha>` identities and floating
 `0.0.0-dev` aliases. Same-commit immutable artifacts are anonymously verified
 and reused without overwrite. Every image selected by the run's profile must
 pass anonymous revision verification before any selected floating alias moves.
-For `full` and `cpu-xpu`, chart publication starts only after that image gate;
-`backend-frontend` publishes no charts. The run summary records the profile and
-all 2, 16, or 21 verified digests. Excluded aliases are not evidence for the
+Charts follow the opposite identity rule: a development chart keeps the rolling
+`0.0.0-dev` version inside `Chart.yaml` and its image references stay on
+`0.0.0-dev`, so no development chart is ever bound to a short-sha identity. The
+three floating charts publish only after the image gate succeeds, on every
+profile; the moving tag is replaced through a digest read-back with rollback,
+and a same-commit rerun is a verified no-op. The run summary records the profile
+and all 2, 16, or 21 verified digests. Excluded aliases are not evidence for the
 selected snapshot. Registry failures and source-revision collisions fail closed.
 Repeating a manual dispatch for the same commit and profile resumes missing
-artifacts without rewriting existing ones; no formal release is created.
+artifacts without rewriting existing ones; no formal release is created. Only a
+formal `v<SemVer>` tag pins a chart once, to an immutable bare SemVer.
 
 ## Deployment
 
@@ -197,15 +205,18 @@ publishes an OCI installer artifact and all five charts with floating
 aliases of the immutable manifests; no moving GitHub Release is created.
 
 The separate NF development workflow publishes either the two-image
-`backend-frontend` application scope without charts, or a builder-only
-hardware snapshot of 21 `full` images or 16 `cpu-xpu` images with exactly
-three charts. The application images are never part of a hardware-profile run.
-All profiles use the same floating/immutable identity contract. Image builds
-never overwrite an existing immutable tag and push no floating tag. Every
-selected immutable manifest must pass anonymous source-revision verification
-before its floating alias moves; suite chart publication starts only after that
-gate. Same-commit reruns reuse verified artifacts, and repackaged charts are
-byte-identical. No formal NF release is required.
+`backend-frontend` application scope, or a builder-only hardware snapshot of 21
+`full` images or 16 `cpu-xpu` images; every profile then publishes the same
+three floating `0.0.0-dev` charts. The application images are never part of a
+hardware-profile run. Images and charts use deliberately different identity
+contracts: image builds never overwrite an existing immutable tag and push no
+floating tag, while development charts keep only the moving `0.0.0-dev`
+identity and are allowed to roll forward through a verified, rollback-protected
+tag replacement. Every selected immutable image manifest must pass anonymous
+source-revision verification before its floating alias moves, and chart
+publication starts only after that gate. Same-commit reruns reuse verified
+artifacts and repackaged charts are byte-identical. No formal NF release is
+required; only a `v<SemVer>` tag pins a chart to an immutable SemVer once.
 
 `make installer-package` and `scripts/04_package-installer.sh` remain as a
 **deprecated local-only compatibility interface** for existing full-stack

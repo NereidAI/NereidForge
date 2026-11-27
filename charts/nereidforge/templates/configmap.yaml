@@ -8,7 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 Tracked runtime configuration uses the rolling-dev placeholder for suite-owned
 images. Rewrite exact inline references and adjacent repository/tag fields to
 the package appVersion so OCI releases cannot retain development references in
-embedded YAML.
+embedded YAML. Development charts package appVersion 0.0.0-dev, so the rewrite
+is an identity there and the floating tag is preserved; only a v* release
+package carries a bare SemVer appVersion and actually pins these references.
 */}}
 {{- $suiteImagePattern := `(ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*):0\.0\.0-dev` -}}
 {{- $suiteImageReplacement := printf "${1}:%s" .Chart.AppVersion -}}

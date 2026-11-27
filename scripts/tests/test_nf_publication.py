@@ -120,6 +120,42 @@ if tool == "oras":
             state["bad_tag_injected"] = True
         state["tags"][repository + ":" + target] = tag_digest
         save_state(state)
+    elif command == "push":
+        if os.environ.get("FAKE_PUSH_ERROR"):
+            fail(os.environ["FAKE_PUSH_ERROR"])
+        if "--force" not in args:
+            fail("Error: replacing a floating chart requires --force")
+        # helm pull rejects ORAS artifact-type manifests, so the helper must
+        # replicate helm's own manifest with an explicit Helm config layer.
+        if "--artifact-type" in args:
+            fail("Error: --artifact-type produces a manifest helm cannot pull")
+        if "--config" not in args:
+            fail("Error: missing explicit Helm config layer")
+        config_ref = args[args.index("--config") + 1]
+        config_path, config_media = config_ref.rsplit(":", 1)
+        if config_media != "application/vnd.cncf.helm.config.v1+json":
+            fail("Error: invalid helm config media type: " + config_media)
+        if not Path(config_path).is_file():
+            fail("Error: helm config layer file is missing: " + config_path)
+        file_ref = next((a for a in args if ".tgz:" in a), None)
+        if not file_ref:
+            fail("Error: oras push needs a helm chart layer")
+        path, media = file_ref.rsplit(":", 1)
+        if media != "application/vnd.cncf.helm.chart.content.v1.tar+gzip":
+            fail("Error: invalid helm chart layer media type: " + media)
+        package = Path(path)
+        if not package.is_file():
+            fail("Error: chart layer file is missing: " + path)
+        # The registry target is host/repo:tag; the tag segment never contains
+        # a slash, unlike the file:media-type references alongside it.
+        target = next(
+            a for a in args
+            if not a.startswith("-") and a != command and ":" in a
+            and "/" not in a.rsplit(":", 1)[1]
+        )
+        digest = store({package.name: package.read_bytes()})
+        state["tags"][target] = digest
+        save_state(state)
     else:
         fail("Error: unsupported fake oras command: " + command)
 elif tool == "helm":
@@ -167,6 +203,7 @@ class HelperOwnershipTests(unittest.TestCase):
             "pre_helm_pull_chart",
             "pre_oras_alias_digest",
             "pre_publish_chart",
+            "pre_publish_floating_chart",
         ):
             self.assertIn(function + "() {", helper)
         for forbidden in (
@@ -175,18 +212,26 @@ class HelperOwnershipTests(unittest.TestCase):
             "config.sh",
             "Secret",
             "SECRET",
-            "oras push",
             "_pre_oras pull",
             "deploy/pre-nereidforge",
         ):
             self.assertNotIn(forbidden, helper)
+        # Only the floating-chart replacement may push, and it must force the
+        # overwrite with an explicit Helm config layer (helm pull rejects ORAS
+        # artifact-type manifests).
+        self.assertIn("_pre_oras push --force", helper)
+        self.assertIn("--config", helper)
+        self.assertIn("application/vnd.cncf.helm.config.v1+json", helper)
+        self.assertNotIn("--artifact-type", helper)
 
     def test_publish_dev_imports_only_the_nf_helper(self):
         workflow = PUBLISH_DEV.read_text(encoding="utf-8")
         self.assertEqual(workflow.count("source scripts/lib/nf_publication.sh"), 2)
         self.assertNotIn("source deploy/pre-nereidforge/scripts/lib/publication.sh", workflow)
         self.assertIn("pre_oras_resolve", workflow)
-        self.assertIn("pre_publish_chart", workflow)
+        self.assertIn("pre_publish_floating_chart", workflow)
+        # The immutable helper stays reserved for release publication.
+        self.assertNotIn("pre_publish_chart ", workflow)
 
 
 class FakeRegistryPublicationTests(unittest.TestCase):
@@ -568,6 +613,122 @@ class FakeRegistryPublicationTests(unittest.TestCase):
             command["args"][1:3],
             ["--registry-config", self.env["ORAS_REGISTRY_CONFIG"]],
         )
+
+    def test_floating_chart_first_publication_uses_helm_push_without_alias(self):
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.make_chart("floating-first", floating)
+
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+
+        commands = self.commands()
+        helm_pushes = [
+            item for item in commands
+            if item["tool"] == "helm" and item["args"][0] == "push"
+        ]
+        self.assertEqual(len(helm_pushes), 1)
+        self.assertFalse(
+            any(item["tool"] == "oras" and item["args"][0] == "push" for item in commands)
+        )
+        self.assertIn(repository + ":" + floating, self.tags())
+        # A pullback byte comparison runs before success.
+        self.assertTrue(
+            any(item["tool"] == "helm" and item["args"][0] == "pull" for item in commands)
+        )
+
+    def test_floating_chart_identical_rerun_mutates_nothing(self):
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.make_chart("floating-same", floating)
+
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+        before = self.tags().copy()
+        self.clear_commands()
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+
+        self.assertEqual(self.tags(), before)
+        commands = self.commands()
+        self.assertFalse(
+            any(item["args"][0] == "push" for item in commands)
+        )
+        self.assertTrue(
+            any(item["tool"] == "helm" and item["args"][0] == "pull" for item in commands)
+        )
+
+    def test_floating_chart_changed_content_moves_the_tag_with_oras_force(self):
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.make_chart("floating-change", floating, marker="first revision")
+
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+        first_digest = self.tags()[repository + ":" + floating]
+        package.write_bytes(b"second revision replaces the floating content")
+        self.clear_commands()
+
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+
+        commands = self.commands()
+        self.assertFalse(
+            any(item["tool"] == "helm" and item["args"][0] == "push" for item in commands)
+        )
+        oras_push = next(
+            item for item in commands
+            if item["tool"] == "oras" and item["args"][0] == "push"
+        )
+        self.assertIn("--force", oras_push["args"])
+        # The replacement must replicate helm's manifest shape: explicit Helm
+        # config media type on --config, chart tar/gzip as the single layer.
+        config_ref = oras_push["args"][
+            oras_push["args"].index("--config") + 1
+        ]
+        self.assertTrue(
+            config_ref.endswith(
+                ":application/vnd.cncf.helm.config.v1+json"
+            )
+        )
+        self.assertIn("application/vnd.cncf.helm.chart.content.v1.tar+gzip",
+                      " ".join(oras_push["args"]))
+        self.assertNotIn("--artifact-type", oras_push["args"])
+        second_digest = self.tags()[repository + ":" + floating]
+        self.assertNotEqual(first_digest, second_digest)
+        # Only the registry reference is tagged; file/media references never
+        # become registry tags.
+        self.assertEqual(
+            set(self.tags()), {repository + ":" + floating}
+        )
+        # The old digest object remains available for rollback.
+        self.assertTrue((self.state / "objects" / first_digest.split(":", 1)[1]).is_dir())
+
+    def test_floating_chart_force_push_failure_restores_the_previous_tag(self):
+        floating = "0.0.0-dev"
+        repository = "registry.invalid/charts/demo"
+        package = self.make_chart("floating-rollback", floating, marker="first revision")
+
+        self.run_helper("pre_publish_floating_chart", repository, package, floating)
+        previous_digest = self.tags()[repository + ":" + floating]
+        package.write_bytes(b"second revision that fails to publish")
+        self.clear_commands()
+
+        result = self.run_helper(
+            "pre_publish_floating_chart", repository, package, floating,
+            succeed=False, extra_env={"FAKE_PUSH_ERROR": "Error: registry rejected overwrite"},
+        )
+
+        self.assertIn("ORAS force push failed", result.stderr)
+        self.assertEqual(self.tags()[repository + ":" + floating], previous_digest)
+
+    def test_floating_chart_hard_resolve_error_fails_before_any_mutation(self):
+        repository = "registry.invalid/charts/demo"
+        package = self.make_chart("floating-errors", "0.0.0-dev")
+        self.run_helper(
+            "pre_publish_floating_chart", repository, package, "0.0.0-dev",
+            succeed=False, extra_env={"FAKE_RESOLVE_ERROR": "Error: registry unavailable"},
+        )
+        commands = self.commands()
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0]["tool"], "oras")
+        self.assertEqual(commands[0]["args"][0], "resolve")
+        self.assertEqual(self.tags(), {})
 
 
 if __name__ == "__main__":
