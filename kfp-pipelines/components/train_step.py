@@ -231,44 +231,64 @@ def train_step(
         },
     }
 
-    # Pin training pods to specific nodes and/or apply vendor tolerations.
-    # Both come from train_config (backend accelerator profile + optional user
-    # hostname pin); the patch targets the torch-distributed runtime's "node"
-    # replicated job pod template.
+    # Runtime patches target the torch-distributed runtime's "node" replicated
+    # job pod template. The TrainJob validator requires the patch manager to be
+    # a domain-prefixed path (a bare "nereidforge" is rejected).
+    #
+    # A memory-backed /dev/shm emptyDir is always mounted because DataLoader
+    # worker processes hand tensors back over POSIX shared memory. Without an
+    # explicit mount the container only gets Docker's 64 MB tmpfs, which makes
+    # the trainer's _safe_workers() clamp num_workers to 0: image decoding and
+    # augmentation then run serially in the main process and the GPU stalls
+    # between batches (observed ~35 W idle-floor power, minutes per epoch). The
+    # trainer enables worker processes only when /dev/shm has at least 1 GiB
+    # free, so the volume must be larger than that threshold.
+    pod_spec: dict = {
+        "volumes": [{
+            "name": "shm",
+            "emptyDir": {"medium": "Memory", "sizeLimit": "2Gi"},
+        }],
+        "containers": [{
+            "name": "node",
+            "volumeMounts": [{
+                "name": "shm",
+                "mountPath": "/dev/shm",
+            }],
+        }],
+    }
+    # Optional node pinning and vendor tolerations come from train_config
+    # (backend accelerator profile plus an optional user hostname pin).
     node_selector = train_config.get("node_selector") or {}
     tolerations = train_config.get("tolerations") or []
+    if node_selector:
+        pod_spec["nodeSelector"] = node_selector
+    if tolerations:
+        pod_spec["tolerations"] = tolerations
     # NOTE: trainer v2.3.0 TrainJob has no spec.trainer.imagePullPolicy support
-    # and runtimePatches only allow container env/name/securityContext/
-    # volumeMounts — imagePullPolicy cannot be set to Always. After pushing a
-    # new trainer image with the same tag, delete completed trainer pods and
-    # `k3s crictl rmi` the old image on the GPU node to force a re-pull.
-    if node_selector or tolerations:
-        pod_spec: dict = {}
-        if node_selector:
-            pod_spec["nodeSelector"] = node_selector
-        if tolerations:
-            pod_spec["tolerations"] = tolerations
-        trainjob_spec["spec"]["runtimePatches"] = [{
-            # The TrainJob validator requires the runtime patch manager to be a
-            # domain-prefixed path (bare "nereidforge" is rejected).
-            "manager": "nereidforge.io/trainjob",
-            "trainingRuntimeSpec": {
-                "template": {
-                    "spec": {
-                        "replicatedJobs": [{
-                            "name": "node",
-                            "template": {
-                                "spec": {
-                                    "template": {
-                                        "spec": pod_spec,
-                                    },
+    # and runtimePatches only allow pod-level volumes plus container
+    # env/name/securityContext/volumeMounts — imagePullPolicy cannot be set to
+    # Always. After pushing a new trainer image with the same tag, delete
+    # completed trainer pods and `k3s crictl rmi` the old image on the GPU node
+    # to force a re-pull.
+    trainjob_spec["spec"]["runtimePatches"] = [{
+        "manager": "nereidforge.io/trainjob",
+        "trainingRuntimeSpec": {
+            "template": {
+                "spec": {
+                    "replicatedJobs": [{
+                        "name": "node",
+                        "template": {
+                            "spec": {
+                                "template": {
+                                    "spec": pod_spec,
                                 },
                             },
-                        }],
-                    },
+                        },
+                    }],
                 },
             },
-        }]
+        },
+    }]
 
     logger.info("Creating TrainJob: %s in namespace %s (vendor=%s gpu=%s%s)",
                 trainjob_name, namespace,
