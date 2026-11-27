@@ -10,7 +10,7 @@ const now = (days = 0) => new Date(Date.now() - days * 86400000).toISOString();
 const user = {
   id: 'dev-user',
   username: 'dev-admin',
-  email: 'admin@nereidforge.local',
+  email: 'admin@nereidai.local',
   full_name: 'Dev Admin',
   roles: ['admin', 'user'],
   tenant_id: 'default',

@@ -11,7 +11,7 @@
 # versions, deleting both its Profile and Namespace, including any remaining
 # Model Registry stack.
 #
-# Note: Do not touch the Dex static user (admin@nereidforge.local); it remains
+# Note: Do not touch the Dex static user (admin@nereidai.local); it remains
 # the Kubeflow platform login identity. To reset its password, see
 # DEX_STATIC_PASSWORD_HASH in lib/config.sh.
 

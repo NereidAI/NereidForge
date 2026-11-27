@@ -977,7 +977,7 @@ class Worker:
             step_image=step_image,
             kfp_host=kfp_host,
             kfp_namespace=cfg.get("kfp_namespace") or "nereidforge",
-            kfp_userid=cfg.get("kfp_userid") or "admin@nereidforge.local",
+            kfp_userid=cfg.get("kfp_userid") or "admin@nereidai.local",
             s3_env=s3_env,
             kfp_experiment_id=cfg.get("kfp_experiment_id") or "",
         )

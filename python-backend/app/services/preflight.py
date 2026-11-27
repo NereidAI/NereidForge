@@ -80,7 +80,7 @@ def _check_kfp() -> dict[str, Any]:
     try:
         r = requests.get(
             url,
-            headers={"kubeflow-userid": "admin@nereidforge.local"},
+            headers={"kubeflow-userid": "admin@nereidai.local"},
             timeout=5,
         )
         if r.status_code < 500:

@@ -181,7 +181,7 @@ consumer starts, the stage idempotently creates and authenticates list access to
 `mlpipeline`, `nereidforge`, `labelstudio`, and `cvat`; provisioning requires
 `boto3` in the module-local virtual environment or the operator's Python.
 
-`DEX_STATIC_EMAIL` defaults to `admin@nereidforge.local`, matching the vendored
+`DEX_STATIC_EMAIL` defaults to `admin@nereidai.local`, matching the vendored
 Dex configuration, Kubeflow Profile, and RBAC. The Kubeflow stage rejects a
 different identity or a malformed/non-bcrypt `DEX_STATIC_PASSWORD_HASH` before
 reading cluster credentials. Its 18 ordered targets use one immutable render

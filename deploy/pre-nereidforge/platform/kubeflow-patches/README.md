@@ -26,7 +26,7 @@ kubeflow-patches/
 │   ├── 05-seaweedfs-external/        # Built-in SeaweedFS -> ExternalName for shared S3
 │   ├── 06-pipeline-wait-db/          # API server wait-for-database/metadata initContainers
 │   ├── 07-profile-controller/        # AWS_ENDPOINT_URL 8111 -> 9000; alpine/k8s 1.36.2
-│   ├── 08-dex-user/                  # Dex static admin@nereidforge.local user and password hash
+│   ├── 08-dex-user/                  # Dex static admin@nereidai.local user and password hash
 │   ├── 09-hub-catalog/               # Hub v0.3.9 -> v0.3.14, MCP/agent catalog, external postgres
 │   ├── 10-katib-startup/             # katib-mysql startup probe for first-boot stability
 │   ├── 11-kfp-2.17.0/                # Pipeline tree 2.16.1 -> 2.17.0, including CRDs/config

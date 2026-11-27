@@ -8,7 +8,7 @@
 set -euo pipefail
 
 MANIFESTS_DIR="${MANIFESTS_DIR:-/manifests}"
-DEX_STATIC_EMAIL="${DEX_STATIC_EMAIL:-admin@nereidforge.local}"
+DEX_STATIC_EMAIL="${DEX_STATIC_EMAIL:-admin@nereidai.local}"
 DEX_STATIC_PASSWORD_HASH="${DEX_STATIC_PASSWORD_HASH:-}"
 TENANT="${TENANT:-nereidforge-admin}"
 POD_CIDR="${POD_CIDR:-10.42.0.0/16}"

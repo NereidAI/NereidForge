@@ -9,7 +9,7 @@
 # credentials, if ever needed, belong in an operator-supplied untracked file.
 global:
   dex:
-    staticEmail: admin@nereidforge.local
+    staticEmail: admin@nereidai.local
     staticPasswordHash: ""
   seaweedfs:
     # Required operator credentials for the KFP object-store Secret.

@@ -73,7 +73,7 @@ from rest_framework.authtoken.models import Token
 rotate = sys.stdin.readline().strip() == 'true'
 password = base64.b64decode(sys.stdin.readline().strip()).decode('utf-8')
 u, created = User.objects.get_or_create(username='admin', defaults={
-    'is_superuser': True, 'is_staff': True, 'email': 'admin@nereidforge.local'})
+    'is_superuser': True, 'is_staff': True, 'email': 'admin@nereidai.local'})
 if created or rotate:
     u.set_password(password)
 u.save()
@@ -113,7 +113,7 @@ from rest_framework.authtoken.models import Token
 rotate = sys.stdin.readline().strip() == 'true'
 password = base64.b64decode(sys.stdin.readline().strip()).decode('utf-8')
 u, created = User.objects.get_or_create(username='admin', defaults={
-    'is_superuser': True, 'is_staff': True, 'email': 'admin@nereidforge.local'})
+    'is_superuser': True, 'is_staff': True, 'email': 'admin@nereidai.local'})
 if created or rotate:
     u.set_password(password)
 u.save()
@@ -145,7 +145,7 @@ chmod 600 "$TOKEN_FILE"
 cat > "$CRED_FILE" <<EOF
 # Auto-generated UI administrator hand-off; save securely and never commit.
 LS_ADMIN_USERNAME=admin
-LS_ADMIN_EMAIL=admin@nereidforge.local
+LS_ADMIN_EMAIL=admin@nereidai.local
 LS_ADMIN_PASSWORD=$(printf '%q' "$LS_ADMIN_PASSWORD")
 CVAT_ADMIN_USERNAME=admin
 CVAT_ADMIN_PASSWORD=$(printf '%q' "$CVAT_ADMIN_PASSWORD")

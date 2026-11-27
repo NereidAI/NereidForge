@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # kubeflow-auth-rbac.yaml
-# RBAC wiring required for the platform single sign-on identity (admin@nereidforge.local)
+# RBAC wiring required for the platform single sign-on identity (admin@nereidai.local)
 # beyond what the upstream kubeflow-manifests targets provision, discovered live:
 #
 #   1. crud-web-apps (jupyter / tensorboards / volumes) authorize the user via
@@ -48,7 +48,7 @@ roleRef:
 subjects:
 - apiGroup: rbac.authorization.k8s.io
   kind: User
-  name: admin@nereidforge.local
+  name: admin@nereidai.local
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

@@ -40,7 +40,7 @@ def kfp_config_fn(db: Session) -> Callable[[], dict[str, str]]:
         return {
             "kfp_host": str(cfg.get("kfp_host", "") or config.kfp.host),
             "kfp_token": str(cfg.get("kfp_token", "") or ""),
-            "kfp_userid": str(cfg.get("kfp_userid", "") or "admin@nereidforge.local"),
+            "kfp_userid": str(cfg.get("kfp_userid", "") or "admin@nereidai.local"),
             "kfp_experiment_id": str(cfg.get("kfp_experiment_id", "") or ""),
             "kfp_training_pipeline_id": str(cfg.get("kfp_training_pipeline_id", "") or ""),
             "kfp_optimization_pipeline_id": str(cfg.get("kfp_optimization_pipeline_id", "") or ""),

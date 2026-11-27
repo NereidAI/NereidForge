@@ -10,7 +10,7 @@
 set -euo pipefail
 
 MANIFESTS_DIR="${MANIFESTS_DIR:-/manifests}"
-DEX_STATIC_EMAIL="${DEX_STATIC_EMAIL:-admin@nereidforge.local}"
+DEX_STATIC_EMAIL="${DEX_STATIC_EMAIL:-admin@nereidai.local}"
 DEX_STATIC_PASSWORD_HASH="${DEX_STATIC_PASSWORD_HASH:-}"
 : "${DEX_STATIC_PASSWORD_HASH:?Dex static password hash is required}"
 SEAWEEDFS_S3_ACCESS_KEY="${SEAWEEDFS_S3_ACCESS_KEY:-}"

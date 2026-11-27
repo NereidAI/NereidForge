@@ -317,7 +317,7 @@ postInstall:
     existingSecret: "nereidforge-admin-credentials"
     passwordKey: "password"
     username: "admin"
-    email: "admin@nereidforge.local"
+    email: "admin@nereidai.local"
     rotatePassword: false
   # Idempotently register the system-preset ml-backend in the default tenant
   # so the ML Backend UI page is populated on a fresh database. The URL comes
@@ -336,7 +336,7 @@ postInstall:
     enabled: false
     host: "http://ml-pipeline.kubeflow:8888"
     namespace: "nereidforge"
-    userID: "admin@nereidforge.local"
+    userID: "admin@nereidai.local"
 
 # Secret values (sensitive - will be created as Kubernetes Secret)
 # These should be overridden at install time via --set or values file

@@ -68,7 +68,7 @@ PRE_RELEASE_TAG="$(pre_version)"
 # the plaintext identity. The vendored Dex, Profile, and RBAC manifests currently
 # use this fixed identity; 30_install-kubeflow.sh rejects a conflicting override.
 # No application JWT or NF application secret is made.
-: "${DEX_STATIC_EMAIL:=admin@nereidforge.local}"
+: "${DEX_STATIC_EMAIL:=admin@nereidai.local}"
 : "${DEX_STATIC_PASSWORD:=}"
 : "${DEX_STATIC_PASSWORD_HASH:=}"
 

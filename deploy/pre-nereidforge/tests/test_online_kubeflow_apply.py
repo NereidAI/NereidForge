@@ -234,9 +234,9 @@ class KubeflowDexPreflightTest(unittest.TestCase):
     def test_fixed_identity_and_bcrypt_hash_are_validated_before_cluster_access(self):
         valid_hash = "$2y$12$" + "a" * 53
         scenarios = (
-            ("admin@example.test", valid_hash, "DEX_STATIC_EMAIL must remain admin@nereidforge.local"),
-            ("admin@nereidforge.local", "invalid-secret-sentinel", "must be a complete bcrypt hash"),
-            ("admin@nereidforge.local", "", "DEX_STATIC_PASSWORD_HASH"),
+            ("admin@example.test", valid_hash, "DEX_STATIC_EMAIL must remain admin@nereidai.local"),
+            ("admin@nereidai.local", "invalid-secret-sentinel", "must be a complete bcrypt hash"),
+            ("admin@nereidai.local", "", "DEX_STATIC_PASSWORD_HASH"),
         )
         for email, password_hash, diagnostic in scenarios:
             with self.subTest(diagnostic=diagnostic):
@@ -259,7 +259,7 @@ class KubeflowDexPreflightTest(unittest.TestCase):
             "log_err() { printf 'ERR %s\\n' \"$*\" >&2; }\n"
             "POD_CIDR=10.42.0.0/16\n"
             "SERVICE_CIDR=10.43.0.0/16\n"
-            "DEX_STATIC_EMAIL=admin@nereidforge.local\n"
+            "DEX_STATIC_EMAIL=admin@nereidai.local\n"
             + validation
         )
         for cost, valid in (("03", False), ("04", True), ("31", True), ("32", False)):
