@@ -276,3 +276,120 @@ pre_publish_chart() {
         fi
     fi
 }
+
+# Restore a floating chart tag after a failed replacement. A first
+# publication has no previous digest, so there is nothing to restore.
+_pre_pf_restore_alias() {
+    local repository="$1" previous_digest="$2" floating="$3"
+    [[ -n "$previous_digest" ]] || return 0
+    pre_oras_restore_alias "$repository" "$previous_digest" "$floating" "$previous_digest" || \
+        printf 'Operator recovery is required for floating alias %s:%s\n' \
+            "$repository" "$floating" >&2
+}
+
+# pre_publish_floating_chart REPOSITORY PACKAGE FLOATING
+# Dev-channel charts keep the rolling 0.0.0-dev identity inside Chart.yaml, so
+# the single floating tag is allowed to move to new content. First publication
+# uses helm push; identical content is a verified no-op; changed content
+# replaces the tag through oras push --force with an explicit empty Helm config
+# layer because helm push cannot overwrite an existing OCI tag, and an ORAS
+# artifact-type manifest is rejected by helm pull ("could not load config").
+# ORAS refuses absolute file references, so the push runs from the package
+# directory with relative file names. Every path ends with a pullback byte
+# comparison, and a failed replacement restores the previously recorded tag
+# digest. Release (v*) publication keeps the immutable contract of
+# pre_publish_chart and never calls this function.
+pre_publish_floating_chart() {
+    if [[ "$#" -ne 3 ]]; then
+        printf 'Usage: pre_publish_floating_chart REPOSITORY PACKAGE FLOATING\n' >&2
+        return 2
+    fi
+    local repository="$1" package="$2" floating="$3"
+    local status pull_dir present=0 previous_digest=""
+    if [[ ! -s "$package" ]]; then
+        printf 'Chart package is missing or empty: %s\n' "$package" >&2
+        return 1
+    fi
+    if pre_oras_resolve "${repository}:${floating}"; then
+        present=1
+        previous_digest="$PRE_ORAS_DIGEST"
+    else
+        status=$?
+        if [[ "$status" -ne 10 ]]; then
+            return 1
+        fi
+    fi
+
+    if (( present )); then
+        pull_dir="$(mktemp -d)"
+        if ! pre_helm_pull_chart "$repository" "$floating" "$pull_dir"; then
+            rm -rf "$pull_dir"
+            return 1
+        fi
+        if cmp -s "$package" "$PRE_HELM_PULLED_CHART"; then
+            # Same-commit rerun: the normalized archive is byte-identical, so
+            # the floating tag must not be touched.
+            rm -rf "$pull_dir"
+            if ! pre_oras_resolve_required "${repository}:${floating}"; then
+                return 1
+            fi
+            if [[ "$PRE_ORAS_DIGEST" != "$previous_digest" ]]; then
+                printf 'Floating chart moved during no-op verification: %s:%s\n' \
+                    "$repository" "$floating" >&2
+                return 1
+            fi
+            return 0
+        fi
+        rm -rf "$pull_dir"
+        # Replicate the manifest shape helm push itself writes: an empty
+        # Helm config layer plus the chart tar/gzip layer. ORAS only accepts
+        # relative file references, so push from the package directory.
+        local package_dir package_base config_base
+        package_dir="$(dirname "$package")"
+        package_base="$(basename "$package")"
+        config_base=".oras-helm-config.json"
+        printf '{}\n' > "$package_dir/$config_base"
+        if ! (
+            cd "$package_dir" || exit 1
+            _pre_oras push --force \
+                --config "${config_base}:application/vnd.cncf.helm.config.v1+json" \
+                "${repository}:${floating}" \
+                "${package_base}:application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+        ); then
+            rm -f "$package_dir/$config_base"
+            printf 'ORAS force push failed for floating chart %s:%s\n' \
+                "$repository" "$floating" >&2
+            _pre_pf_restore_alias "$repository" "$previous_digest" "$floating"
+            return 1
+        fi
+        rm -f "$package_dir/$config_base"
+    else
+        if ! _pre_helm push "$package" "oci://${repository%/*}"; then
+            printf 'Helm push failed for floating chart %s:%s\n' "$repository" "$floating" >&2
+            return 1
+        fi
+        if ! pre_oras_wait_for_artifact "${repository}:${floating}"; then
+            return 1
+        fi
+    fi
+
+    pull_dir="$(mktemp -d)"
+    local restore_needed=0
+    if ! pre_helm_pull_chart "$repository" "$floating" "$pull_dir"; then
+        restore_needed=1
+    elif ! cmp -s "$package" "$PRE_HELM_PULLED_CHART"; then
+        printf 'Floating chart content differs after publication: %s:%s\n' \
+            "$repository" "$floating" >&2
+        restore_needed=1
+    fi
+    if (( restore_needed )); then
+        rm -rf "$pull_dir"
+        _pre_pf_restore_alias "$repository" "$previous_digest" "$floating"
+        return 1
+    fi
+    rm -rf "$pull_dir"
+    if ! pre_oras_resolve_required "${repository}:${floating}"; then
+        _pre_pf_restore_alias "$repository" "$previous_digest" "$floating"
+        return 1
+    fi
+}

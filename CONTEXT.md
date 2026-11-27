@@ -36,10 +36,12 @@ handoff.
 ### Image Profile
 
 A named, explicit inventory of images that must be built and verified together.
-`backend-frontend` contains only the two application images and publishes no
-charts; `full` and `cpu-xpu` are complete suite publication profiles with their
-four charts. One profile must not silently substitute for another, and the
-application-only profile does not satisfy a Suite Release gate.
+`backend-frontend` contains only the two application images; `full` and
+`cpu-xpu` are the complete suite publication profiles. Every profile then
+publishes the same three floating `0.0.0-dev` charts after the image gate,
+because development charts reference only rolling image tags. One profile must
+not silently substitute for another, and the application-only profile does not
+satisfy a Suite Release gate.
 
 ### Builder Manifest
 
@@ -50,7 +52,7 @@ same.
 
 ### Suite Release
 
-The Application-owned composition of its four charts and two images with one
+The Application-owned composition of its three charts and two images with one
 verified Builder Manifest. Composition does not transfer ownership of Builder
 implementations or permit a partial Image Profile to satisfy the release gate.
 

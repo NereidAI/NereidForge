@@ -3,10 +3,9 @@
 
 # Scoped NereidForge development publication (root treaty §19.5). An explicit
 # manual dispatch on main selects one image profile:
-# - backend-frontend publishes only the two application images and no charts;
-# - cpu-xpu publishes the 16 core/CPU/Intel-XPU builder images and exactly
-#   three NF charts;
-# - full publishes all 21 builder images and exactly three NF charts.
+# - backend-frontend publishes only the two application images;
+# - cpu-xpu publishes the 16 core/CPU/Intel-XPU builder images;
+# - full publishes all 21 builder images.
 # The two application images (nereidforge-backend/nereidforge-frontend) are
 # unrelated to the hardware builder matrices and are published exclusively by
 # the backend-frontend profile; no hardware profile builds or aliases them.
@@ -15,23 +14,28 @@
 # formal version is created. The independent pre-nereidforge-publish-dev
 # workflow owns the five supporting charts and the pre installer.
 #
+# Development charts keep the rolling 0.0.0-dev identity inside Chart.yaml:
+# every profile publishes the same three floating NF charts, whose image
+# references stay on 0.0.0-dev and resolve through the floating image aliases,
+# so no development chart is ever bound to a short-sha identity. Only a v*
+# release tag pins the charts to an immutable bare SemVer (publish-images.yml).
+#
 # Image builds push only immutable tags. An existing immutable tag is reused,
 # never overwritten, and its source revision is checked before any build starts.
 # Final anonymous verification rechecks every image before any floating alias
 # moves. Dependent images start only after their base images exist. All selected
-# immutable images are anonymously verified before their floating aliases move.
-# The full and cpu-xpu chart gate runs only after that verification succeeds;
-# backend-frontend never schedules builder, dependent-image, or chart jobs.
-# Re-running an interrupted publication therefore resumes missing artifacts
-# without rewriting existing ones. Registry errors and revision collisions fail
-# closed. Pushes, merges, and pull requests never trigger publication.
+# immutable images are anonymously verified before their floating aliases move,
+# and the chart gate runs only after that verification succeeds. Re-running an
+# interrupted publication therefore resumes missing artifacts without rewriting
+# existing ones. Registry errors and revision collisions fail closed. Pushes,
+# merges, and pull requests never trigger publication.
 name: publish-dev
 
 on:
   workflow_dispatch:
     inputs:
       image_profile:
-        description: Image set to publish and anonymously verify; backend-frontend excludes charts
+        description: Image set to publish and anonymously verify before the floating charts
         required: true
         default: full
         type: choice
@@ -174,11 +178,7 @@ jobs:
           PY
           )"
           echo "selected=$selected_json" >> "$GITHUB_OUTPUT"
-          if [[ "$IMAGE_PROFILE" == backend-frontend ]]; then
-            echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); chart publication is excluded"
-          else
-            echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); charts remain gated on every selected image"
-          fi
+          echo "Selected $IMAGE_PROFILE image profile ($EXPECTED_COUNT images); the floating charts stay gated on the verified image aliases"
 
   publish-applications:
     # Keep application-only dispatch narrow: the full base/dependent matrices
@@ -649,14 +649,14 @@ jobs:
     needs: alias-images
     # alias-images escapes its own skipped siblings through always(); a plain
     # conditional here still inherits the skipped result of the
-    # profile-excluded publish-applications job, which silently skipped the
-    # whole chart matrix on every hardware profile. Escalate with always()
-    # while staying fail-closed: charts publish only after the anonymous
-    # alias verification succeeds and the selected profile includes charts
-    # (the backend-frontend profile keeps excluding them).
+    # profile-excluded publish jobs, which would silently skip the whole chart
+    # matrix. Escalate with always() while staying fail-closed: the floating
+    # charts publish on every profile only after the anonymous alias
+    # verification succeeds. Development charts reference only floating
+    # 0.0.0-dev images, so a backend-frontend run can publish them without
+    # rebuilding any builder image.
     if: >-
-      ${{ always() && inputs.image_profile != 'backend-frontend' &&
-          needs.alias-images.result == 'success' }}
+      ${{ always() && needs.alias-images.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -680,12 +680,12 @@ jobs:
       - uses: oras-project/setup-oras@v2
         with:
           version: 1.4.0
-      - name: Package and render the immutable chart
+      - name: Package and render the floating development chart
         env:
           CHART_PATH: ${{ matrix.path }}
           CHART_NAME: ${{ matrix.name }}
           SET_VALUES: ${{ matrix.set-values }}
-          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
+          FLOATING: ${{ needs.alias-images.outputs.floating }}
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/charts"
@@ -696,19 +696,21 @@ jobs:
           helm lint "$CHART_PATH" "${values_args[@]}"
           # The shared packager normalizes tar/gzip metadata so an interrupted
           # same-commit rerun can byte-verify and reuse an existing chart.
-          CHART_VERSION="$IMMUTABLE" \
+          # Development charts keep the rolling 0.0.0-dev identity; only a v*
+          # release tags an immutable bare SemVer into the chart.
+          CHART_VERSION="$FLOATING" \
             CHARTS_OUTPUT_DIR="${RUNNER_TEMP}/charts" \
             CHARTS_ARCHIVE="${RUNNER_TEMP}/nereidforge-charts.tar.gz" \
             bash scripts/03_package-charts.sh
-          package="${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz"
+          package="${RUNNER_TEMP}/charts/${CHART_NAME}-${FLOATING}.tgz"
           test -s "$package"
           metadata="$(helm show chart "$package")"
           test "$(awk '/^name:/ {print $2; exit}' <<< "$metadata")" = "$CHART_NAME"
-          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$IMMUTABLE"
-          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$IMMUTABLE"
+          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$FLOATING"
+          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$FLOATING"
           helm template "$CHART_NAME" "$package" "${values_args[@]}" \
             > "${RUNNER_TEMP}/${CHART_NAME}.yaml"
-          python3 - "${RUNNER_TEMP}/${CHART_NAME}.yaml" "$IMMUTABLE" <<'PY'
+          python3 - "${RUNNER_TEMP}/${CHART_NAME}.yaml" "$FLOATING" <<'PY'
           import pathlib
           import re
           import sys
@@ -718,9 +720,12 @@ jobs:
               r"ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*:[A-Za-z0-9_][A-Za-z0-9._-]*",
               rendered,
           ))
+          # Fail closed on any short-sha pin or stray tag in a development
+          # chart: every suite-owned image must stay on the rolling tag.
           mismatches = sorted(ref for ref in references if not ref.endswith(":" + sys.argv[2]))
           if mismatches:
-              raise SystemExit("suite images do not match chart appVersion: " + ", ".join(mismatches))
+              raise SystemExit("development chart must reference only floating "
+                               + sys.argv[2] + " images: " + ", ".join(mismatches))
           PY
       - name: Log in to GHCR with isolated publisher configuration
         env:
@@ -736,24 +741,22 @@ jobs:
           printf '%s' "$GHCR_TOKEN" | oras login ghcr.io \
             --registry-config "$ORAS_REGISTRY_CONFIG" \
             --username "$GHCR_USERNAME" --password-stdin
-      - name: Publish the immutable chart and alias its verified digest
+      - name: Publish the floating development chart
         env:
           CHART_NAME: ${{ matrix.name }}
-          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
           FLOATING: ${{ needs.alias-images.outputs.floating }}
           HELM_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/helm-config.json
           ORAS_REGISTRY_CONFIG: ${{ runner.temp }}/publisher/oras-config.json
         run: |
           set -euo pipefail
           source scripts/lib/nf_publication.sh
-          pre_publish_chart "ghcr.io/nereidai/charts/$CHART_NAME" \
-            "${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz" \
-            "$IMMUTABLE" "$FLOATING"
-      - name: Anonymously verify both chart identities and render the floating chart
+          pre_publish_floating_chart "ghcr.io/nereidai/charts/$CHART_NAME" \
+            "${RUNNER_TEMP}/charts/${CHART_NAME}-${FLOATING}.tgz" \
+            "$FLOATING"
+      - name: Anonymously verify the floating chart identity and render it
         env:
           CHART_NAME: ${{ matrix.name }}
           SET_VALUES: ${{ matrix.set-values }}
-          IMMUTABLE: ${{ needs.alias-images.outputs.immutable }}
           FLOATING: ${{ needs.alias-images.outputs.floating }}
           HELM_CONFIG_HOME: ${{ runner.temp }}/anonymous/helm/config
           HELM_CACHE_HOME: ${{ runner.temp }}/anonymous/helm/cache
@@ -763,37 +766,31 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$HELM_CONFIG_HOME" "$HELM_CACHE_HOME" "$HELM_DATA_HOME" \
-            "$(dirname "$ORAS_REGISTRY_CONFIG")" \
-            "${RUNNER_TEMP}/anonymous/immutable" "${RUNNER_TEMP}/anonymous/floating"
+            "$(dirname "$ORAS_REGISTRY_CONFIG")" "${RUNNER_TEMP}/anonymous/floating"
           repository="ghcr.io/nereidai/charts/$CHART_NAME"
-          helm pull "oci://$repository" --version "$IMMUTABLE" \
-            --destination "${RUNNER_TEMP}/anonymous/immutable"
           helm pull "oci://$repository" --version "$FLOATING" \
             --destination "${RUNNER_TEMP}/anonymous/floating"
-          immutable_package="${RUNNER_TEMP}/anonymous/immutable/${CHART_NAME}-${IMMUTABLE}.tgz"
-          floating_package="$(find "${RUNNER_TEMP}/anonymous/floating" -maxdepth 1 \
-            -type f -name "${CHART_NAME}-*.tgz" -print -quit)"
-          test -s "$immutable_package"
+          floating_package="${RUNNER_TEMP}/anonymous/floating/${CHART_NAME}-${FLOATING}.tgz"
           test -s "$floating_package"
-          cmp "${RUNNER_TEMP}/charts/${CHART_NAME}-${IMMUTABLE}.tgz" "$immutable_package"
-          cmp "$immutable_package" "$floating_package"
+          cmp "${RUNNER_TEMP}/charts/${CHART_NAME}-${FLOATING}.tgz" "$floating_package"
           metadata="$(helm show chart "$floating_package")"
-          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$IMMUTABLE"
-          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$IMMUTABLE"
-          immutable_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
-            "${repository}:${IMMUTABLE}")"
+          test "$(awk '/^version:/ {print $2; exit}' <<< "$metadata")" = "$FLOATING"
+          test "$(awk '/^appVersion:/ {print $2; exit}' <<< "$metadata" | tr -d '"')" = "$FLOATING"
           floating_digest="$(oras resolve --registry-config "$ORAS_REGISTRY_CONFIG" \
             "${repository}:${FLOATING}")"
-          test "$floating_digest" = "$immutable_digest"
           values_args=()
           while IFS= read -r assignment; do
             [[ -z "$assignment" ]] || values_args+=(--set "$assignment")
           done <<< "$SET_VALUES"
+          rendered="${RUNNER_TEMP}/anonymous/${CHART_NAME}.yaml"
           helm template "$CHART_NAME" "$floating_package" "${values_args[@]}" \
-            > "${RUNNER_TEMP}/anonymous/${CHART_NAME}.yaml"
-          test -s "${RUNNER_TEMP}/anonymous/${CHART_NAME}.yaml"
+            > "$rendered"
+          test -s "$rendered"
+          if grep -Eq 'ghcr\.io/nereidai/[A-Za-z0-9][A-Za-z0-9._/-]*:0\.0\.0-dev-[0-9a-f]{7}' "$rendered"; then
+            echo "::error::floating chart leaks a short-sha image reference" >&2
+            exit 1
+          fi
           {
-            echo "Immutable chart: oci://${repository}:${IMMUTABLE}@${immutable_digest}"
             echo "Floating chart: oci://${repository}:${FLOATING}@${floating_digest}"
-            echo "Both anonymous pulls are byte-identical and retain ${IMMUTABLE} metadata."
+            echo "Anonymous pull is byte-identical to the packaged archive and renders only ${FLOATING} images."
           } >> "$GITHUB_STEP_SUMMARY"
