@@ -19,7 +19,10 @@
 #   3. knative-serving    -> common/knative/knative-serving/base
 #   4. knative-eventing   -> common/knative/knative-eventing/base
 #   5. dex                -> common/dex/overlays/istio
+#      (gate: wait until Dex serves OIDC keys before continuing)
 #   6. oauth2-proxy       -> common/oauth2-proxy/overlays/m2m-dex-only
+#      (gate: verify the gateway cached the real Dex JWKS, not istiod's
+#       public-only fallback, before continuing)
 #   7. kubeflow-namespace -> common/kubeflow-namespace/base
 #   8. kubeflow-roles     -> common/kubeflow-roles/base
 #   9. kubeflow-istio-res  -> common/istio/kubeflow-istio-resources/base
@@ -292,7 +295,21 @@ while IFS='|' read -r name targets; do
         PASS=$((PASS+1))
     else
         FAIL=$((FAIL+1))
+        continue
     fi
+    # The oauth2 target carries the dex-jwt RequestAuthentication. Applying
+    # it while Dex cannot serve keys makes istiod cache its built-in
+    # public-only JWKS, after which every Dex JWT fails envoy verification
+    # until a backoff-delayed refresh recovers. Gate on real OIDC readiness
+    # first, then prove the gateway cached the real JWKS once the rule lands.
+    case "$name" in
+        dex)
+            wait_for_dex_readiness || exit 1
+            ;;
+        oauth2)
+            verify_istiod_dex_jwks || exit 1
+            ;;
+    esac
 done <<< "$ORDER"
 if (( FAIL > 0 )); then
     log_err "Kubeflow kustomize deployment failed: $PASS targets applied, $FAIL failed"

@@ -191,6 +191,25 @@ to server-side apply. `KUBEFLOW_APPLY_ATTEMPTS` and
 `KUBEFLOW_APPLY_RETRY_DELAY` can tune those limits; persistent failures retain
 the target diagnostic and make the stage fail.
 
+The Kubeflow stage additionally guards the Dex/JWKS bootstrap order. The
+`oauth2` target carries the `dex-jwt` RequestAuthentication; if istiod
+processes that rule while Dex cannot serve OIDC keys, it caches a built-in
+public-only JWKS (a key without a kid, whose private key was discarded) and
+every Dex-issued JWT then fails envoy verification with "Jwt verification
+fails" until an exponential-backoff refresh recovers. Two fail-closed gates
+prevent the race:
+
+- after the `dex` target applies, the stage waits for the Deployment rollout
+  and for an in-pod `/dex/keys` response carrying key ids before continuing;
+- after the `oauth2` target applies, it polls the gateway proxy config dump
+  and only continues once the cached `local_jwks` contains a real key id,
+  failing with an explicit istiod restart hint if the fallback was cached.
+
+`DEX_READY_TIMEOUT`/`DEX_READY_POLL` and
+`ISTIO_JWKS_VERIFY_TIMEOUT`/`ISTIO_JWKS_VERIFY_POLL` tune the bounded waits;
+defaults are 300s and 180s with 5s polls. The Dex container only needs
+`wget`; JSON parsing runs on the operator host.
+
 For standalone use, `PRE_ENV_FILE` selects a site env file and
 `PRE_HANDOFF_DIR` selects the mode-0700 handoff directory. Defaults live under
 a sibling `.deployment` tree. Full-stack callers can continue supplying

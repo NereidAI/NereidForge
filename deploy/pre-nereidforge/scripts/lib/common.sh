@@ -244,4 +244,114 @@ wait_statefulset_ready() {
     done
 }
 
+# Wait for Dex to serve OIDC keys before any RequestAuthentication naming its
+# issuer is applied. When istiod's first JWKS fetch for a new rule fails, it
+# caches a built-in public-only JWKS whose private key was discarded and
+# whose key has no kid; every Dex-issued JWT is then rejected with
+# "Jwt verification fails" until the exponential-backoff refresher happens
+# to recover. The bootstrap race (rule applied while Dex is still starting
+# or being rescheduled) is prevented by gating the oauth2 target on this
+# check. The parse runs on the operator host; the Dex container only needs
+# wget. Tune bounds with DEX_READY_TIMEOUT / DEX_READY_POLL.
+wait_for_dex_readiness() {
+    local kubectl_cmd="${KUBECTL:-kubectl}"
+    local namespace="${DEX_NAMESPACE:-auth}"
+    local deployment="${DEX_DEPLOYMENT_NAME:-dex}"
+    local container="${DEX_CONTAINER_NAME:-dex}"
+    local port="${DEX_HTTP_PORT:-5556}"
+    local timeout="${DEX_READY_TIMEOUT:-300}"
+    local poll="${DEX_READY_POLL:-5}"
+    local start now
+    start="$(date +%s)"
+    log_info "Waiting for Dex OIDC readiness ($namespace/$deployment) before applying the JWT RequestAuthentication..."
+    while true; do
+        if "$kubectl_cmd" rollout status "deployment/$deployment" -n "$namespace" \
+                --timeout=10s >/dev/null 2>&1 \
+            && "$kubectl_cmd" exec -n "$namespace" "deployment/$deployment" -c "$container" -- \
+                wget -q -O - "http://127.0.0.1:$port/dex/keys" 2>/dev/null \
+                | python3 -c '
+import json
+import sys
+try:
+    doc = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError):
+    sys.exit(1)
+keys = doc.get("keys") or []
+sys.exit(0 if keys and all(key.get("kid") for key in keys) else 1)
+'; then
+            log_ok "Dex is serving OIDC keys; the JWT policy may be applied"
+            return 0
+        fi
+        now="$(date +%s)"
+        if (( now - start >= timeout )); then
+            log_err "Dex did not become OIDC-ready within ${timeout}s"
+            log_err "Refusing to apply the dex-jwt RequestAuthentication against an unreachable issuer; fix Dex and rerun"
+            return 1
+        fi
+        sleep "$poll"
+    done
+}
+
+# Verify the gateway cached the real Dex JWKS after the dex-jwt
+# RequestAuthentication was applied, rather than istiod's public-only
+# fallback. The fallback key carries no kid and cannot verify any token;
+# real Dex keys always have one. The gateway proxy exposes its xDS-served
+# config dump on the loopback admin port, so the check stays inside the
+# cluster and needs no registry or browser call. Tune with
+# ISTIO_JWKS_VERIFY_TIMEOUT / ISTIO_JWKS_VERIFY_POLL.
+verify_istiod_dex_jwks() {
+    local kubectl_cmd="${KUBECTL:-kubectl}"
+    local gateway_ns="${ISTIO_GATEWAY_NAMESPACE:-istio-system}"
+    local gateway_deploy="${ISTIO_GATEWAY_DEPLOYMENT:-istio-ingressgateway}"
+    local proxy_container="${ISTIO_PROXY_CONTAINER:-istio-proxy}"
+    local timeout="${ISTIO_JWKS_VERIFY_TIMEOUT:-180}"
+    local poll="${ISTIO_JWKS_VERIFY_POLL:-5}"
+    local start now dump
+    start="$(date +%s)"
+    log_info "Verifying the gateway cached the real Dex JWKS (not the public-only fallback)..."
+    while true; do
+        dump="$("$kubectl_cmd" exec -n "$gateway_ns" "deployment/$gateway_deploy" \
+            -c "$proxy_container" -- curl -s localhost:15000/config_dump 2>/dev/null || true)"
+        if [[ -n "$dump" ]] && printf '%s' "$dump" | python3 -c '
+import json
+import sys
+try:
+    doc = json.load(sys.stdin)
+except (json.JSONDecodeError, ValueError):
+    sys.exit(1)
+kids = []
+def walk(node):
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "local_jwks" and isinstance(value, dict):
+                try:
+                    inline = json.loads(value.get("inline_string") or "{}")
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                kids.extend(
+                    key_id for key_id in
+                    (item.get("kid") for item in inline.get("keys", []))
+                    if key_id
+                )
+            walk(value)
+    elif isinstance(node, list):
+        for item in node:
+            walk(item)
+walk(doc)
+sys.exit(0 if kids else 1)
+'; then
+            log_ok "Gateway cached the real Dex JWKS"
+            return 0
+        fi
+        now="$(date +%s)"
+        if (( now - start >= timeout )); then
+            log_err "Gateway did not cache a real Dex JWKS within ${timeout}s; istiod may hold the public-only fallback"
+            log_err "Inspect: kubectl logs -n istio-system deploy/istiod | grep -i jwks"
+            log_err "Once Dex is healthy, restart istiod and rerun this stage to re-fetch the JWKS"
+            return 1
+        fi
+        sleep "$poll"
+    done
+}
+
 export PRE_ROOT REPO_ROOT SOURCE_COMMIT
