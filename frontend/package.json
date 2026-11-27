@@ -23,7 +23,7 @@
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
-    "@ant-design/icons": "^5.2.6",
+    "@ant-design/icons": "^6.3.4",
     "@heartexlabs/label-studio": "^1.8.0",
     "@tanstack/react-query": "^5.17.0",
     "antd": "^5.13.0",
